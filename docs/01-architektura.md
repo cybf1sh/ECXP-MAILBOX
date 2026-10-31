@@ -46,7 +46,9 @@ flowchart TB
 | `ecxp-mcp.exe` | adapter MCP: JSON-RPC 2.0 na stdio ↔ ramki ECXP | 1 na sesję modelu | klient MCP (Codex, Claude Code) |
 
 - **Nazwa potoku**: `ecxp-` + pierwsze 12 znaków szesnastkowych SHA-256 pełnej ścieżki katalogu skrzynki (małe litery, bez końcowego `\`). Kilka niezależnych instalacji na jednym komputerze nie koliduje.
-- **Uruchamianie na żądanie**: klient łączy się co 400 ms. Gdy stosu nie ma, raz uruchamia `ecxpd.exe /root "<katalog>"` i próbuje dalej przez najwyżej 10 s. Potem zgłasza błąd zamiast zapisać plik z pominięciem stosu.
+- **Uruchamianie na żądanie**: klient łączy się co 400 ms. Gdy stosu nie ma, raz uruchamia `ecxpd.exe /root "<katalog>"` i próbuje dalej przez najwyżej 45 s, bo pierwszy start nowego, niepodpisanego programu może opóźnić skaner antywirusowy. Potem zgłasza błąd zamiast zapisać plik z pominięciem stosu.
+- **Bez dziedziczenia uchwytów**: stos jest uruchamiany przez `CreateProcess` z `bInheritHandles = false`, bez powłoki Windows. Nie przejmuje stdin/stdout adaptera MCP, więc gospodarz MCP widzi koniec adaptera.
+- **Ponawianie uzgodnienia**: gdy połączenie zostanie zerwane w trakcie HELLO/WITAJ (np. tuż po starcie stosu), klient ponawia uzgodnienie do 6 razy, z rosnącą przerwą. Odmowa stosu (RST) nie jest ponawiana.
 
 ## Przepływ wiadomości (przegląd)
 

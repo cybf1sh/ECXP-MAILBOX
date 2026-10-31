@@ -73,10 +73,11 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> ZAMKNIETE
-    ZAMKNIETE --> LACZENIE: Connect(400 ms) / uruchom ecxpd, gdy brak (≤10 s)
+    ZAMKNIETE --> LACZENIE: Connect(400 ms) / uruchom ecxpd, gdy brak (≤45 s)
     LACZENIE --> SYN_WYSLANY: HELLO [SYN]
     SYN_WYSLANY --> NAWIAZANE: WITAJ [SYN|ACK], ack=x+1 / ACK
     SYN_WYSLANY --> ZAMKNIETE: RST / BLAD / zły WITAJ
+    SYN_WYSLANY --> LACZENIE: zerwanie w trakcie uzgodnienia (ponowienie ≤6)
     NAWIAZANE --> NAWIAZANE: ZAPYTANIE↔ODPOWIEDZ, DANE→ACK, PING→PONG
     NAWIAZANE --> ZAMKNIETE: FIN wysłany (Dispose)
     NAWIAZANE --> ZAMKNIETE: FIN / RST odebrany, koniec strumienia, zły skrót

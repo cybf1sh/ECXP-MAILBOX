@@ -184,7 +184,7 @@ namespace Ecxp
                     else if (r.Typ == Ramka.RST) break;
                 }
             }
-            catch (EndOfStreamException) { }
+            catch (EndOfStreamException) { if (s.Rodzaj.Length == 0) Log("połączenie zamknięte przed HELLO (klient ponowi uzgodnienie)"); }
             catch (Exception ex)
             {
                 Log("sesja " + s.Rodzaj + ": " + ex.Message);

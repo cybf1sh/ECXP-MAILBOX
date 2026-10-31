@@ -827,6 +827,7 @@ namespace Ecxp
                 var tbO = f.Wielowiersz("Zadanie (trafi do obu stron pary):", "");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
+                f.PrzyciskOk("✉  Wyślij do pary (Codex + Claude)");
                 if (f.ShowDialog(form) != DialogResult.OK) return;
                 try
                 {
@@ -851,6 +852,7 @@ namespace Ecxp
                 var tbM = f.Tekst("Moduł:", para != null ? P.S(para, "modul") : "");
                 var rl = f.Role("Role:", new string[0]);
                 var tbO = f.Tekst("Opis roli od operatora:", "");
+                f.PrzyciskOk("✉  Zapisz i wyślij karty ról");
                 f.Uwaga("Sesja dostanie kartę każdej roli jako kontekst. Nowa sesja tej samej strony w module przejmuje adres i niepotwierdzone wiadomości poprzedniej.");
                 if (f.ShowDialog(form) != DialogResult.OK) return;
                 try
@@ -1149,6 +1151,7 @@ namespace Ecxp
             Wiersz(e, p, true);
         }
         public void TylkoZamknij() { ok.Text = "Zamknij"; }
+        public void PrzyciskOk(string tekst) { ok.Text = tekst; }
     }
 
     // ---------- okno „Napisz” ----------

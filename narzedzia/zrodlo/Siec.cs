@@ -334,7 +334,8 @@ namespace Ecxp
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
-            if ((tytul ?? "").Trim().Length == 0) tytul = modul;
+            tytul = (tytul ?? "").Replace(znacznik, "").Trim();          // znacznik dodaje protokół – bez podwajania
+            if (tytul.Length == 0) tytul = modul;
             if ((opis ?? "").Trim().Length == 0) throw new EcxpException("Opisz zadanie – trafi do obu stron pary.");
             var codex = "codex-" + modul; var claude = "claude-" + modul;
             var tytulSesji = znacznik + " " + tytul.Trim();

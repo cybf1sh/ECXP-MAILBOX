@@ -124,19 +124,30 @@ namespace Ecxp
             var k = new Klient();
             var start = DateTime.Now;
             bool uruchomiony = false;
-            while (true)
+            for (int proba = 1; ; proba++)
             {
-                var p = new NamedPipeClientStream(".", nazwa, PipeDirection.InOut, PipeOptions.Asynchronous);
-                try { p.Connect(400); k.pipe = p; break; }
-                catch (Exception)
+                while (true)
                 {
-                    p.Dispose();
-                    if (!uruchom) throw new EcxpException("Stos ECXP (ecxpd) nie działa.");
-                    if (!uruchomiony) { UruchomStos(); uruchomiony = true; }
-                    if ((DateTime.Now - start).TotalSeconds > 10) throw new EcxpException("Nie udało się połączyć ze stosem ECXP (ecxpd) w 10 s.");
+                    var p = new NamedPipeClientStream(".", nazwa, PipeDirection.InOut, PipeOptions.Asynchronous);
+                    try { p.Connect(400); k.pipe = p; break; }
+                    catch (Exception)
+                    {
+                        p.Dispose();
+                        if (!uruchom) throw new EcxpException("Stos ECXP (ecxpd) nie działa.");
+                        if (!uruchomiony) { UruchomStos(); uruchomiony = true; }
+                        if ((DateTime.Now - start).TotalSeconds > 45) throw new EcxpException("Nie udało się połączyć ze stosem ECXP (ecxpd) w 45 s (pierwszy start po aktualizacji może opóźnić skaner antywirusowy).");
+                    }
+                }
+                // Uzgodnienie ponawiane jak SYN w TCP: połączenie zerwane w trakcie (np. tuż po starcie stosu) – nowa próba.
+                // Odmowa stosu (RST, EcxpException) nie jest ponawiana.
+                try { k.Uzgodnij(ja, rodzaj); break; }
+                catch (IOException)
+                {
+                    try { k.pipe.Dispose(); } catch { }
+                    if (proba >= 6 || (DateTime.Now - start).TotalSeconds > 45) throw new EcxpException("Stos ECXP zrywa uzgodnienie połączenia (" + proba + " prób).");
+                    Thread.Sleep(150 * proba);
                 }
             }
-            k.Uzgodnij(ja, rodzaj);
             k.czytnik = new Thread(k.Petla) { IsBackground = true, Name = "ecxp-klient" };
             k.czytnik.Start();
             return k;
@@ -147,9 +158,29 @@ namespace Ecxp
             var dir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             var exe = Path.Combine(dir, "ecxpd.exe");
             if (!File.Exists(exe)) throw new EcxpException("Brak programu stosu: " + exe);
-            // UseShellExecute = true: stos nie dziedziczy uchwytów klienta (stdin/stdout adaptera MCP), więc gospodarz MCP widzi koniec adaptera.
-            Process.Start(new ProcessStartInfo(exe, "/root \"" + P.Root + "\"") { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = dir });
+            // CreateProcess z bInheritHandles = false: stos nie dziedziczy uchwytów klienta (stdin/stdout adaptera MCP),
+            // więc gospodarz MCP widzi koniec adaptera; bez powłoki Windows (ShellExecute dodawał ~26 s sprawdzania reputacji).
+            var si = new STARTUPINFO(); si.cb = System.Runtime.InteropServices.Marshal.SizeOf(si);
+            PROCESS_INFORMATION pi;
+            var cmd = new StringBuilder("\"" + exe + "\" /root \"" + P.Root + "\"");
+            if (!CreateProcess(exe, cmd, IntPtr.Zero, IntPtr.Zero, false, 0x08000000 /* CREATE_NO_WINDOW */, IntPtr.Zero, dir, ref si, out pi))
+                throw new EcxpException("Nie udało się uruchomić stosu ECXP (błąd " + System.Runtime.InteropServices.Marshal.GetLastWin32Error() + ").");
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
         }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        struct STARTUPINFO
+        {
+            public int cb; public string lpReserved, lpDesktop, lpTitle;
+            public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+            public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+        }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern bool CreateProcess(string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern bool CloseHandle(IntPtr h);
 
         void Wyslij(Rama r)
         {
