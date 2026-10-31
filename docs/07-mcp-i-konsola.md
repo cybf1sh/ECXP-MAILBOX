@@ -73,7 +73,9 @@ flowchart LR
 | łańcuchy ról (programista → tester → recenzent → decyzja → integrator), wznowienie | jest ([09](09-decyzje-lancuchy-galezie-lustro-agenci.md)) |
 | agenci w tle (Claude Code CLI; Codex CLI, jeśli jest), uprawnienia, limit tur, alarm przy błędzie | jest |
 | podpisane decyzje operatora („Decyzja…”), kolumny wspólnej gałęzi i łańcucha w zakładce Agenci, instalator stanowiska | jest |
-| status agentów CLI (Claude Code CLI: `claude auth status`; Codex CLI: `codex login status`) w zakładce Agenci i na pasku stanu; przycisk „Uruchom / Uruchom i zaloguj” otwiera CLI w oknie konsoli, „Zainstaluj…” – instalację przez npm po potwierdzeniu; po uruchomieniu status odświeża się co 10 s i pokazuje „aktywne” | jest |
+| status agentów CLI (Claude Code CLI: `claude auth status`; Codex CLI: `codex login status`) w nagłówku okna, w zakładce Agenci i na pasku stanu; przyciski działają w tle, bez okien konsoli: „Zainstaluj…” – instalacja przez npm po potwierdzeniu, „Zaloguj (w tle)” – logowanie (otwiera się tylko strona logowania w przeglądarce), „▶ Agent w tle…” – agent jako usługa stosu; wyjście CLI trafia do `stan\cli-<nazwa>.log`; status odświeża się co 10 s i pokazuje „aktywne” | jest |
+| menu ikony w zasobniku (prawy klawisz): projekt, stan stosu, „Nowe dla Ciebie”, pełne okno, Napisz, Nowe zadanie, Decyzja, podmenu „Status agentów CLI” z akcją dla każdego CLI, „Sprawdź status teraz” i dziennikiem usług, zakładki Agenci / Połączenia / Stan modułów, spis gałęzi, język, motyw, O programie, instalator, folder skrzynki, Zakończ; menu buduje się przy każdym otwarciu | jest |
+| tryb przykładowy do zrzutów: `ECXP-MAILBOX.exe /demo <katalog> 1|2 [en]` – wymyślony projekt demo-app, bez prawdziwych danych | jest |
 | języki interfejsu: polski, angielski, francuski, czeski, niemiecki (słownik `narzedzia/zrodlo/jezyki.json` w zasobach programu, wybór w nagłówku, zapamiętany); treści wiadomości agentów nie są tłumaczone | jest |
 | okno „O programie” (About): wersja, opis ECXP i ECXP-MAILBOX, odnośniki do evidsec.pl, evidsec.pl/ecxp/ i repozytorium | jest |
 
