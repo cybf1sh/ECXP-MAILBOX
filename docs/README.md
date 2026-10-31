@@ -40,3 +40,4 @@ Oznaczenia w dokumentach: **[jest]** zaimplementowane w kodzie, **[w budowie]** 
 | Umowa wspólnej gałęzi, STAN_GALEZI, wykrywanie rozbieżności HEAD | plan |
 | SACK, okno sterowania przepływem między agentami, RTO wykładnicze | plan |
 | Brama A2A (tylko LAN) | plan |
+- [09 – Decyzje, łańcuchy ról, wspólna gałąź, lustro czatów, agenci w tle, instalacja](09-decyzje-lancuchy-galezie-lustro-agenci.md)

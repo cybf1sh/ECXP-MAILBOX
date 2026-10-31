@@ -331,7 +331,9 @@ namespace Ecxp
             cbModul.Items.Add("Wszystkie moduły"); cbModul.SelectedIndex = 0;
             var lblSz = new Label { Text = "Szukaj:", AutoSize = true, Margin = new Padding(10, 12, 0, 0) };
             szukaj = new TextBox { Width = 200, Margin = new Padding(3, 8, 3, 3) };
-            top.Controls.AddRange(new Control[] { bPisz, bOdp, cbWidok, cbModul, lblSz, szukaj });
+            var bDecyzjaR = Btn("⚖  Decyzja…");
+            bDecyzjaR.Click += delegate { Decyzja(); };
+            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, cbWidok, cbModul, lblSz, szukaj });
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
             lv = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
@@ -355,13 +357,19 @@ namespace Ecxp
             var bRola = Btn("Nadaj role / przypisz…");
             var bPakiet = Btn("Pakiety startowe…");
             var bNazwy = Btn("Nazwy sesji wg ECXP…");
-            agTop.Controls.AddRange(new Control[] { bNowe, bRola, bPakiet, bNazwy });
+            var bDecyzja = Btn("⚖  Decyzja…");
+            var bTlo = Btn("▶  Agent w tle…");
+            var bWznow = Btn("Wznów parę / łańcuch");
+            agTop.Controls.AddRange(new Control[] { bNowe, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            bDecyzja.Click += delegate { Decyzja(); };
+            bTlo.Click += delegate { UruchomAgenta(); };
+            bWznow.Click += delegate { Wznow(); };
             lblAg = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(6), ForeColor = Motyw.Slaby,
                 Text = "Zasada 1:1: w każdym module pracuje para – sesja ChatGPT/Codex i sesja Claude – nad tym samym zadaniem i jedną gałęzią. " +
                        "Sesje w parze noszą wspólny znacznik " + "🔗ECXP" + " przed nazwą." };
             lvAg = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
             foreach (var c in new object[][] { new object[] { "Projekt", 95 }, new object[] { "Moduł", 110 }, new object[] { "ChatGPT/Codex", 200 },
-                new object[] { "Claude", 200 }, new object[] { "Para", 90 }, new object[] { "Role", 260 }, new object[] { "Nazwa sesji (obie strony)", 260 } })
+                new object[] { "Claude", 200 }, new object[] { "Para", 90 }, new object[] { "Role", 260 }, new object[] { "Nazwa sesji (obie strony)", 230 }, new object[] { "Wspólna gałąź", 260 }, new object[] { "Łańcuch ról", 230 } })
                 lvAg.Columns.Add((string)c[0], (int)c[1]);
             tabAg.Controls.Add(lvAg);
             tabAg.Controls.Add(lblAg);
@@ -649,6 +657,93 @@ namespace Ecxp
             int zm, nw, st;
             int.TryParse(P.S(w, "zmienione"), out zm); int.TryParse(P.S(w, "nowe"), out nw); int.TryParse(P.S(w, "stash"), out st);
             return zm + nw + st > 0 ? "B" : "A";
+        }
+
+        // ---------- decyzje, agenci w tle, wznowienie ----------
+        void Decyzja()
+        {
+            var para = WybranaPara();
+            string mod = para != null ? P.S(para, "modul") : "";
+            var czekajace = Lancuchy.Wszystkie().Where(l => P.S(l, "stan") == "czeka_na_decyzje").Select(l => P.S(l, "id") + " — " + P.S(l, "tytul")).ToList();
+            czekajace.Insert(0, "");
+            using (var f = new Formularz("Decyzja operatora – podpisana", fontN, fontB))
+            {
+                var cbP = f.Combo("Projekt:", P.Projekty().Select(x => P.S(x, "nazwa")).ToList(), para != null ? P.S(para, "projekt") : (cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : ""));
+                var tbM = f.Tekst("Moduł:", mod);
+                var cbDo = f.Combo("Do:", new List<string> { mod.Length > 0 ? "para:" + mod : "", mod.Length > 0 ? "rola:integrator@" + mod : "" }.Where(x => x.Length > 0).ToList(), mod.Length > 0 ? "para:" + mod : "");
+                var cbR = f.Combo("Rodzaj:", Decyzje.Rodzaje.ToList(), czekajace.Count > 1 ? "lancuch" : "user_accepted");
+                var tbC = f.Tekst("Commit (pełny hash, 40 znaków):", "");
+                var tbG = f.Tekst("Gałąź:", "");
+                var cbL = f.Combo("Łańcuch czekający na decyzję:", czekajace, czekajace.Count > 1 ? czekajace[1] : "");
+                var tbO = f.Wielowiersz("Co dokładnie wolno zrobić:", "");
+                f.Uwaga("Decyzję podpisuje Twój klucz (RSA, chroniony przez Windows tylko dla Twojego konta). Agent sprawdza podpis (ecxp_sprawdz_decyzje) i wykonuje wyłącznie to, co tu opisano. USER_ACCEPTED, push i scalenie wymagają pełnego hasha commitu.");
+                f.PrzyciskOk("⚖  Podpisz i wyślij");
+                if (f.ShowDialog(form) != DialogResult.OK) return;
+                var podsum = "Rodzaj: " + cbR.Text + (tbC.Text.Length > 0 ? "\nCommit: " + tbC.Text : "") + (tbG.Text.Length > 0 ? "\nGałąź: " + tbG.Text : "") +
+                             "\nDo: " + (cbDo.Text.Length > 0 ? cbDo.Text : "(tylko łańcuch)") + (cbL.Text.Length > 0 ? "\nŁańcuch: " + cbL.Text : "") + "\n\n" + tbO.Text;
+                if (MessageBox.Show(form, "Podpisać i wysłać tę decyzję?\n\n" + podsum, "Decyzja operatora", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                try
+                {
+                    var r = (Dictionary<string, object>)Stos("decyzja", P.D("projekt", cbP.Text, "modul", tbM.Text, "do", cbDo.Text, "rodzaj", cbR.Text, "commit", tbC.Text,
+                        "galaz", tbG.Text, "opis", tbO.Text, "lancuch", cbL.Text.Split(' ')[0]));
+                    stInfo.Text = "Decyzja " + P.S(r, "id") + " podpisana i wysłana.";
+                    Skanuj();
+                }
+                catch (Exception ex) { MessageBox.Show(form, "Nie wydano decyzji: " + ex.Message, "Decyzja", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
+        }
+
+        void UruchomAgenta()
+        {
+            var para = WybranaPara();
+            string projekt = para != null ? P.S(para, "projekt") : (cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : "");
+            string mod = para != null ? P.S(para, "modul") : "";
+            var pr = P.Projekty().FirstOrDefault(x => P.S(x, "nazwa") == projekt);
+            using (var f = new Formularz("Agent w tle (Claude Code CLI / Codex CLI)", fontN, fontB))
+            {
+                var tbN = f.Tekst("Nazwa:", para != null && P.S(para, "claude").Length > 0 ? P.S(para, "claude") : "claude-" + mod);
+                var cbP = f.Combo("Projekt:", P.Projekty().Select(x => P.S(x, "nazwa")).ToList(), projekt);
+                var tbM = f.Tekst("Moduł:", mod);
+                var tbK = f.Tekst("Katalog pracy (klon lub worktree):", pr != null ? P.S(pr, "repozytorium").Replace('/', '\\') : "");
+                var cbU = f.Combo("Uprawnienia:", Agenci.Uprawnienia.ToList(), "odczyt");
+                var cbMo = f.Combo("Model (puste = domyślny):", new List<string> { "", "opus", "sonnet", "haiku" }, "");
+                var tbB = f.Tekst("Najwięcej tur na godzinę:", "6");
+                var rl = f.Role("Role:", new[] { "recenzent" });
+                var tbO = f.Tekst("Opis od operatora:", "");
+                f.Uwaga("Stos uruchamia agenta, gdy w jego kolejce czekają wiadomości – jedna tura naraz, w granicy limitu na godzinę. " +
+                        "Claude: Claude Code CLI (" + (Agenci.Program("claude").Length > 0 ? "jest" : "BRAK") + " na tym stanowisku); Codex: Codex CLI (" + (Agenci.Program("codex").Length > 0 ? "jest" : "BRAK") + "). " +
+                        "Uprawnienia: odczyt – czyta pliki i rozmawia przez ECXP; edycja – zmienia pliki w katalogu pracy; pelne – także polecenia systemowe. Push, scalenie i tagi tylko po podpisanej decyzji.");
+                f.PrzyciskOk("▶  Uruchom agenta");
+                if (f.ShowDialog(form) != DialogResult.OK) return;
+                try
+                {
+                    Stos("uruchom_agenta", P.D("nazwa", tbN.Text, "projekt", cbP.Text, "modul", tbM.Text, "katalog", tbK.Text, "uprawnienia", cbU.Text, "model", cbMo.Text,
+                        "na_godzine", tbB.Text, "role", Formularz.Zaznaczone(rl), "opis", tbO.Text));
+                    stInfo.Text = "Agent " + tbN.Text + " działa w tle – odbierze wiadomości, gdy przyjdą.";
+                    Skanuj();
+                }
+                catch (Exception ex) { MessageBox.Show(form, "Nie uruchomiono: " + ex.Message, "Agent w tle", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
+        }
+
+        void Wznow()
+        {
+            var para = WybranaPara();
+            if (para == null) { MessageBox.Show(form, "Zaznacz parę na liście agentów.", "Wznów"); return; }
+            string pr = P.S(para, "projekt"), mod = P.S(para, "modul");
+            try
+            {
+                if (Galezie.Wstrzymana(pr, mod))
+                {
+                    if (MessageBox.Show(form, "Para " + pr + "/" + mod + " jest wstrzymana po rozbieżności wspólnej gałęzi.\nWznowić ją (rozbieżność została rozwiązana)?", "Wznów parę", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                        Stos("para_wznow", P.D("projekt", pr, "modul", mod, "uwagi", "wznowiona z konsoli"));
+                }
+                var lr = Lancuchy.Wszystkie().Where(l => P.S(l, "projekt") == pr && P.S(l, "modul") == mod && P.S(l, "stan") == "blad").FirstOrDefault();
+                if (lr != null && MessageBox.Show(form, "Łańcuch „" + P.S(lr, "tytul") + "” stoi (" + P.S(lr, "stan") + "). Wznowić bieżący krok?", "Wznów łańcuch", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                    Stos("lancuch_wznow", P.D("id", P.S(lr, "id")));
+                Skanuj();
+            }
+            catch (Exception ex) { MessageBox.Show(form, ex.Message, "Wznów", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         // ---------- motyw ----------
@@ -990,7 +1085,22 @@ namespace Ecxp
                 it.SubItems.Add(pelna ? "✓ para 1:1" : "⚠ niepełna");
                 it.SubItems.Add(string.Join("; ", role));
                 it.SubItems.Add(TytulPary(pr, mod));
-                it.ForeColor = pelna ? Zielony : Czerwony;
+                var gal = Galezie.Stan(pr, mod);
+                var um = gal.ContainsKey("umowa") ? gal["umowa"] as Dictionary<string, object> : null;
+                var rozb = P.S(gal, "para_stan") == "rozbieznosc";
+                it.SubItems.Add(rozb ? "⛔ ROZBIEŻNOŚĆ – para wstrzymana" : um == null ? "brak umowy" : P.S(um, "galaz") + " (" + P.S(um, "stan") + ")");
+                var lr = Lancuchy.Wszystkie().Where(l => P.S(l, "projekt") == pr && P.S(l, "modul") == mod && P.S(l, "stan") != "zakonczony")
+                    .OrderByDescending(l => P.S(l, "id")).FirstOrDefault();
+                if (lr != null)
+                {
+                    var kr = P.L(lr, "kroki"); int k = Convert.ToInt32(lr["krok"]);
+                    it.SubItems.Add("krok " + (k + 1) + "/" + kr.Count + ": " + (k < kr.Count ? kr[k] : "—") + " · " + P.S(lr, "stan"));
+                }
+                else it.SubItems.Add("—");
+                var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).Select(a => P.S(a, "nazwa")).ToList();
+                if (wTle.Contains(cx)) it.SubItems[2].Text += "  (w tle)";
+                if (wTle.Contains(cl)) it.SubItems[3].Text += "  (w tle)";
+                it.ForeColor = pelna && !rozb ? Zielony : Czerwony;
                 it.Tag = d;
                 lvAg.Items.Add(it);
             }
@@ -1015,6 +1125,8 @@ namespace Ecxp
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
                 var tbO = f.Wielowiersz("Zadanie (trafi do obu stron pary):", "");
                 var zalN = f.Zalaczniki("Załączniki:");
+                var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
+                f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
                 f.PrzyciskOk("✉  Wyślij do pary (Codex + Claude)");
@@ -1022,7 +1134,8 @@ namespace Ecxp
                 try
                 {
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
-                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki)));
+                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki),
+                        "lancuch", tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
@@ -1184,6 +1297,7 @@ namespace Ecxp
             menu.Items.Add("Napisz…", null, delegate { ShowWindow(); Pisz(null); });
             menu.Items.Add("Pokaż konsolę ECXP", null, delegate { ShowWindow(); });
             menu.Items.Add("Motyw jasny / ciemny", null, delegate { PrzelaczMotyw(); });
+            menu.Items.Add("Zainstaluj / napraw rejestrację ECXP", null, delegate { MessageBox.Show(form, Instalator.Wykonaj(false), "Instalacja ECXP"); });
             menu.Items.Add("Otwórz folder skrzynki", null, delegate { OpenPath(P.Root); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Zakończ", null, delegate { timer.Stop(); fsw.EnableRaisingEvents = false; if (klient != null) klient.Dispose(); tray.Visible = false; ExitThread(); });
@@ -1266,6 +1380,14 @@ namespace Ecxp
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
             if (args.Length >= 1 && args[0] == "/selftest") return Test.Uruchom(args.Length > 1 ? args[1] : P.Root);
             if (args.Length >= 2 && args[0] == "/selftest-stos") return Test.Stos(args[1]);
+            if (args.Length >= 2 && args[0] == "/selftest-agent") return Test.Agent(args[1]);
+            if (args.Length >= 1 && (args[0] == "/instaluj" || args[0] == "/odinstaluj"))
+            {
+                var raport = Instalator.Wykonaj(args[0] == "/odinstaluj");
+                try { File.WriteAllText(Path.Combine(P.Root, "stan", "instalacja.txt"), raport, new UTF8Encoding(false)); } catch { }
+                if (!args.Contains("/cicho")) MessageBox.Show(raport, "Instalacja ECXP");
+                return 0;
+            }
             if (args.Length >= 1 && args[0] == "/spis-galezi") { Motyw.Ciemny = args.Contains("/ciemny"); ZbudujSpis(); return 0; }
 
             bool created;
@@ -1458,6 +1580,126 @@ namespace Ecxp
         }
     }
 
+    // ---------- instalacja na stanowisku (uniwersalna: ścieżki z katalogu instalacji i profilu użytkownika) ----------
+    static class Instalator
+    {
+        static string Uruchom(string plik, string args)
+        {
+            var psi = plik.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? new System.Diagnostics.ProcessStartInfo(plik, args)
+                : new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + plik + "\" " + args + "\"");
+            psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+            using (var pr = System.Diagnostics.Process.Start(psi))
+            {
+                var o = pr.StandardOutput.ReadToEnd() + pr.StandardError.ReadToEnd();
+                pr.WaitForExit(120000);
+                return o.Trim();
+            }
+        }
+
+        static string Ladnie(string json)
+        {
+            var sb = new StringBuilder(); int wc = 0; bool str = false, esc = false;
+            foreach (var c in json)
+            {
+                if (str) { sb.Append(c); if (esc) esc = false; else if (c == '\\') esc = true; else if (c == '"') str = false; continue; }
+                switch (c)
+                {
+                    case '"': str = true; sb.Append(c); break;
+                    case '{': case '[': sb.Append(c).Append('\n').Append(' ', ++wc * 2); break;
+                    case '}': case ']': sb.Append('\n').Append(' ', --wc * 2).Append(c); break;
+                    case ',': sb.Append(c).Append('\n').Append(' ', wc * 2); break;
+                    case ':': sb.Append(": "); break;
+                    default: sb.Append(c); break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        static void Kopia(string p) { var b = p + ".przed-ecxp.bak"; if (File.Exists(p) && !File.Exists(b)) File.Copy(p, b); }
+
+        public static string Wykonaj(bool usun)
+        {
+            var log = new StringBuilder();
+            var narz = Path.Combine(P.Root, "narzedzia");
+            var mcp = Path.Combine(narz, "ecxp-mcp.exe");
+            var hook = Path.Combine(narz, "hook-claude.ps1");
+            var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
+            Directory.CreateDirectory(Path.Combine(P.Root, "stan")); Directory.CreateDirectory(Path.Combine(P.Root, "projekty"));
+            log.AppendLine((usun ? "Odinstalowanie" : "Instalacja") + " ECXP na stanowisku " + Environment.MachineName + ", katalog: " + P.Root);
+
+            // 1. Claude Code: serwer MCP ecxp (zakres użytkownika)
+            var claude = Agenci.Program("claude");
+            if (claude.Length == 0) log.AppendLine("• Claude Code CLI: brak na tym stanowisku – pomijam rejestrację w Claude.");
+            else
+            {
+                Uruchom(claude, "mcp remove ecxp --scope user");
+                log.AppendLine(usun ? "• Claude: usunięto serwer MCP ecxp." : "• Claude: " + Uruchom(claude, "mcp add --scope user ecxp -- \"" + mcp + "\"").Split('\n')[0]);
+            }
+
+            // 2. Claude Code: hook UserPromptSubmit (lustro wpisów operatora z czatu)
+            var sp = Path.Combine(dom, ".claude", "settings.json");
+            try
+            {
+                Dictionary<string, object> st = new Dictionary<string, object>();
+                if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(sp)) ?? new Dictionary<string, object>();
+                var hooks = Pliki.Slownik(st, "hooks");
+                var lista = hooks.ContainsKey("UserPromptSubmit") && hooks["UserPromptSubmit"] is System.Collections.IEnumerable
+                    ? ((System.Collections.IEnumerable)hooks["UserPromptSubmit"]).Cast<object>().ToList() : new List<object>();
+                lista = lista.Where(x => !P.Js().Serialize(x).Contains("hook-claude.ps1")).ToList();
+                if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + hook + "\"", "timeout", 15) }));
+                if (lista.Count > 0) hooks["UserPromptSubmit"] = lista; else hooks.Remove("UserPromptSubmit");
+                if (hooks.Count == 0) st.Remove("hooks");
+                Directory.CreateDirectory(Path.GetDirectoryName(sp));
+                Kopia(sp);
+                File.WriteAllText(sp, Ladnie(P.Js().Serialize(st)), new UTF8Encoding(false));
+                log.AppendLine(usun ? "• Claude: usunięto hook lustra czatu." : "• Claude: hook lustra czatu (UserPromptSubmit) w " + sp + ".");
+            }
+            catch (Exception ex) { log.AppendLine("• Claude: NIE zmieniono " + sp + " (" + ex.Message + ")."); }
+
+            // 3. Codex: serwer MCP ecxp w config.toml
+            var cp = Path.Combine(dom, ".codex", "config.toml");
+            if (!File.Exists(cp)) log.AppendLine("• Codex: brak " + cp + " – pomijam (zainstaluj aplikację Codex i uruchom instalację ponownie).");
+            else
+            {
+                var linie = File.ReadAllLines(cp).ToList();
+                var wynik = new List<string>(); bool pomin = false;
+                foreach (var l in linie)
+                {
+                    var t = l.Trim();
+                    if (t.StartsWith("[")) pomin = t == "[mcp_servers.ecxp]" || t.StartsWith("[mcp_servers.ecxp.");
+                    if (!pomin) wynik.Add(l);
+                }
+                while (wynik.Count > 0 && wynik[wynik.Count - 1].Trim().Length == 0) wynik.RemoveAt(wynik.Count - 1);
+                if (!usun) { wynik.Add(""); wynik.Add("[mcp_servers.ecxp]"); wynik.Add("command = '" + mcp + "'"); wynik.Add("args = []"); wynik.Add("startup_timeout_sec = 60"); }
+                Kopia(cp);
+                File.WriteAllLines(cp, wynik, new UTF8Encoding(false));
+                log.AppendLine(usun ? "• Codex: usunięto [mcp_servers.ecxp]." : "• Codex: [mcp_servers.ecxp] w " + cp + " – uruchom ponownie aplikację Codex.");
+            }
+
+            // 4. Skróty: pulpit i autostart
+            foreach (var kat in new[] { Environment.SpecialFolder.Desktop, Environment.SpecialFolder.Startup })
+            {
+                var lnk = Path.Combine(Environment.GetFolderPath(kat), "ECXP-MAILBOX.lnk");
+                try
+                {
+                    if (usun) { if (File.Exists(lnk)) File.Delete(lnk); continue; }
+                    var sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+                    var s = sh.GetType().InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, sh, new object[] { lnk });
+                    var exe = Path.Combine(narz, "ECXP-MAILBOX.exe");
+                    foreach (var kv in new[] { new[] { "TargetPath", exe }, new[] { "WorkingDirectory", narz }, new[] { "IconLocation", exe + ",0" }, new[] { "Description", "ECXP-MAILBOX – konsola operatora ECXP" } })
+                        s.GetType().InvokeMember(kv[0], System.Reflection.BindingFlags.SetProperty, null, s, new object[] { kv[1] });
+                    s.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, s, null);
+                }
+                catch (Exception ex) { log.AppendLine("• Skrót " + lnk + ": " + ex.Message); }
+            }
+            log.AppendLine(usun ? "• Usunięto skróty." : "• Skróty: pulpit i autostart.");
+            log.AppendLine("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak.");
+            return log.ToString();
+        }
+    }
+
     // ---------- proste okna dialogowe konsoli ----------
     class Formularz : Form
     {
@@ -1636,6 +1878,51 @@ namespace Ecxp
     static class Test
     {
         // Test operatora przez prawdziwy stos: konsola łączy się jako operator (stos sprawdza obraz procesu),
+        // Test agenta w tle (prawdziwa tura Claude Code CLI, model haiku, tylko odczyt): ECXP-MAILBOX.exe /selftest-agent <katalog instalacji testowej>
+        public static int Agent(string root)
+        {
+            var log = new StringBuilder(); int zle = 0;
+            Action<bool, string> ok = (c, t) => { log.AppendLine((c ? "PASS  " : "FAIL  ") + t); if (!c) zle++; };
+            Klient k = null;
+            try
+            {
+                P.Root = Path.GetFullPath(root);
+                k = Klient.Polacz(P.Wlasciciel, "konsola", true);
+                var ag = (Dictionary<string, object>)k.Wywolaj("agenci", null);
+                ok(P.S(ag, "claude_cli").Length > 0, "Claude Code CLI znaleziony w PATH: " + P.S(ag, "claude_cli"));
+                k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "ta", "tytul", "Agent test", "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "recenzent" },
+                    "opis", "Test agenta w tle: wyślij operatorowi (do=wlasciciel, typ=meldunek) jedno zdanie „Agent w tle działa” i potwierdź to zadanie. Nie zmieniaj żadnych plików."));
+                bool zlyKatalog = false;
+                try { k.Wywolaj("uruchom_agenta", P.D("nazwa", "claude-ta", "projekt", "testowy", "modul", "ta", "katalog", Path.Combine(P.Root, "nie-ma"), "uprawnienia", "odczyt")); }
+                catch (EcxpException) { zlyKatalog = true; }
+                ok(zlyKatalog, "agent z nieistniejącym katalogiem odrzucony");
+                var rec = (Dictionary<string, object>)k.Wywolaj("uruchom_agenta", P.D("nazwa", "claude-ta", "projekt", "testowy", "modul", "ta", "katalog", P.Root,
+                    "uprawnienia", "odczyt", "model", "haiku", "na_godzine", 2, "role", new List<string> { "recenzent" }));
+                ok(P.B(rec, "aktywny"), "agent claude-ta uruchomiony w tle (odczyt, haiku)");
+                var plik = Path.Combine(P.Root, "stan", "agenci", "claude-ta.json");
+                var koniec = DateTime.Now.AddMinutes(6);
+                Dictionary<string, object> stan = null;
+                while (DateTime.Now < koniec)
+                {
+                    System.Threading.Thread.Sleep(5000);
+                    stan = (Dictionary<string, object>)new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(P.Czytaj(plik));
+                    if (P.Lista(stan, "uruchomienia").Count > 0) break;
+                }
+                var u = stan != null ? P.Lista(stan, "uruchomienia") : new List<Dictionary<string, object>>();
+                ok(u.Count > 0 && P.S(u[0], "kod") == "0", "tura agenta zakończona, kod " + (u.Count > 0 ? P.S(u[0], "kod") + ", " + P.S(u[0], "sekund") + " s" : "brak"));
+                System.Threading.Thread.Sleep(2000);
+                var lista = P.Wszystkie(false);
+                ok(lista.Any(m => m.Od == "claude-ta" && m.Do == P.Wlasciciel), "agent w tle wysłał meldunek operatorowi przez ECXP");
+                ok(!lista.Any(m => m.Katalog == "do-claude" && m.Do == "claude-ta"), "agent potwierdził odebrane wiadomości (pusta kolejka)");
+                k.Wywolaj("zatrzymaj_agenta", P.D("nazwa", "claude-ta"));
+            }
+            catch (Exception ex) { log.AppendLine("FAIL  wyjątek: " + ex); zle++; }
+            finally { if (k != null) k.Dispose(); }
+            log.AppendLine(zle == 0 ? "WYNIK: wszystkie testy PASS" : "WYNIK: FAIL " + zle);
+            try { File.WriteAllText(Path.Combine(root, "selftest-agent.txt"), log.ToString(), new UTF8Encoding(false)); } catch { }
+            return zle;
+        }
+
         // tworzy parę 1:1, sprawdza lustro, kopię dla pary, przejęcie adresu i role. ECXP-MAILBOX.exe /selftest-stos <pusty katalog>
         public static int Stos(string root)
         {
@@ -1694,6 +1981,26 @@ namespace Ecxp
 
                 var tr = (Dictionary<string, object>)k.Wywolaj("trasy", P.D("projekt", "testowy"));
                 ok(((System.Collections.IEnumerable)tr["pary"]).Cast<object>().Count() >= 1, "tablica tras czytelna dla klienta");
+
+                // łańcuch ról: nowe zadanie z łańcuchem – pierwszy krok idzie tylko do programisty, nie do całej pary
+                var r6 = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "lr", "tytul", "LR test", "opis", "Zadanie dla łańcucha.",
+                    "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "tester" },
+                    "lancuch", new List<string> { "programista", "tester", "decyzja", "integrator" }));
+                var lan = (Dictionary<string, object>)r6["lancuch"];
+                var zl = P.Lista(lan, "zadania");
+                ok(P.S(lan, "stan") == "w_toku" && zl.Count == 1 && P.Wszystkie(false).Any(m => m.Id == P.S(zl[0], "id") && m.Do == "codex-lr"),
+                    "łańcuch ról utworzony: krok 1 (programista) trafił tylko do codex-lr");
+
+                // podpisana decyzja operatora
+                const string commitTest = "0123456789abcdef0123456789abcdef01234567";
+                var r7 = (Dictionary<string, object>)k.Wywolaj("decyzja", P.D("projekt", "testowy", "modul", "lr", "do", "para:lr", "rodzaj", "user_accepted",
+                    "commit", commitTest, "opis", "Test: akceptacja commitu."));
+                var spr = (Dictionary<string, object>)k.Wywolaj("sprawdz_decyzje", P.D("id", r7["id"]));
+                ok(P.B(spr, "wazna"), "decyzja podpisana kluczem operatora (DPAPI) i sprawdzalna");
+                bool bezCommitu = false;
+                try { k.Wywolaj("decyzja", P.D("projekt", "testowy", "modul", "lr", "do", "para:lr", "rodzaj", "push", "opis", "x")); } catch (EcxpException) { bezCommitu = true; }
+                ok(bezCommitu, "decyzja push bez pełnego hasha commitu odrzucona");
+                File.WriteAllText(Path.Combine(P.Root, "decyzja-testowa.txt"), P.Js().Serialize(P.D("id", r7["id"], "commit", commitTest)), new UTF8Encoding(false));
                 string spoj; P.Stany(out spoj);
                 ok(spoj.StartsWith("spójny"), "dziennik po wszystkich operacjach: " + spoj);
             }

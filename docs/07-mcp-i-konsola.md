@@ -70,8 +70,8 @@ flowchart LR
 | „Wyczyść”: archiwizacja przeczytanych do `archiwum\RRRR-MM\`, nic nie kasuje | jest |
 | zakładka Połączenia: węzły, ostatni kontakt, ocena | jest |
 | pary 1:1 obok siebie, role, nowe zadanie z parą, załącznikami i pakietami startowymi, znaczniki 🔗ECXP | jest |
-| łańcuchy ról (programista → tester → recenzent → decyzja → integrator) | plan |
-| tworzenie agentów (Claude Code CLI w tle, sesja w aplikacji, Codex: pakiet startowy) | plan |
-| decyzje podpisane (ramka DECYZJA) | plan, czeka na decyzję właściciela |
+| łańcuchy ról (programista → tester → recenzent → decyzja → integrator), wznowienie | jest ([09](09-decyzje-lancuchy-galezie-lustro-agenci.md)) |
+| agenci w tle (Claude Code CLI; Codex CLI, jeśli jest), uprawnienia, limit tur, alarm przy błędzie | jest |
+| podpisane decyzje operatora („Decyzja…”), kolumny wspólnej gałęzi i łańcucha w zakładce Agenci, instalator stanowiska | jest |
 
 Testy: `ECXP-MAILBOX.exe /selftest <pusty katalog>` (rdzeń protokołu) i `ECXP-MAILBOX.exe /selftest-stos <pusty katalog>` (operator przez prawdziwy stos: para, lustro, kopie 1:1, przejęcie, role, załącznik). Spis gałęzi bez okna: `ECXP-MAILBOX.exe /spis-galezi [/ciemny]`.

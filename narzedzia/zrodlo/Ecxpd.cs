@@ -78,6 +78,10 @@ namespace Ecxp
                 Directory.CreateDirectory(Path.Combine(P.Root, "stan"));
                 Siec.RoleDomyslnePliki();
                 Znaczniki();
+                P.PoZmianieZadania = (id, stan, kto, uwagi) => { try { Lancuchy.PoZmianieZadania(id, stan, kto, uwagi); } catch (Exception ex) { Log("łańcuch: " + ex.Message); } };
+                Agenci.Log = Log; Lustro.Log = Log;
+                new Thread(Agenci.Petla) { IsBackground = true, Name = "ecxp-agenci" }.Start();
+                new Thread(Lustro.Petla) { IsBackground = true, Name = "ecxp-lustro" }.Start();
                 Log("start, potok " + nazwaPotoku + ", katalog " + P.Root);
                 for (int i = 0; i < 4; i++) new Thread(Akceptuj) { IsBackground = true, Name = "ecxp-akceptuj" }.Start();
                 new Thread(Straznik) { IsBackground = true, Name = "ecxp-straznik" }.Start();
@@ -263,7 +267,7 @@ namespace Ecxp
             lock (stos)
             {
                 object w = WykonajW(s, op, a);
-                if (op != "odbierz" && op != "stan" && op != "watek" && op != "trasy" && op != "kontekst_pobierz" && op != "ping")
+                if (op != "odbierz" && op != "stan" && op != "watek" && op != "trasy" && op != "kontekst_pobierz" && op != "ping" && op != "sprawdz_decyzje" && op != "lancuchy" && op != "galezie" && op != "agenci")
                 {
                     if (op == "przypisz" || op == "rola" || op == "nowe_zadanie") Znaczniki();
                     Wypchnij(P.D("zdarzenie", "zmiana", "op", op));
@@ -289,6 +293,7 @@ namespace Ecxp
                         };
                         int.TryParse("0", out dummy);
                         if (n.Typ.Length == 0) n.Typ = "informacja";
+                        if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)
                             n.Ograniczenia = "Wiadomość operatora przez ECXP (konsola ECXP-MAILBOX, tożsamość potwierdzona przez stos).";
                         return Siec.Wyslij(n);
@@ -384,8 +389,40 @@ namespace Ecxp
                         return P.D("przeniesione", ok, "bledy", err);
                     }
                 case "nowe_zadanie":
+                    {
+                        TylkoOperator(s);
+                        var kroki = P.L(a, "lancuch");
+                        var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0);
+                        if (kroki.Count > 0) r["lancuch"] = Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), kroki, Czesci(a));
+                        return r;
+                    }
+                case "decyzja":
                     TylkoOperator(s);
-                    return Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a));
+                    return Decyzje.Wydaj(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "do"), P.S(a, "rodzaj"), P.S(a, "commit"), P.S(a, "galaz"), P.S(a, "opis"), P.S(a, "odpowiedz_na"), P.S(a, "lancuch"));
+                case "sprawdz_decyzje": return Decyzje.Sprawdz(P.S(a, "id"));
+                case "lancuch":
+                    TylkoOperator(s);
+                    return Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "kroki"), Czesci(a));
+                case "lancuch_wznow": TylkoOperator(s); return Lancuchy.Wznow(P.S(a, "id"));
+                case "lancuchy":
+                    {
+                        var pr = P.Slug(P.S(a, "projekt"), 32, false);
+                        return P.D("lancuchy", Lancuchy.Wszystkie().Where(l => pr.Length == 0 || P.S(l, "projekt") == pr).Cast<object>().ToList());
+                    }
+                case "umowa_galezi": return Galezie.Umowa(Agent(s, a), P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "repozytorium"), P.S(a, "galaz"), P.S(a, "baza"));
+                case "stan_galezi": return Galezie.StanGalezi(Agent(s, a), P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "galaz"), P.S(a, "head"));
+                case "galezie": return Galezie.Stan(P.S(a, "projekt"), P.S(a, "modul"));
+                case "para_wznow": TylkoOperator(s); return Galezie.Wznow(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "uwagi"));
+                case "uruchom_agenta":
+                    {
+                        TylkoOperator(s);
+                        int ng; int.TryParse(P.S(a, "na_godzine"), out ng);
+                        return Agenci.Uruchom(P.S(a, "nazwa"), P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "katalog"), P.S(a, "model"),
+                            P.S(a, "uprawnienia").Length > 0 ? P.S(a, "uprawnienia") : "odczyt", P.L(a, "role"), P.S(a, "opis"), ng > 0 ? ng : 6);
+                    }
+                case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
+                case "agenci":
+                    return P.D("agenci", Agenci.Lista().Cast<object>().ToList(), "claude_cli", Agenci.Program("claude"), "codex_cli", Agenci.Program("codex"));
                 case "straz":
                     {
                         var al = P.Straz();

@@ -275,6 +275,12 @@ namespace Ecxp
                 }
                 n.Projekt = P.Slug(n.Projekt, 32, false);
                 var cele = Rozwiaz(n.Projekt, n.Do);
+                // para wstrzymana po rozbieżności gałęzi: agenci nie dostają nowych zadań, dopóki operator jej nie wznowi
+                if (n.Od != P.Wlasciciel && n.Typ == "zadanie")
+                    foreach (var c in cele.Where(P.PoprawnyNadawca))
+                        foreach (var t in Przynaleznosc(c).Where(x => n.Projekt.Length == 0 || x.Projekt == n.Projekt))
+                            if (Galezie.Wstrzymana(t.Projekt, t.Modul))
+                                throw new EcxpException("Para " + t.Projekt + "/" + t.Modul + " jest wstrzymana po rozbieżności wspólnej gałęzi – czeka na decyzję operatora.");
                 string lustroId = cele.Count > 1 ? "L-" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + P.Losowe(3) : "";
                 if (lustroId.Length > 0 && n.Watek.Length == 0 && n.OdpNa.Length == 0) n.Watek = lustroId;
                 var wyslane = new List<object>();
@@ -330,7 +336,7 @@ namespace Ecxp
         }
 
         // ---------- nowe zadanie / moduł: para o tych samych nazwach po obu stronach ----------
-        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null)
+        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true)
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
@@ -377,7 +383,8 @@ namespace Ecxp
                     File.WriteAllText(Path.Combine(sd, ja + ".txt"), txt, new UTF8Encoding(false));
                     pakiety[strona] = P.D("nazwa", ja, "tytul_sesji", tytulSesji, "plik", Path.Combine(sd, ja + ".txt"), "tekst", txt);
                 }
-                var w = Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + modul, Projekt = projekt, Modul = modul, Typ = "zadanie", Temat = tytul, Tresc = opis.Trim(), Czesci = czesci ?? new List<Dictionary<string, object>>() });
+                object w = null;
+                if (wyslijZadanie) w = Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + modul, Projekt = projekt, Modul = modul, Typ = "zadanie", Temat = tytul, Tresc = opis.Trim(), Czesci = czesci ?? new List<Dictionary<string, object>>() });
                 P.Zdarzenie("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "codex", codex, "claude", claude, "tytul", tytulSesji));
                 return P.D("projekt", projekt, "modul", modul, "tytul_sesji", tytulSesji, "para", Para(projekt, modul), "pakiety", pakiety, "zadanie", w);
             });

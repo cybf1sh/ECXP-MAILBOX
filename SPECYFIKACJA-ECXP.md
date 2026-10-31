@@ -293,11 +293,20 @@ Gwarancja ECXP: wiadomość zostaje dostarczona w kolejności i potwierdzona, al
 - Czy zainstalować Codex CLI, żeby konsola tworzyła agentów Codexa tak samo jak agentów Claude, bez wklejania pakietu startowego?
 - Czy podpisana decyzja operatora z okna ECXP-MAILBOX (ramka `DECYZJA`) ma moc taką jak decyzja wydana w czacie, łącznie z USER_ACCEPTED dla dokładnego commitu? Wymaga to też zmiany zasad w `AGENTS.md` i `docs/PRACA-WSPOLNA-CODEX-CLAUDE.md`.
 
-## Stan wykonania (2026-10-31)
+## Stan wykonania (2026-10-31, ECXP 1.1)
 | Część | Stan |
 |---|---|
 | L1 trwałość, dziennik łańcuchowy | gotowe, testy PASS |
-| L2 niezawodność wiadomości (seq w parze, ACK, ponowienia, eskalacja, zaginione) | gotowe w bibliotece, testy PASS. Bez połączeń, okna i potoku |
-| L3 części, obiekty, zadania, karty | kod w bibliotece, testy w przygotowaniu |
-| ecxpd: potok, ramki, połączenia, indeks w pamięci, wypychanie | do zrobienia |
-| ecxp-mcp, ECXP-MAILBOX | działają bezpośrednio na bibliotece (skanują dysk – wolno). Do przepięcia na potok |
+| L2 stos `ecxpd`: potok, ramki 72 B z SHA-256, uzgadnianie, seq/ack, ponowienia, strażnik, wypychanie | gotowe, testy PASS |
+| L2 adresowanie i para 1:1 (lustro, kopie dla pary, przejęcie adresu, role) | gotowe, testy PASS |
+| L3 części, obiekty SHA-256, zadania, karty, pakiet przekazania, załączniki | gotowe, testy PASS |
+| Podpisane decyzje operatora (RSA, DPAPI, `ecxp_sprawdz_decyzje`) | gotowe, testy PASS |
+| Łańcuchy ról przekazywane przez stos | gotowe, testy PASS |
+| Wspólna gałąź pary: umowa, STAN_GALEZI, rozbieżność i wstrzymanie | gotowe, testy PASS |
+| Lustro wpisów z okien czatów (hook Claude, zapis rozmów Codexa) | gotowe, testy PASS (Codex na symulowanym zapisie rozmowy) |
+| Agenci w tle: Claude Code CLI | gotowe; tura testowa czeka na zalogowanie CLI na stanowisku |
+| Agenci w tle: Codex CLI | kod gotowy, nieprzetestowany – na stanowisku brak Codex CLI |
+| Instalator stanowiska (`/instaluj`, `/odinstaluj`) | gotowe |
+| Brama A2A w LAN | plan |
+
+Szczegóły funkcji 1.1: [docs/09](docs/09-decyzje-lancuchy-galezie-lustro-agenci.md).

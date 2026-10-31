@@ -65,7 +65,9 @@ namespace Ecxp
         public const string Wlasciciel = "wlasciciel", Koordynacja = "codex-koordynacja", Straznik = "ecxp-straznik";
         public static readonly string[] Kolejki = { "do-wlasciciela", "do-codex", "do-claude" };
         public static readonly string[] Foldery = { "do-wlasciciela", "do-codex", "do-claude", "przeczytane" };
-        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada" };
+        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada", "decyzja" };
+        // Wołane po każdej zmianie stanu zadania (łańcuchy ról w stosie): zadanie, stan, kto, uwagi.
+        public static Action<string, string, string, string> PoZmianieZadania;
         public static readonly string[] Wyniki = { "obsluzona", "przyjeta", "odrzucona" };
         public static readonly string[] StanyZadan = { "zgloszone", "w_toku", "potrzebne_dane", "zakonczone", "nieudane", "anulowane", "odrzucone" };
         public static readonly string[] RodzajeCzesci = { "tekst", "dane", "plik" };
@@ -189,6 +191,7 @@ namespace Ecxp
                 case "blokada": return "BLOCKED";
                 case "meldunek": return "COMPLETE";
                 case "recenzja": return "REVIEW";
+                case "decyzja": return "DECISION";
                 default: return "PROGRESS";
             }
         }
@@ -201,6 +204,7 @@ namespace Ecxp
                 case "blokada": return "Blokada";
                 case "meldunek": return "Meldunek";
                 case "recenzja": return "Recenzja";
+                case "decyzja": return "Decyzja";
                 case "odpowiedz": return "Odpowiedź";
                 case "informacja": return "Informacja";
             }
@@ -854,6 +858,7 @@ namespace Ecxp
                 if (!wykonawca && !zleceniodawca) throw new EcxpException("Stan zadania zmienia jego wykonawca (" + m.Do + ") albo zleceniodawca (" + m.Od + ").");
                 if (!wykonawca && stan != "anulowane") throw new EcxpException("Zleceniodawca może zadanie tylko anulować.");
                 Zdarzenie("zadanie", D("id", m.Id, "stan", stan, "kto", ja, "uwagi", uwagi ?? "", "artefakty", artefakty));
+                if (PoZmianieZadania != null) PoZmianieZadania(m.Id, stan, ja, uwagi ?? "");
                 var drugi = zleceniodawca ? m.Do : m.Od;
                 string powiadomienie = "";
                 if (PoprawnyAdresat(drugi) && drugi != ja)
