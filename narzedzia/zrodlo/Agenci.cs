@@ -17,6 +17,8 @@ namespace Ecxp
         public static readonly string[] Uprawnienia = { "odczyt", "edycja", "pelne" };
         static string Dir { get { return Path.Combine(P.Root, "stan", "agenci"); } }
         static readonly HashSet<string> trwa = new HashSet<string>();
+        static readonly Dictionary<string, Process> procesy = new Dictionary<string, Process>();
+        static readonly HashSet<string> przerwane = new HashSet<string>();
         public static Action<string> Log = s => { };
 
         // Program CLI z PATH (Windows: .cmd/.exe/.bat). Pusty, gdy go nie ma na tym stanowisku.
@@ -85,6 +87,69 @@ namespace Ecxp
             return d;
         }
 
+        // ---------- usługa agentów w tle jednej strony (Claude albo Codex) ----------
+        // Stop: przerywa trwające tury tej strony i wstrzymuje kolejne (rekordy agentów zostają).
+        // Start: wznawia tury. Uruchom ponownie (restart): przerywa tury, wznawia i kasuje 10-minutową przerwę po błędzie.
+        static string UslugiPlik { get { return Path.Combine(P.Root, "stan", "uslugi.json"); } }
+        static Dictionary<string, object> Uslugi() { try { return File.Exists(UslugiPlik) ? Pliki.Czytaj(UslugiPlik) : new Dictionary<string, object>(); } catch { return new Dictionary<string, object>(); } }
+        public static bool Zatrzymana(string strona) { return P.B(Uslugi(), strona + "_zatrzymana"); }
+        static DateTimeOffset Reset(string strona) { DateTimeOffset t; return DateTimeOffset.TryParse(P.S(Uslugi(), strona + "_reset"), out t) ? t : DateTimeOffset.MinValue; }
+
+        public static Dictionary<string, object> Usluga(string strona, string akcja)
+        {
+            if (strona != "claude" && strona != "codex") throw new EcxpException("Strona usługi: claude albo codex.");
+            if (akcja != "start" && akcja != "stop" && akcja != "restart") throw new EcxpException("Akcja usługi: start, stop albo restart.");
+            int ile = akcja == "start" ? 0 : PrzerwijTury(strona);
+            var u = Uslugi();
+            u[strona + "_zatrzymana"] = akcja == "stop";
+            u[strona + "_zmiana"] = P.Teraz();
+            if (akcja != "stop") u[strona + "_reset"] = P.Teraz();
+            Pliki.Zapisz(UslugiPlik, u);
+            P.Zdarzenie("usluga_" + akcja, P.D("strona", strona, "przerwane_tury", ile));
+            Log("usługa " + strona + ": " + akcja + (ile > 0 ? ", przerwane tury: " + ile : ""));
+            var st = UslugaStan(strona);
+            st["przerwane_tury"] = ile;
+            return st;
+        }
+
+        static int PrzerwijTury(string strona)
+        {
+            List<KeyValuePair<string, Process>> l;
+            lock (trwa) { l = procesy.Where(x => x.Key.StartsWith(strona + "-")).ToList(); foreach (var x in l) przerwane.Add(x.Key); }
+            foreach (var x in l)
+            {
+                try
+                {
+                    var k = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + x.Value.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true });
+                    k.WaitForExit(10000);
+                }
+                catch { }
+                try { if (!x.Value.HasExited) x.Value.Kill(); } catch { }
+            }
+            return l.Count;
+        }
+
+        public static Dictionary<string, object> UslugaStan(string strona)
+        {
+            var ag = Lista().Where(x => P.S(x, "strona") == strona).ToList();
+            List<string> wToku; lock (trwa) wToku = trwa.Where(x => x.StartsWith(strona + "-")).ToList();
+            Dictionary<string, object> ost = null; string ostN = ""; var tOst = DateTimeOffset.MinValue; int godz = 0;
+            foreach (var a in ag)
+                foreach (var u in P.Lista(a, "uruchomienia"))
+                {
+                    DateTimeOffset t;
+                    if (!DateTimeOffset.TryParse(P.S(u, "czas"), out t)) continue;
+                    if (t > DateTimeOffset.Now.AddHours(-1)) godz++;
+                    if (t > tOst) { tOst = t; ost = u; ostN = P.S(a, "nazwa"); }
+                }
+            var us = Uslugi();
+            return P.D("strona", strona, "zatrzymana", P.B(us, strona + "_zatrzymana"), "zmiana", P.S(us, strona + "_zmiana"),
+                "agenci", ag.Count, "aktywni", ag.Count(x => P.B(x, "aktywny")), "nazwy", ag.Select(x => (object)P.S(x, "nazwa")).ToList(),
+                "w_toku", wToku.Cast<object>().ToList(), "tury_godzina", godz,
+                "ostatnia_tura", ost == null ? "" : P.S(ost, "czas"), "ostatni_kod", ost == null ? "" : P.S(ost, "kod"), "ostatni_agent", ostN,
+                "ostatni_wynik", ost == null ? "" : P.S(ost, "wynik"));
+        }
+
         static bool MaOczekujace(string nazwa)
         {
             var dir = Path.Combine(P.Root, P.Folder(nazwa));
@@ -104,6 +169,7 @@ namespace Ecxp
                     foreach (var rec in Lista().Where(x => P.B(x, "aktywny")))
                     {
                         var n = P.S(rec, "nazwa");
+                        if (Zatrzymana(P.S(rec, "strona"))) continue;
                         lock (trwa) if (trwa.Contains(n)) continue;
                         if (!MaOczekujace(n)) continue;
                         int naGodzine; int.TryParse(P.S(rec, "na_godzine"), out naGodzine);
@@ -112,7 +178,8 @@ namespace Ecxp
                         // po nieudanej turze 10 minut przerwy – bez pętli ponowień
                         var ost = P.Lista(rec, "uruchomienia").LastOrDefault();
                         DateTimeOffset tOst;
-                        if (ost != null && P.S(ost, "kod") != "0" && DateTimeOffset.TryParse(P.S(ost, "czas"), out tOst) && tOst > DateTimeOffset.Now.AddMinutes(-10)) continue;
+                        if (ost != null && P.S(ost, "kod") != "0" && DateTimeOffset.TryParse(P.S(ost, "czas"), out tOst) && tOst > DateTimeOffset.Now.AddMinutes(-10)
+                            && tOst > Reset(P.S(rec, "strona"))) continue;
                         lock (trwa) trwa.Add(n);
                         var kopia = rec;
                         new Thread(() => Tura(kopia)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
@@ -163,6 +230,7 @@ namespace Ecxp
                 psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
                 using (var pr = Process.Start(psi))
                 {
+                    lock (trwa) procesy[n] = pr;
                     var wy = new StringBuilder();
                     pr.OutputDataReceived += (s, e) => { if (e.Data != null) lock (wy) wy.AppendLine(e.Data); };
                     pr.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (wy) wy.AppendLine(e.Data); };
@@ -191,7 +259,9 @@ namespace Ecxp
                         d["uruchomienia"] = u;
                         // identyfikator sesji jest zajęty już po pierwszej próbie (także nieudanej) – dalej tylko --resume
                         if (kod == 0 || wynik.Contains("already in use") || wynik.Contains("\"session_id\"")) d["sesja_zalozona"] = true;
-                        if (kod != 0)
+                        bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
+                        if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
+                        if (kod != 0 && !przezOperatora)
                         {
                             DateTimeOffset tA;
                             if (!DateTimeOffset.TryParse(P.S(d, "ostatni_alarm"), out tA) || tA < DateTimeOffset.Now.AddHours(-1))
@@ -211,7 +281,7 @@ namespace Ecxp
                     });
                 }
                 catch (Exception ex) { Log("tura " + n + ": " + ex.Message); }
-                lock (trwa) trwa.Remove(n);
+                lock (trwa) { trwa.Remove(n); procesy.Remove(n); }
             }
         }
     }

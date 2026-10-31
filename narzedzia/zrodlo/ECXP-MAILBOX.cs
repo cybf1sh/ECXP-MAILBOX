@@ -84,6 +84,7 @@ namespace Ecxp
             Motyw.Ciemny = ust.Contains("motyw=ciemny");
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
+            widokUslug = ust.Contains("uslugi=pasek") ? "pasek" : "karty";
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -116,6 +117,7 @@ namespace Ecxp
                 // status CLI: co 3 min, po uruchomieniu z konsoli co 10 s przez 5 min
                 var odstep = DateTime.Now < czujDo ? 10 : 180;
                 if ((DateTime.Now - ostatnieCli).TotalSeconds >= odstep) { ostatnieCli = DateTime.Now; SprawdzCliTlo(); }
+                if ((DateTime.Now - ostatnieUslugi).TotalSeconds >= 3) { ostatnieUslugi = DateTime.Now; OdswiezUslugi(); }
             };
             timer.Start();
 
@@ -301,7 +303,7 @@ namespace Ecxp
                 StartPosition = FormStartPosition.CenterScreen, Font = fontN, Icon = iconOk, KeyPreview = true };
 
             // --- nagłówek: logo ECXP, projekt, nowe zadanie ---
-            var head = new Panel { Dock = DockStyle.Top, Height = 100, BackColor = Color.White };
+            var head = naglowek = new Panel { Dock = DockStyle.Top, Height = 100, BackColor = Color.White };
             var logo = logoBox = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(10, 6), Size = new Size(172, 52) };
             UstawLogo();
             var lblProj = new Label { Text = "Projekt:", AutoSize = true, Location = new Point(200, 22) };
@@ -383,20 +385,10 @@ namespace Ecxp
             foreach (var c in new object[][] { new object[] { "Projekt", 95 }, new object[] { "Moduł", 110 }, new object[] { "ChatGPT/Codex", 200 },
                 new object[] { "Claude", 200 }, new object[] { "Para", 90 }, new object[] { "Role", 260 }, new object[] { "Nazwa sesji (obie strony)", 230 }, new object[] { "Wspólna gałąź", 260 }, new object[] { "Łańcuch ról", 230 } })
                 lvAg.Columns.Add((string)c[0], (int)c[1]);
-            // status agentów CLI w nagłówku – widoczny na każdej zakładce
-            var pnlCli = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(192, 58), Padding = new Padding(0), BackColor = Color.Transparent };
-            lblCliClaude = new Label { AutoSize = true, Font = fontB, Margin = new Padding(6, 9, 4, 0), Text = "● Claude Code CLI: sprawdzam…" };
-            bCliClaude = Btn("Uruchom");
-            lblCliCodex = new Label { AutoSize = true, Font = fontB, Margin = new Padding(18, 9, 4, 0), Text = "● ChatGPT/Codex CLI: sprawdzam…" };
-            bCliCodex = Btn("Uruchom");
-            var bCliOdsw = Btn("Odśwież status");
-            pnlCli.Controls.AddRange(new Control[] { lblCliClaude, bCliClaude, lblCliCodex, bCliCodex, bCliOdsw });
-            bCliClaude.Click += delegate { UruchomCli("claude"); };
-            bCliCodex.Click += delegate { UruchomCli("codex"); };
-            bCliOdsw.Click += delegate { SprawdzCliTlo(); };
+            // usługi Claude i Codex: wariant A – pasek w nagłówku, wariant B – karty pod nagłówkiem
+            BudujUslugi(head);
             tabAg.Controls.Add(lvAg);
             tabAg.Controls.Add(lblAg);
-            head.Controls.Add(pnlCli);
             tabAg.Controls.Add(agTop);
             bNowe.Click += delegate { NoweZadanie(); };
             bNoweH.Click += delegate { NoweZadanie(); };
@@ -448,6 +440,7 @@ namespace Ecxp
             form.Controls.Add(tabs);
             form.Controls.Add(czeka);
             form.Controls.Add(lblCzeka);
+            form.Controls.Add(pnlKarty);
             form.Controls.Add(head);
             form.Controls.Add(bar);
             form.Controls.Add(strip);
@@ -832,8 +825,23 @@ namespace Ecxp
         // ---------- status agentów CLI (Claude Code CLI, ChatGPT/Codex CLI) ----------
         class StanCli { public string Nazwa = "", Sciezka = "", Wersja = "", Opis = ""; public bool Jest, Aktywne; }
         readonly Dictionary<string, StanCli> cli = new Dictionary<string, StanCli>();
-        Label lblCliClaude, lblCliCodex;
-        Button bCliClaude, bCliCodex;
+        Label lblCliClaude;   // znacznik: widok usług zbudowany
+        Panel naglowek;
+        FlowLayoutPanel pnlPasek;
+        TableLayoutPanel pnlKarty;
+        string widokUslug = "karty";
+        readonly Dictionary<string, WidokUslugi> pasek = new Dictionary<string, WidokUslugi>(), karty = new Dictionary<string, WidokUslugi>();
+        readonly Dictionary<string, Dictionary<string, object>> uslugi = new Dictionary<string, Dictionary<string, object>>();
+        bool stosBezUslug;
+        DateTime ostatnieUslugi = DateTime.MinValue;
+
+        class WidokUslugi
+        {
+            public Label Tytul, Stan, Opis;
+            public Button Start, Stop, Reset, Agent;
+            public Panel Karta;
+            public Color Kolor = Color.Gray;
+        }
         ToolStripStatusLabel stCli;
         DateTime czujDo = DateTime.MinValue, ostatnieCli = DateTime.MinValue;
         volatile bool sprawdzamCli;
@@ -894,19 +902,194 @@ namespace Ecxp
             var krotko = new List<string>();
             foreach (var n in new[] { "claude", "codex" })
             {
-                StanCli s; cli.TryGetValue(n, out s);
-                var lbl = n == "claude" ? lblCliClaude : lblCliCodex;
-                var b = n == "claude" ? bCliClaude : bCliCodex;
-                var nazwa = n == "claude" ? "Claude Code CLI" : "ChatGPT/Codex CLI";
-                if (s == null) { lbl.Text = "● " + nazwa + ": " + Jezyk.T("sprawdzam…"); lbl.ForeColor = Motyw.Slaby; continue; }
-                lbl.Text = "● " + nazwa + ": " + Jezyk.T(s.Opis);
-                podpowiedzCli.SetToolTip(lbl, (s.Wersja.Length > 0 ? s.Wersja + "\n" : "") + s.Sciezka);
-                lbl.ForeColor = s.Aktywne ? Zielony : s.Jest ? Motyw.K(Color.FromArgb(176, 106, 0)) : Czerwony;
-                b.Text = Jezyk.T(!s.Jest ? "Zainstaluj…" : s.Aktywne ? "▶  Agent w tle…" : "Zaloguj (w tle)");
-                krotko.Add((n == "claude" ? "Claude" : "Codex") + " " + (s.Aktywne ? "✓" : "✗"));
+                StanCli c; cli.TryGetValue(n, out c);
+                Dictionary<string, object> u; uslugi.TryGetValue(n, out u);
+                Color kol; string stan = StanUslugi(c, u, out kol);
+                string szczegoly = SzczegolyUslugi(c, u);
+                bool cliOk = c != null && c.Aktywne;
+                bool zatrz = u != null && P.B(u, "zatrzymana");
+                bool wToku = u != null && P.Lista(u, "w_toku").Count > 0;
+                string tStart = c == null ? Jezyk.T("sprawdzam…") : !c.Jest ? Jezyk.T("Zainstaluj…") : !c.Aktywne ? Jezyk.T("Zaloguj (w tle)") : "▶  " + Jezyk.T("Start");
+                foreach (var w in new[] { pasek[n], karty[n] })
+                {
+                    w.Kolor = kol;
+                    w.Stan.Text = "● " + stan;
+                    w.Stan.ForeColor = kol;
+                    w.Start.Text = tStart;
+                    w.Start.Enabled = c != null && (!cliOk || zatrz || u == null);
+                    w.Stop.Enabled = cliOk && !zatrz && u != null;
+                    w.Reset.Enabled = cliOk && u != null;
+                    if (w.Agent != null) w.Agent.Enabled = cliOk;
+                    if (w.Opis != null) w.Opis.Text = szczegoly;
+                    podpowiedzCli.SetToolTip(w.Stan, szczegoly);
+                    if (w.Karta != null) w.Karta.Invalidate();
+                }
+                // w pasku przycisk Start po uruchomieniu usługi otwiera nowego agenta w tle
+                if (cliOk && !zatrz && u != null) { pasek[n].Start.Text = Jezyk.T("＋ Agent…"); pasek[n].Start.Enabled = true; }
+                krotko.Add((n == "claude" ? "Claude" : "Codex") + " " + (cliOk && !zatrz ? "✓" : "✗"));
             }
+            if (stCli == null) return;
             stCli.Text = "CLI: " + string.Join(" · ", krotko);
-            stCli.ForeColor = cli.Values.All(x => x.Aktywne) ? Zielony : Motyw.K(Color.FromArgb(176, 106, 0));
+            stCli.ForeColor = cli.Count == 2 && cli.Values.All(x => x.Aktywne) ? Zielony : Motyw.K(Color.FromArgb(176, 106, 0));
+        }
+
+        string StanUslugi(StanCli c, Dictionary<string, object> u, out Color kol)
+        {
+            kol = Motyw.Slaby;
+            if (c == null) return Jezyk.T("sprawdzam…");
+            if (!c.Jest) { kol = Czerwony; return Jezyk.T("brak CLI"); }
+            if (!c.Aktywne) { kol = Motyw.K(Color.FromArgb(176, 106, 0)); return Jezyk.T("niezalogowane"); }
+            if (u == null) { kol = Zielony; return Jezyk.T("aktywne"); }
+            if (P.B(u, "zatrzymana")) { kol = Czerwony; return Jezyk.T("zatrzymana"); }
+            if (P.Lista(u, "w_toku").Count > 0) { kol = Motyw.K(Color.FromArgb(0, 90, 200)); return Jezyk.T("tura w toku"); }
+            int akt; int.TryParse(P.S(u, "aktywni"), out akt);
+            kol = Zielony;
+            return akt > 0 ? Jezyk.T("działa") : Jezyk.T("gotowa – brak agentów");
+        }
+
+        string SzczegolyUslugi(StanCli c, Dictionary<string, object> u)
+        {
+            var cz = new List<string>();
+            if (c != null && c.Wersja.Length > 0) cz.Add(Regex.Replace(c.Wersja, @"\s*\(.*\)$", ""));
+            if (c != null && c.Jest) cz.Add(Jezyk.T(c.Aktywne ? "zalogowane" : "niezalogowane"));
+            if (u != null)
+            {
+                cz.Add(Jezyk.T("agenci") + " " + P.S(u, "aktywni") + "/" + P.S(u, "agenci"));
+                DateTimeOffset t;
+                if (DateTimeOffset.TryParse(P.S(u, "ostatnia_tura"), out t))
+                    cz.Add(Jezyk.T("ostatnia tura") + " " + t.LocalDateTime.ToString("HH:mm") + " (" + (P.S(u, "ostatni_kod") == "0" ? "OK" : Jezyk.T("błąd")) + ")");
+                else cz.Add(Jezyk.T("bez tur"));
+                cz.Add(Jezyk.T("tur/h") + " " + P.S(u, "tury_godzina"));
+            }
+            else if (stosBezUslug) cz.Add(Jezyk.T("stos bez obsługi usług – uruchom go ponownie"));
+            return string.Join("  ·  ", cz);
+        }
+
+        void OdswiezUslugi()
+        {
+            if (klient == null || !klient.Polaczony || stosBezUslug) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("uslugi", null);
+                foreach (var n in new[] { "claude", "codex" }) uslugi[n] = (Dictionary<string, object>)r[n];
+                PokazCli();
+            }
+            catch (EcxpException ex) { if (ex.Message.Contains("Nieznane polecenie")) { stosBezUslug = true; PokazCli(); } }
+            catch { }
+        }
+
+        void AkcjaUslugi(string n, string akcja)
+        {
+            var nazwa = n == "claude" ? "Claude Code CLI" : "ChatGPT/Codex CLI";
+            Dictionary<string, object> u; uslugi.TryGetValue(n, out u);
+            if (akcja == "start")
+            {
+                StanCli c; cli.TryGetValue(n, out c);
+                if (c == null || !c.Aktywne) { UruchomCli(n); return; }
+            }
+            if (akcja != "start" && u != null && P.Lista(u, "w_toku").Count > 0 &&
+                MessageBox.Show(form, Jezyk.T("Trwa tura agenta w tle. Przerwać ją?"), nazwa, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("usluga", P.D("strona", n, "akcja", akcja));
+                uslugi[n] = r;
+                int ile; int.TryParse(P.S(r, "przerwane_tury"), out ile);
+                stInfo.Text = nazwa + ": " + Jezyk.T(akcja == "stop" ? "usługa zatrzymana" : akcja == "start" ? "usługa uruchomiona" : "usługa uruchomiona ponownie") +
+                              (ile > 0 ? " – " + Jezyk.T("przerwane tury:") + " " + ile : "") + ".";
+                if (akcja == "restart") { ostatnieCli = DateTime.MinValue; czujDo = DateTime.Now.AddMinutes(1); }
+                PokazCli();
+            }
+            catch (Exception ex) { MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        void BudujUslugi(Panel head)
+        {
+            // wariant A: pasek w nagłówku
+            pnlPasek = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(192, 58), Padding = new Padding(0), BackColor = Color.Transparent };
+            foreach (var n in new[] { "claude", "codex" })
+            {
+                var w = new WidokUslugi();
+                w.Stan = new Label { AutoSize = true, Font = fontB, Margin = new Padding(n == "claude" ? 6 : 16, 9, 2, 0) };
+                w.Tytul = new Label { AutoSize = true, Font = fontB, Margin = new Padding(n == "claude" ? 6 : 16, 9, 0, 0), Text = n == "claude" ? "Claude Code:" : "Codex:" };
+                w.Stan.Margin = new Padding(2, 9, 4, 0);
+                w.Start = Btn("▶  Start"); w.Stop = Btn("■  Stop"); w.Reset = Btn("↻  Restart");
+                foreach (var b in new[] { w.Start, w.Stop, w.Reset }) b.Margin = new Padding(2, 3, 2, 3);
+                podpowiedzCli.SetToolTip(w.Stop, Jezyk.T("Zatrzymaj usługę: przerywa trwającą turę i wstrzymuje agentów w tle tej strony."));
+                podpowiedzCli.SetToolTip(w.Reset, Jezyk.T("Uruchom ponownie: przerywa turę, wznawia usługę i kasuje przerwę po błędzie."));
+                pnlPasek.Controls.AddRange(new Control[] { w.Tytul, w.Stan, w.Start, w.Stop, w.Reset });
+                Podepnij(w, n);
+                pasek[n] = w;
+            }
+            head.Controls.Add(pnlPasek);
+            lblCliClaude = pasek["claude"].Stan;
+
+            // wariant B: dwie karty usług pod nagłówkiem
+            pnlKarty = new TableLayoutPanel { Dock = DockStyle.Top, Height = 112, ColumnCount = 2, RowCount = 1, Padding = new Padding(8, 6, 8, 6) };
+            pnlKarty.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            pnlKarty.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            foreach (var n in new[] { "claude", "codex" })
+            {
+                var w = new WidokUslugi();
+                var karta = w.Karta = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), BackColor = Color.White };
+                var ww = w;
+                karta.Paint += (o, e) =>
+                {
+                    var k = (Panel)o;
+                    using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawRectangle(pen, 0, 0, k.Width - 1, k.Height - 1);
+                    using (var br = new SolidBrush(ww.Kolor)) e.Graphics.FillRectangle(br, 0, 0, 6, k.Height);
+                };
+                w.Tytul = new Label { AutoSize = true, Font = new Font(fontB.FontFamily, fontB.Size + 1.5f, FontStyle.Bold), Location = new Point(18, 8),
+                    Text = n == "claude" ? "Claude Code CLI" : "ChatGPT / Codex CLI", BackColor = Color.Transparent };
+                w.Stan = new Label { AutoSize = true, Font = new Font(fontB.FontFamily, fontB.Size + 1.5f, FontStyle.Bold), BackColor = Color.Transparent };
+                w.Opis = new Label { AutoSize = true, Location = new Point(19, 36), ForeColor = Color.DimGray, BackColor = Color.Transparent };
+                var przyc = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(14, 58), BackColor = Color.Transparent };
+                w.Start = Btn("▶  Start"); w.Stop = Btn("■  Stop"); w.Reset = Btn("↻  Uruchom ponownie"); w.Agent = Btn("＋  Agent w tle…");
+                przyc.Controls.AddRange(new Control[] { w.Start, w.Stop, w.Reset, w.Agent });
+                karta.Controls.AddRange(new Control[] { w.Tytul, w.Stan, w.Opis, przyc });
+                karta.Layout += delegate { ww.Stan.Location = new Point(ww.Tytul.Right + 14, 8); };
+                Podepnij(w, n);
+                pnlKarty.Controls.Add(karta, n == "claude" ? 0 : 1, 0);
+                karty[n] = w;
+            }
+
+            // przełącznik widoku: prawy klawisz na pasku albo na karcie
+            var menuWidok = new ContextMenuStrip();
+            menuWidok.Opening += delegate
+            {
+                menuWidok.Items.Clear();
+                menuWidok.Items.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako pasek (A)"), null, delegate { UstawWidokUslug("pasek"); }) { Checked = widokUslug == "pasek" });
+                menuWidok.Items.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako karty (B)"), null, delegate { UstawWidokUslug("karty"); }) { Checked = widokUslug == "karty" });
+                menuWidok.Items.Add(new ToolStripSeparator());
+                menuWidok.Items.Add(Jezyk.T("Sprawdź status teraz"), null, delegate { ostatnieCli = DateTime.Now; SprawdzCliTlo(); OdswiezUslugi(); });
+            };
+            pnlPasek.ContextMenuStrip = menuWidok; pnlKarty.ContextMenuStrip = menuWidok;
+            foreach (var w in karty.Values) { w.Karta.ContextMenuStrip = menuWidok; foreach (Control c in w.Karta.Controls) c.ContextMenuStrip = menuWidok; }
+            foreach (Control c in pnlPasek.Controls) c.ContextMenuStrip = menuWidok;
+            UstawWidokUslug(widokUslug, false);
+        }
+
+        void Podepnij(WidokUslugi w, string n)
+        {
+            w.Start.Click += delegate
+            {
+                Dictionary<string, object> u; uslugi.TryGetValue(n, out u);
+                StanCli c; cli.TryGetValue(n, out c);
+                if (w.Agent == null && c != null && c.Aktywne && u != null && !P.B(u, "zatrzymana")) UruchomAgenta(n);
+                else AkcjaUslugi(n, "start");
+            };
+            w.Stop.Click += delegate { AkcjaUslugi(n, "stop"); };
+            w.Reset.Click += delegate { AkcjaUslugi(n, "restart"); };
+            if (w.Agent != null) w.Agent.Click += delegate { UruchomAgenta(n); };
+        }
+
+        void UstawWidokUslug(string widok, bool zapisz = true)
+        {
+            widokUslug = widok;
+            pnlPasek.Visible = widok == "pasek";
+            pnlKarty.Visible = widok == "karty";
+            naglowek.Height = widok == "pasek" ? 100 : 64;
+            if (zapisz) ZapiszUstawienia();
+            PokazCli();
         }
 
         // Usługi CLI działają w tle, bez okien konsoli:
@@ -958,7 +1141,7 @@ namespace Ecxp
 
         void ZapiszUstawienia()
         {
-            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine, new UTF8Encoding(false)); } catch { }
         }
 
         // ---------- motyw ----------
@@ -1569,18 +1752,28 @@ namespace Ecxp
             {
                 StanCli st; cli.TryGetValue(n, out st);
                 var nazwa = n == "claude" ? "Claude Code CLI" : "ChatGPT/Codex CLI";
-                string opis = st == null ? Jezyk.T("sprawdzam…") : Jezyk.T(st.Opis) + (st.Wersja.Length > 0 ? "  (" + st.Wersja + ")" : "");
+                Dictionary<string, object> usl; uslugi.TryGetValue(n, out usl);
+                Color kolM; string opis = StanUslugi(st, usl, out kolM) + (st != null && st.Wersja.Length > 0 ? "  (" + st.Wersja + ")" : "");
                 var wiersz = new ToolStripMenuItem("● " + nazwa + ": " + opis) { Enabled = false };
                 mCli.DropDownItems.Add(wiersz);
                 if (st != null)
                 {
                     var nn = n;
                     mCli.DropDownItems.Add(Poz("     " + Jezyk.T(!st.Jest ? "Zainstaluj…" : st.Aktywne ? "▶  Agent w tle…" : "Zaloguj (w tle)"), delegate { ShowWindow(); UruchomCli(nn); }));
-                    krotko.Add((n == "claude" ? "Claude" : "Codex") + " " + (st.Aktywne ? "✓" : "✗"));
+                    Dictionary<string, object> us; uslugi.TryGetValue(n, out us);
+                    if (st.Aktywne && us != null)
+                    {
+                        if (P.B(us, "zatrzymana")) mCli.DropDownItems.Add(Poz("     ▶  " + Jezyk.T("Start usługi"), delegate { AkcjaUslugi(nn, "start"); }));
+                        else mCli.DropDownItems.Add(Poz("     ■  " + Jezyk.T("Zatrzymaj usługę"), delegate { AkcjaUslugi(nn, "stop"); }));
+                        mCli.DropDownItems.Add(Poz("     ↻  " + Jezyk.T("Uruchom ponownie"), delegate { AkcjaUslugi(nn, "restart"); }));
+                    }
+                    krotko.Add((n == "claude" ? "Claude" : "Codex") + " " + (st.Aktywne && !(usl != null && P.B(usl, "zatrzymana")) ? "✓" : "✗"));
                 }
             }
             mCli.DropDownItems.Add(new ToolStripSeparator());
-            mCli.DropDownItems.Add(Poz(Jezyk.T("Sprawdź status teraz"), delegate { ostatnieCli = DateTime.Now; SprawdzCliTlo(); }));
+            mCli.DropDownItems.Add(Poz(Jezyk.T("Sprawdź status teraz"), delegate { ostatnieCli = DateTime.Now; SprawdzCliTlo(); OdswiezUslugi(); }));
+            mCli.DropDownItems.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako pasek (A)"), null, delegate { UstawWidokUslug("pasek"); }) { Checked = widokUslug == "pasek" });
+            mCli.DropDownItems.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako karty (B)"), null, delegate { UstawWidokUslug("karty"); }) { Checked = widokUslug == "karty" });
             mCli.DropDownItems.Add(Poz(Jezyk.T("Dziennik usług CLI"), delegate { OpenPath(Path.Combine(P.Root, "stan")); }));
             if (krotko.Count > 0) mCli.Text += "   (" + string.Join(" · ", krotko) + ")";
             menu.Items.Add(mCli);

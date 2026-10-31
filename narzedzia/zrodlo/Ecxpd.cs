@@ -421,6 +421,8 @@ namespace Ecxp
                             P.S(a, "uprawnienia").Length > 0 ? P.S(a, "uprawnienia") : "odczyt", P.L(a, "role"), P.S(a, "opis"), ng > 0 ? ng : 6);
                     }
                 case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
+                case "usluga": TylkoOperator(s); return Agenci.Usluga(P.S(a, "strona"), P.S(a, "akcja"));
+                case "uslugi": return P.D("claude", Agenci.UslugaStan("claude"), "codex", Agenci.UslugaStan("codex"));
                 case "agenci":
                     return P.D("agenci", Agenci.Lista().Cast<object>().ToList(), "claude_cli", Agenci.Program("claude"), "codex_cli", Agenci.Program("codex"));
                 case "straz":
