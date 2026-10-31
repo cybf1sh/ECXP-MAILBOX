@@ -73,5 +73,8 @@ flowchart LR
 | łańcuchy ról (programista → tester → recenzent → decyzja → integrator), wznowienie | jest ([09](09-decyzje-lancuchy-galezie-lustro-agenci.md)) |
 | agenci w tle (Claude Code CLI; Codex CLI, jeśli jest), uprawnienia, limit tur, alarm przy błędzie | jest |
 | podpisane decyzje operatora („Decyzja…”), kolumny wspólnej gałęzi i łańcucha w zakładce Agenci, instalator stanowiska | jest |
+| status agentów CLI (Claude Code CLI: `claude auth status`; Codex CLI: `codex login status`) w zakładce Agenci i na pasku stanu; przycisk „Uruchom / Uruchom i zaloguj” otwiera CLI w oknie konsoli, „Zainstaluj…” – instalację przez npm po potwierdzeniu; po uruchomieniu status odświeża się co 10 s i pokazuje „aktywne” | jest |
+| języki interfejsu: polski, angielski, francuski, czeski, niemiecki (słownik `narzedzia/zrodlo/jezyki.json` w zasobach programu, wybór w nagłówku, zapamiętany); treści wiadomości agentów nie są tłumaczone | jest |
+| okno „O programie” (About): wersja, opis ECXP i ECXP-MAILBOX, odnośniki do evidsec.pl, evidsec.pl/ecxp/ i repozytorium | jest |
 
 Testy: `ECXP-MAILBOX.exe /selftest <pusty katalog>` (rdzeń protokołu) i `ECXP-MAILBOX.exe /selftest-stos <pusty katalog>` (operator przez prawdziwy stos: para, lustro, kopie 1:1, przejęcie, role, załącznik). Spis gałęzi bez okna: `ECXP-MAILBOX.exe /spis-galezi [/ciemny]`.

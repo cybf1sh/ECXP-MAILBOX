@@ -80,7 +80,10 @@ namespace Ecxp
             Stan = Path.Combine(P.Root, "STAN-MODULOW.md");
             ReadFile = Path.Combine(P.Root, "narzedzia", "przeczytane-wlasciciel.txt");
             UstawieniaPlik = Path.Combine(P.Root, "narzedzia", "ustawienia-wlasciciel.txt");
-            Motyw.Ciemny = P.Czytaj(UstawieniaPlik).Contains("motyw=ciemny");
+            var ust = P.Czytaj(UstawieniaPlik);
+            Motyw.Ciemny = ust.Contains("motyw=ciemny");
+            var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
+            Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -88,7 +91,7 @@ namespace Ecxp
             iconNew = Icon.FromHandle(IconBitmap(true, 32).GetHicon());
             BuildForm();
             BuildPop();
-            Motyw.Zastosuj(form); Motyw.Zastosuj(pop);
+            Motyw.Zastosuj(form); Motyw.Zastosuj(pop); Jezyk.Zastosuj(form); Jezyk.Zastosuj(pop);
             BuildTray();
             var uchwyt = form.Handle;   // uchwyt okna potrzebny do przekazywania zdarzeń stosu do wątku okna
             Polacz();
@@ -110,11 +113,14 @@ namespace Ecxp
             {
                 if ((klient == null || !klient.Polaczony) && (DateTime.Now - ostatniaProba).TotalSeconds >= 5) Polacz();
                 if (brudne == 1 || (DateTime.Now - ostatniPelny).TotalSeconds >= 15) { brudne = 0; Skanuj(); }
+                // status CLI: co 3 min, po uruchomieniu z konsoli co 10 s przez 5 min
+                var odstep = DateTime.Now < czujDo ? 10 : 180;
+                if ((DateTime.Now - ostatnieCli).TotalSeconds >= odstep) { ostatnieCli = DateTime.Now; SprawdzCliTlo(); }
             };
             timer.Start();
 
             if (msgs.Any(m => m.Nowa) || !read.Contains(StanKey())) ShowWindow();
-            else ShowPop("ECXP-MAILBOX działa", "Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku.", new List<Msg>(), false);
+            else ShowPop(Jezyk.T("ECXP-MAILBOX działa"), Jezyk.T("Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku."), new List<Msg>(), false);
             UpdateTray();
         }
 
@@ -132,7 +138,7 @@ namespace Ecxp
             catch (Exception ex)
             {
                 klient = null;
-                if (stStos != null) { stStos.Text = "⚠ ECXP: stos niedostępny – " + ex.Message; stStos.ForeColor = Czerwony; }
+                if (stStos != null) { stStos.Text = Jezyk.T("⚠ ECXP: stos niedostępny – ") + ex.Message; stStos.ForeColor = Czerwony; }
                 return;
             }
             StanStosu();
@@ -141,7 +147,7 @@ namespace Ecxp
         void StanStosu()
         {
             bool ok = klient != null && klient.Polaczony;
-            stStos.Text = ok ? "ECXP: połączono ze stosem ecxpd ✓" : "⚠ ECXP: brak połączenia ze stosem";
+            stStos.Text = ok ? Jezyk.T("ECXP: połączono ze stosem ecxpd ✓") : Jezyk.T("⚠ ECXP: brak połączenia ze stosem");
             stStos.ForeColor = ok ? Zielony : Czerwony;
         }
 
@@ -158,7 +164,7 @@ namespace Ecxp
             {
                 var t = P.Nazwa(P.S(d, "do")) + " · " + P.S(d, "temat") + ": " + P.S(d, "opis");
                 alarmy.Add(t);
-                if (alarmyPokazane.Add(P.S(d, "id"))) ShowPop("ECXP: problem z doręczeniem", t, new List<Msg>(), false);
+                if (alarmyPokazane.Add(P.S(d, "id"))) ShowPop(Jezyk.T("ECXP: problem z doręczeniem"), t, new List<Msg>(), false);
             }
             brudne = 1;
         }
@@ -236,13 +242,13 @@ namespace Ecxp
             if (m.Dor != null)
             {
                 var s = P.Opis(m.Dor, teraz);
-                if (m.WymagaOdp && m.Dor.Potwierdzona.HasValue) s += m.Odpowiedziano ? ", odpowiedziano" : ", bez odpowiedzi";
+                if (m.WymagaOdp && m.Dor.Potwierdzona.HasValue) s += m.Odpowiedziano ? Jezyk.T(", odpowiedziano") : Jezyk.T(", bez odpowiedzi");
                 return s;
             }
-            if (m.Katalog == "do-wlasciciela") return "dla Ciebie";
-            if (m.Katalog != "przeczytane") return "czeka u adresata od " + P.Wiek(teraz - m.Czas);
-            var r = "odebrana";
-            if (m.WymagaOdp) r += m.Odpowiedziano ? ", odpowiedziano" : ", bez odpowiedzi od " + P.Wiek(teraz - m.Czas);
+            if (m.Katalog == "do-wlasciciela") return Jezyk.T("dla Ciebie");
+            if (m.Katalog != "przeczytane") return Jezyk.T("czeka u adresata od ") + P.Wiek(teraz - m.Czas);
+            var r = Jezyk.T("odebrana");
+            if (m.WymagaOdp) r += m.Odpowiedziano ? Jezyk.T(", odpowiedziano") : Jezyk.T(", bez odpowiedzi od ") + P.Wiek(teraz - m.Czas);
             return r;
         }
 
@@ -251,7 +257,7 @@ namespace Ecxp
             var t = (m.Uwagi ?? "").Trim();
             var pierwsza = t.Split('\n')[0].Trim();
             if (pierwsza.Length > 110) pierwsza = pierwsza.Substring(0, 107) + "…";
-            return P.Rodzaj(m) + ": " + P.Baza(m.Temat) + (pierwsza.Length > 0 ? " – " + pierwsza : "");
+            return Jezyk.T(P.Rodzaj(m)) + ": " + P.Baza(m.Temat) + (pierwsza.Length > 0 ? " – " + pierwsza : "");
         }
 
         // ---------- ikona ----------
@@ -305,11 +311,23 @@ namespace Ecxp
             cbProjekt.SelectedIndex = cbProjekt.Items.Count > 1 ? 1 : 0;
             var bNoweH = Btn("＋  Nowe zadanie / moduł…");
             bNoweH.Font = fontB; bNoweH.BackColor = Zolty; bNoweH.FlatStyle = FlatStyle.Flat; bNoweH.Location = new Point(460, 14);
-            bMotyw = Btn(Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny");
+            bMotyw = Btn(Motyw.Ciemny ? Jezyk.T("☀  Motyw jasny") : Jezyk.T("☾  Motyw ciemny"));
             bMotyw.Location = new Point(700, 14);
             bMotyw.Click += delegate { PrzelaczMotyw(); };
-            var lblMotto = new Label { Text = "ECXP · para 1:1 ChatGPT/Codex ↔ Claude", AutoSize = true, ForeColor = Color.DimGray, Location = new Point(870, 23) };
-            head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bMotyw, lblMotto });
+            var cbJezyk = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(870, 18), Width = 120 };
+            foreach (var j in Jezyk.Dostepne) cbJezyk.Items.Add(j[1]);
+            cbJezyk.SelectedIndex = Math.Max(0, Array.FindIndex(Jezyk.Dostepne, j => j[0] == Jezyk.Kod));
+            cbJezyk.SelectedIndexChanged += delegate
+            {
+                Jezyk.Kod = Jezyk.Dostepne[cbJezyk.SelectedIndex][0];
+                ZapiszUstawienia();
+                Jezyk.Zastosuj(form); Jezyk.Zastosuj(pop); Jezyk.Zastosuj(tray.ContextMenuStrip);
+                RefreshView(); PokazCli();
+            };
+            var bOProgramie = Btn("ⓘ  O programie");
+            bOProgramie.Location = new Point(1000, 14);
+            bOProgramie.Click += delegate { OProgramie(); };
+            head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bMotyw, cbJezyk, bOProgramie });
 
             var lblCzeka = new Label { Text = "Czeka na Ciebie", Dock = DockStyle.Top, Height = 24, Font = fontB };
             czeka = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Top, Height = 90,
@@ -371,8 +389,19 @@ namespace Ecxp
             foreach (var c in new object[][] { new object[] { "Projekt", 95 }, new object[] { "Moduł", 110 }, new object[] { "ChatGPT/Codex", 200 },
                 new object[] { "Claude", 200 }, new object[] { "Para", 90 }, new object[] { "Role", 260 }, new object[] { "Nazwa sesji (obie strony)", 230 }, new object[] { "Wspólna gałąź", 260 }, new object[] { "Łańcuch ról", 230 } })
                 lvAg.Columns.Add((string)c[0], (int)c[1]);
+            var pnlCli = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, WrapContents = false, Padding = new Padding(4, 2, 4, 2) };
+            lblCliClaude = new Label { AutoSize = true, Font = fontB, Margin = new Padding(6, 9, 4, 0), Text = "● Claude Code CLI: sprawdzam…" };
+            bCliClaude = Btn("Uruchom");
+            lblCliCodex = new Label { AutoSize = true, Font = fontB, Margin = new Padding(24, 9, 4, 0), Text = "● ChatGPT/Codex CLI: sprawdzam…" };
+            bCliCodex = Btn("Uruchom");
+            var bCliOdsw = Btn("Odśwież status");
+            pnlCli.Controls.AddRange(new Control[] { lblCliClaude, bCliClaude, lblCliCodex, bCliCodex, bCliOdsw });
+            bCliClaude.Click += delegate { UruchomCli("claude"); };
+            bCliCodex.Click += delegate { UruchomCli("codex"); };
+            bCliOdsw.Click += delegate { SprawdzCliTlo(); };
             tabAg.Controls.Add(lvAg);
             tabAg.Controls.Add(lblAg);
+            tabAg.Controls.Add(pnlCli);
             tabAg.Controls.Add(agTop);
             bNowe.Click += delegate { NoweZadanie(); };
             bNoweH.Click += delegate { NoweZadanie(); };
@@ -392,7 +421,7 @@ namespace Ecxp
             tabPol.Controls.Add(lblPol);
 
             // --- Stan modułów ---
-            tabStan = new TabPage("Stan modułów");
+            tabStan = new TabPage(Jezyk.T("Stan modułów"));
             txtStan = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both,
                 WordWrap = false, Font = new Font("Consolas", 10), BackColor = Color.White };
             tabStan.Controls.Add(txtStan);
@@ -418,7 +447,8 @@ namespace Ecxp
             stInfo = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
             stSyg = new ToolStripStatusLabel { Font = fontB };
             stStos = new ToolStripStatusLabel { Font = fontB, Text = "ECXP: łączenie…" };
-            strip.Items.AddRange(new ToolStripItem[] { stInfo, stStos, stSyg });
+            stCli = new ToolStripStatusLabel { Font = fontB, Text = "CLI: …" };
+            strip.Items.AddRange(new ToolStripItem[] { stInfo, stCli, stStos, stSyg });
 
             form.Controls.Add(tabs);
             form.Controls.Add(czeka);
@@ -434,7 +464,7 @@ namespace Ecxp
             bOdp.Click += delegate
             {
                 var m = Wybrana();
-                if (m == null) { MessageBox.Show(form, "Najpierw zaznacz wiadomość, na którą chcesz odpowiedzieć.", "Odpowiedz"); return; }
+                if (m == null) { MessageBox.Show(form, Jezyk.T("Najpierw zaznacz wiadomość, na którą chcesz odpowiedzieć."), Jezyk.T("Odpowiedz")); return; }
                 Pisz(m);
             };
             cbWidok.SelectedIndexChanged += delegate { RefreshView(); };
@@ -482,8 +512,8 @@ namespace Ecxp
             var teraz = DateTime.Now;
             wciecie = 0;
             Dopisz(P.Baza(sel.Temat) + "\n", fontTytul, Motyw.Tekst);
-            Dopisz(w.Count + (w.Count == 1 ? " wiadomość" : " wiadomości") + (sel.Projekt.Length > 0 ? "   ·   projekt " + sel.Projekt : "") +
-                (sel.Modul.Length > 0 ? "   ·   moduł " + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
+            Dopisz(w.Count + (w.Count == 1 ? Jezyk.T(" wiadomość") : Jezyk.T(" wiadomości")) + (sel.Projekt.Length > 0 ? Jezyk.T("   ·   projekt ") + sel.Projekt : "") +
+                (sel.Modul.Length > 0 ? Jezyk.T("   ·   moduł ") + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
             int poz = 0;
             var zal = new List<Dictionary<string, object>>();
             foreach (var m in w)
@@ -491,10 +521,10 @@ namespace Ecxp
                 if (m == sel) poz = det.TextLength;
                 wciecie = 0;
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
-                Dopisz(P.Nazwa(m.Od) + "  →  " + (m.Lustro.Count > 1 ? "para: " + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : P.Nazwa(m.Do)), fontB, Motyw.Tekst);
-                Dopisz("     " + P.Rodzaj(m) + (m.Pilne ? " · PILNE" : "") + (m.KopiaDla.Length > 0 ? " · kopia dla pary (1:1)" : "") + "   ·   " + m.Czas.ToString("dd.MM HH:mm") + "\n", fontS, Kolor(m));
+                Dopisz(P.Nazwa(m.Od) + "  →  " + (m.Lustro.Count > 1 ? Jezyk.T("para: ") + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : P.Nazwa(m.Do)), fontB, Motyw.Tekst);
+                Dopisz("     " + Jezyk.T(P.Rodzaj(m)) + (m.Pilne ? Jezyk.T(" · PILNE") : "") + (m.KopiaDla.Length > 0 ? Jezyk.T(" · kopia dla pary (1:1)") : "") + "   ·   " + m.Czas.ToString("dd.MM HH:mm") + "\n", fontS, Kolor(m));
                 wciecie = 24;
-                if (m.Blad != null) Dopisz("Nie da się odczytać wiadomości: " + m.Blad + "\n", fontN, Czerwony);
+                if (m.Blad != null) Dopisz(Jezyk.T("Nie da się odczytać wiadomości: ") + m.Blad + "\n", fontN, Czerwony);
                 if (m.Uwagi.Trim().Length > 0) Dopisz(m.Uwagi.Trim() + "\n", fontTresc, Motyw.Tekst);
                 foreach (var c in m.Czesci)
                 {
@@ -510,14 +540,14 @@ namespace Ecxp
                 }
                 if (m.Kontrole.Count > 0)
                 {
-                    Dopisz("Kontrole:\n", fontB, Motyw.Tekst);
+                    Dopisz(Jezyk.T("Kontrole:\n"), fontB, Motyw.Tekst);
                     foreach (var k in m.Kontrole)
                         Dopisz("• " + k + "\n", fontN, k.StartsWith("[PASS") ? Zielony : (k.StartsWith("[FAIL") || k.StartsWith("[BLOCKED")) ? Czerwony : Motyw.Tekst);
                 }
-                if (m.Pliki.Count > 0) { Dopisz("Pliki:\n", fontB, Motyw.Tekst); foreach (var p in m.Pliki) Dopisz("• " + p + "\n", fontN, Motyw.Tekst); }
-                if (m.Commit.Length > 0) Dopisz("Commit: " + m.Commit + "\n", fontN, Motyw.Slaby);
-                if (m.Ograniczenia.Length > 0) Dopisz("Ograniczenia: " + m.Ograniczenia + "\n", fontS, Motyw.Slaby);
-                Dopisz("Doręczenie: " + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
+                if (m.Pliki.Count > 0) { Dopisz(Jezyk.T("Pliki:\n"), fontB, Motyw.Tekst); foreach (var p in m.Pliki) Dopisz("• " + p + "\n", fontN, Motyw.Tekst); }
+                if (m.Commit.Length > 0) Dopisz(Jezyk.T("Commit: ") + m.Commit + "\n", fontN, Motyw.Slaby);
+                if (m.Ograniczenia.Length > 0) Dopisz(Jezyk.T("Ograniczenia: ") + m.Ograniczenia + "\n", fontS, Motyw.Slaby);
+                Dopisz(Jezyk.T("Doręczenie: ") + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
                 wciecie = 0;
                 Dopisz("\n", fontS, Motyw.Slaby);
             }
@@ -551,8 +581,8 @@ namespace Ecxp
         {
             var sha = P.S(c, "sha256");
             var src = sha.Length == 64 ? P.ObjPath(sha) : "";
-            if (src.Length == 0 || !File.Exists(src)) { MessageBox.Show(form, "Nie ma tego załącznika w magazynie kontekstu.", "Załącznik"); return; }
-            if (P.ShaPliku(src) != sha) { MessageBox.Show(form, "Załącznik jest uszkodzony – skrót SHA-256 się nie zgadza. Nie otwieram go.", "Załącznik", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (src.Length == 0 || !File.Exists(src)) { MessageBox.Show(form, Jezyk.T("Nie ma tego załącznika w magazynie kontekstu."), Jezyk.T("Załącznik")); return; }
+            if (P.ShaPliku(src) != sha) { MessageBox.Show(form, Jezyk.T("Załącznik jest uszkodzony – skrót SHA-256 się nie zgadza. Nie otwieram go."), Jezyk.T("Załącznik"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             var nazwa = Path.GetFileName(P.S(c, "nazwa"));
             if (nazwa.Length == 0) nazwa = sha.Substring(0, 12);
             var dir = Path.Combine(Path.GetTempPath(), "ecxp-podglad", sha.Substring(0, 12));
@@ -597,7 +627,7 @@ namespace Ecxp
         void SpisGalezi()
         {
             try { System.Diagnostics.Process.Start(ZbudujSpis()); }
-            catch (Exception ex) { MessageBox.Show(form, "Nie udało się zbudować spisu: " + ex.Message, "Spis gałęzi"); }
+            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie udało się zbudować spisu: ") + ex.Message, Jezyk.T("Spis gałęzi")); }
         }
 
         public static string ZbudujSpis()
@@ -681,15 +711,15 @@ namespace Ecxp
                 if (f.ShowDialog(form) != DialogResult.OK) return;
                 var podsum = "Rodzaj: " + cbR.Text + (tbC.Text.Length > 0 ? "\nCommit: " + tbC.Text : "") + (tbG.Text.Length > 0 ? "\nGałąź: " + tbG.Text : "") +
                              "\nDo: " + (cbDo.Text.Length > 0 ? cbDo.Text : "(tylko łańcuch)") + (cbL.Text.Length > 0 ? "\nŁańcuch: " + cbL.Text : "") + "\n\n" + tbO.Text;
-                if (MessageBox.Show(form, "Podpisać i wysłać tę decyzję?\n\n" + podsum, "Decyzja operatora", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                if (MessageBox.Show(form, Jezyk.T("Podpisać i wysłać tę decyzję?\n\n") + podsum, Jezyk.T("Decyzja operatora"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 try
                 {
                     var r = (Dictionary<string, object>)Stos("decyzja", P.D("projekt", cbP.Text, "modul", tbM.Text, "do", cbDo.Text, "rodzaj", cbR.Text, "commit", tbC.Text,
                         "galaz", tbG.Text, "opis", tbO.Text, "lancuch", cbL.Text.Split(' ')[0]));
-                    stInfo.Text = "Decyzja " + P.S(r, "id") + " podpisana i wysłana.";
+                    stInfo.Text = Jezyk.T("Decyzja ") + P.S(r, "id") + Jezyk.T(" podpisana i wysłana.");
                     Skanuj();
                 }
-                catch (Exception ex) { MessageBox.Show(form, "Nie wydano decyzji: " + ex.Message, "Decyzja", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie wydano decyzji: ") + ex.Message, Jezyk.T("Decyzja"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -719,31 +749,174 @@ namespace Ecxp
                 {
                     Stos("uruchom_agenta", P.D("nazwa", tbN.Text, "projekt", cbP.Text, "modul", tbM.Text, "katalog", tbK.Text, "uprawnienia", cbU.Text, "model", cbMo.Text,
                         "na_godzine", tbB.Text, "role", Formularz.Zaznaczone(rl), "opis", tbO.Text));
-                    stInfo.Text = "Agent " + tbN.Text + " działa w tle – odbierze wiadomości, gdy przyjdą.";
+                    stInfo.Text = Jezyk.T("Agent ") + tbN.Text + Jezyk.T(" działa w tle – odbierze wiadomości, gdy przyjdą.");
                     Skanuj();
                 }
-                catch (Exception ex) { MessageBox.Show(form, "Nie uruchomiono: " + ex.Message, "Agent w tle", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie uruchomiono: ") + ex.Message, Jezyk.T("Agent w tle"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
         void Wznow()
         {
             var para = WybranaPara();
-            if (para == null) { MessageBox.Show(form, "Zaznacz parę na liście agentów.", "Wznów"); return; }
+            if (para == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Wznów")); return; }
             string pr = P.S(para, "projekt"), mod = P.S(para, "modul");
             try
             {
                 if (Galezie.Wstrzymana(pr, mod))
                 {
-                    if (MessageBox.Show(form, "Para " + pr + "/" + mod + " jest wstrzymana po rozbieżności wspólnej gałęzi.\nWznowić ją (rozbieżność została rozwiązana)?", "Wznów parę", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                    if (MessageBox.Show(form, Jezyk.T("Para ") + pr + "/" + mod + Jezyk.T(" jest wstrzymana po rozbieżności wspólnej gałęzi.\nWznowić ją (rozbieżność została rozwiązana)?"), Jezyk.T("Wznów parę"), MessageBoxButtons.YesNo) == DialogResult.Yes)
                         Stos("para_wznow", P.D("projekt", pr, "modul", mod, "uwagi", "wznowiona z konsoli"));
                 }
                 var lr = Lancuchy.Wszystkie().Where(l => P.S(l, "projekt") == pr && P.S(l, "modul") == mod && P.S(l, "stan") == "blad").FirstOrDefault();
-                if (lr != null && MessageBox.Show(form, "Łańcuch „" + P.S(lr, "tytul") + "” stoi (" + P.S(lr, "stan") + "). Wznowić bieżący krok?", "Wznów łańcuch", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                if (lr != null && MessageBox.Show(form, Jezyk.T("Łańcuch „") + P.S(lr, "tytul") + Jezyk.T("” stoi (") + P.S(lr, "stan") + Jezyk.T("). Wznowić bieżący krok?"), Jezyk.T("Wznów łańcuch"), MessageBoxButtons.YesNo) == DialogResult.Yes)
                     Stos("lancuch_wznow", P.D("id", P.S(lr, "id")));
                 Skanuj();
             }
-            catch (Exception ex) { MessageBox.Show(form, ex.Message, "Wznów", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { MessageBox.Show(form, ex.Message, Jezyk.T("Wznów"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        // ---------- O programie / About ----------
+        public const string StronaEvidsec = "https://evidsec.pl/", StronaEcxp = "https://evidsec.pl/ecxp/", RepozytoriumEcxp = "https://github.com/cybf1sh/ECXP-MAILBOX";
+
+        void OProgramie()
+        {
+            var wersja = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            using (var f = new Form { Text = Jezyk.T("O programie") + " – ECXP-MAILBOX", Size = new Size(720, 600), MinimumSize = new Size(560, 460), StartPosition = FormStartPosition.CenterParent,
+                Font = fontN, MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false })
+            {
+                var pan = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(22, 16, 22, 10) };
+                var lg = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(230, 70), Image = logoBox.Image, Margin = new Padding(0, 0, 0, 8) };
+                var szer = 640;
+                Func<string, Font, Color, Label> lbl = (t, ft, kol) => new Label { Text = t, Font = ft, ForeColor = kol, AutoSize = true, MaximumSize = new Size(szer, 0), Margin = new Padding(0, 4, 0, 6) };
+                pan.Controls.Add(lg);
+                pan.Controls.Add(lbl("ECXP-MAILBOX " + wersja + " · ECXP " + P.Protokol, fontH, Motyw.Tekst));
+                pan.Controls.Add(lbl("Evidsec Context eXchange Protocol", fontB, Motyw.Slaby));
+                pan.Controls.Add(lbl(Jezyk.T("ECXP to uniwersalny, niezawodny i połączeniowy protokół wymiany wiadomości i kontekstu między agentami ChatGPT/Codex i Claude oraz człowiekiem-operatorem – dla dowolnego projektu i na dowolnym stanowisku."), fontN, Motyw.Tekst));
+                pan.Controls.Add(lbl(Jezyk.T("Zasada 1:1: para Codex + Claude pracuje nad tym samym zadaniem i jedną wspólną gałęzią; to, co operator napisze jednej stronie – w oknie czatu albo w konsoli – dostaje także druga."), fontN, Motyw.Tekst));
+                pan.Controls.Add(lbl(Jezyk.T("Niezawodność jak w TCP: ramki 72 B z SHA-256, uzgadnianie połączeń, potwierdzenia, ponowienia, alarm i dziennik odporny na zmiany. Kontekst: obiekty SHA-256, załączniki, łańcuchy ról, podpisane decyzje operatora."), fontN, Motyw.Tekst));
+                pan.Controls.Add(lbl(Jezyk.T("ECXP-MAILBOX to konsola operatora ECXP: rozmowy agentów, pary i role, nowe zadania, agenci w tle (Claude Code CLI, Codex CLI) i decyzje."), fontN, Motyw.Tekst));
+                foreach (var l in new[] { new[] { Jezyk.T("Strona Evidsec"), StronaEvidsec }, new[] { Jezyk.T("ECXP i ECXP-MAILBOX – opis"), StronaEcxp }, new[] { Jezyk.T("Kod źródłowy i dokumentacja (GitHub)"), RepozytoriumEcxp } })
+                {
+                    var adres = l[1];
+                    var ll = new LinkLabel { Text = l[0] + ":  " + adres, AutoSize = true, Margin = new Padding(0, 6, 0, 2), LinkColor = Motyw.K(Color.FromArgb(0, 80, 200)) };
+                    ll.LinkClicked += delegate { try { System.Diagnostics.Process.Start(adres); } catch { } };
+                    pan.Controls.Add(ll);
+                }
+                pan.Controls.Add(lbl("© Evidsec · " + Jezyk.T("Katalog instalacji") + ": " + P.Root, fontS, Motyw.Slaby));
+                var dol = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 48, Padding = new Padding(8) };
+                var bz = new Button { Text = Jezyk.T("Zamknij"), AutoSize = true, Height = 32, DialogResult = DialogResult.OK };
+                dol.Controls.Add(bz);
+                f.Controls.Add(pan); f.Controls.Add(dol);
+                f.AcceptButton = bz;
+                Motyw.Zastosuj(f);
+                f.ShowDialog(form);
+            }
+        }
+
+        // ---------- status agentów CLI (Claude Code CLI, ChatGPT/Codex CLI) ----------
+        class StanCli { public string Nazwa = "", Sciezka = "", Wersja = "", Opis = ""; public bool Jest, Aktywne; }
+        readonly Dictionary<string, StanCli> cli = new Dictionary<string, StanCli>();
+        Label lblCliClaude, lblCliCodex;
+        Button bCliClaude, bCliCodex;
+        ToolStripStatusLabel stCli;
+        DateTime czujDo = DateTime.MinValue, ostatnieCli = DateTime.MinValue;
+        volatile bool sprawdzamCli;
+
+        static string WykonajCli(string prog, string args, int ms)
+        {
+            try
+            {
+                var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    ? new System.Diagnostics.ProcessStartInfo(prog, args)
+                    : new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" " + args + "\"");
+                psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true; psi.RedirectStandardInput = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                using (var pr = System.Diagnostics.Process.Start(psi))
+                {
+                    pr.StandardInput.Close();
+                    var t = pr.StandardOutput.ReadToEndAsync(); var e = pr.StandardError.ReadToEndAsync();
+                    if (!pr.WaitForExit(ms)) { try { pr.Kill(); } catch { } return ""; }
+                    return t.Result + "\n" + e.Result;
+                }
+            }
+            catch { return ""; }
+        }
+
+        static StanCli SprawdzCli(string nazwa)
+        {
+            var s = new StanCli { Nazwa = nazwa, Sciezka = Agenci.Program(nazwa) };
+            s.Jest = s.Sciezka.Length > 0;
+            if (!s.Jest) { s.Opis = "nie zainstalowane"; return s; }
+            s.Wersja = WykonajCli(s.Sciezka, "--version", 30000).Trim().Split('\n')[0].Trim();
+            if (nazwa == "claude") s.Aktywne = Regex.IsMatch(WykonajCli(s.Sciezka, "auth status", 30000), "\"loggedIn\"\\s*:\\s*true");
+            else { var o = WykonajCli(s.Sciezka, "login status", 30000); s.Aktywne = o.IndexOf("Logged in", StringComparison.OrdinalIgnoreCase) >= 0 && o.IndexOf("Not logged in", StringComparison.OrdinalIgnoreCase) < 0; }
+            s.Opis = s.Aktywne ? "aktywne" : "zainstalowane, niezalogowane";
+            return s;
+        }
+
+        void SprawdzCliTlo()
+        {
+            if (sprawdzamCli) return;
+            sprawdzamCli = true;
+            new Thread(() =>
+            {
+                try
+                {
+                    var a = SprawdzCli("claude"); var b = SprawdzCli("codex");
+                    form.BeginInvoke((Action)(() => { cli["claude"] = a; cli["codex"] = b; PokazCli(); }));
+                }
+                catch { }
+                finally { sprawdzamCli = false; }
+            }) { IsBackground = true, Name = "ecxp-status-cli" }.Start();
+        }
+
+        void PokazCli()
+        {
+            if (lblCliClaude == null) return;
+            var krotko = new List<string>();
+            foreach (var n in new[] { "claude", "codex" })
+            {
+                StanCli s; cli.TryGetValue(n, out s);
+                var lbl = n == "claude" ? lblCliClaude : lblCliCodex;
+                var b = n == "claude" ? bCliClaude : bCliCodex;
+                var nazwa = n == "claude" ? "Claude Code CLI" : "ChatGPT/Codex CLI";
+                if (s == null) { lbl.Text = "● " + nazwa + ": " + Jezyk.T("sprawdzam…"); lbl.ForeColor = Motyw.Slaby; continue; }
+                lbl.Text = "● " + nazwa + ": " + Jezyk.T(s.Opis) + (s.Wersja.Length > 0 ? "  (" + s.Wersja + ")" : "");
+                lbl.ForeColor = s.Aktywne ? Zielony : s.Jest ? Motyw.K(Color.FromArgb(176, 106, 0)) : Czerwony;
+                b.Text = Jezyk.T(!s.Jest ? "Zainstaluj…" : s.Aktywne ? "Uruchom" : "Uruchom i zaloguj");
+                krotko.Add((n == "claude" ? "Claude" : "Codex") + " " + (s.Aktywne ? "✓" : "✗"));
+            }
+            stCli.Text = "CLI: " + string.Join(" · ", krotko);
+            stCli.ForeColor = cli.Values.All(x => x.Aktywne) ? Zielony : Motyw.K(Color.FromArgb(176, 106, 0));
+        }
+
+        // Uruchomienie usługi CLI z konsoli: okno konsoli z CLI (logowanie lub praca); brak CLI – instalacja przez npm po potwierdzeniu.
+        void UruchomCli(string n)
+        {
+            StanCli s; cli.TryGetValue(n, out s);
+            var nazwa = n == "claude" ? "Claude Code CLI" : "ChatGPT/Codex CLI";
+            try
+            {
+                if (s == null || !s.Jest)
+                {
+                    var pakiet = n == "claude" ? "@anthropic-ai/claude-code" : "@openai/codex";
+                    if (MessageBox.Show(form, Jezyk.T("Zainstalować przez npm (Node.js)?") + Jezyk.T("\n\n") + nazwa + Jezyk.T(": npm install -g ") + pakiet + Jezyk.T("\n\n") +
+                        Jezyk.T("Otworzy się okno konsoli z instalacją. Potem kliknij Uruchom i zaloguj się na swoje konto."),
+                        nazwa, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/k npm install -g " + pakiet) { UseShellExecute = true });
+                }
+                else
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/k \"\"" + s.Sciezka + "\"\"") { UseShellExecute = true, WorkingDirectory = P.Root });
+                czujDo = DateTime.Now.AddMinutes(5);
+                stInfo.Text = nazwa + ": " + Jezyk.T("uruchomiono – status odświeża się co 10 s.");
+            }
+            catch (Exception ex) { MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        void ZapiszUstawienia()
+        {
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine, new UTF8Encoding(false)); } catch { }
         }
 
         // ---------- motyw ----------
@@ -758,10 +931,10 @@ namespace Ecxp
         void PrzelaczMotyw()
         {
             Motyw.Ciemny = !Motyw.Ciemny;
-            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine, new UTF8Encoding(false)); } catch { }
-            bMotyw.Text = Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny";
+            ZapiszUstawienia();
+            bMotyw.Text = Motyw.Ciemny ? Jezyk.T("☀  Motyw jasny") : Jezyk.T("☾  Motyw ciemny");
             UstawLogo();
-            Motyw.Zastosuj(form); Motyw.Zastosuj(pop);
+            Motyw.Zastosuj(form); Motyw.Zastosuj(pop); Jezyk.Zastosuj(form); Jezyk.Zastosuj(pop);
             RefreshView();
             var m = Wybrana(); if (m != null) PokazWatek(m);
             StanStosu();
@@ -800,7 +973,7 @@ namespace Ecxp
             var teraz = DateTime.Now;
             txtStan.Text = Crlf(P.Czytaj(Stan));
             czeka.Text = Crlf(CzekaNaCiebie());
-            tabStan.Text = !read.Contains(StanKey()) ? "Stan modułów (zmieniony)" : "Stan modułów";
+            tabStan.Text = !read.Contains(StanKey()) ? Jezyk.T("Stan modułów (zmieniony)") : Jezyk.T("Stan modułów");
 
             // lista modułów do filtra
             var moduly = msgs.Select(m => m.Modul).Where(m => m.Length > 0).Distinct().OrderBy(m => m).ToList();
@@ -827,12 +1000,12 @@ namespace Ecxp
             foreach (var w in watki)
             {
                 var czekaj = w.Select(m => Czeka(m, teraz)).Where(t => t.HasValue).Select(t => t.Value).DefaultIfEmpty(TimeSpan.Zero).Max();
-                var stanW = w.Any(m => m.Blad != null) ? "⚠ uszkodzona wiadomość"
-                    : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? "⚠ brak potwierdzenia – eskalacja"
-                    : czekaj > TimeSpan.Zero ? "⏳ czeka od " + P.Wiek(czekaj)
-                    : "✓ zamknięta";
+                var stanW = w.Any(m => m.Blad != null) ? Jezyk.T("⚠ uszkodzona wiadomość")
+                    : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? Jezyk.T("⚠ brak potwierdzenia – eskalacja")
+                    : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
+                    : Jezyk.T("✓ zamknięta");
                 var g = new ListViewGroup(w[0].Watek, P.Baza(w[0].Temat) + "   ·   " + string.Join(", ", w.Select(m => m.Modul).Where(x => x.Length > 0).Distinct()) +
-                    "   ·   " + w.Count + " wiad.   ·   " + stanW + (w.Any(m => m.Nowa) ? "   ·   NOWE" : ""));
+                    "   ·   " + w.Count + Jezyk.T(" wiad.   ·   ") + stanW + (w.Any(m => m.Nowa) ? Jezyk.T("   ·   NOWE") : ""));
                 lv.Groups.Add(g);
                 foreach (var m in w)
                 {
@@ -857,10 +1030,11 @@ namespace Ecxp
 
             RefreshPolaczenia(teraz);
             RefreshAgenci();
+            Jezyk.Zastosuj(form);
             int nowe = msgs.Count(m => m.Nowa);
             int wKolejce = msgs.Count(m => m.Katalog == "do-codex" || m.Katalog == "do-claude");
             int bezOdp = msgs.Count(m => m.WymagaOdp && !m.Odpowiedziano);
-            stInfo.Text = string.Format("Nowe dla Ciebie: {0}   ·   w kolejkach adresatów: {1}   ·   pytań bez odpowiedzi: {2}   ·   dziennik: {3}   ·   {4:HH:mm:ss}",
+            stInfo.Text = string.Format(Jezyk.T("Nowe dla Ciebie: {0}   ·   w kolejkach adresatów: {1}   ·   pytań bez odpowiedzi: {2}   ·   dziennik: {3}   ·   {4:HH:mm:ss}"),
                 nowe, wKolejce, bezOdp, spojnosc, teraz);
             stInfo.ForeColor = spojnosc.StartsWith("NARUSZONY") ? Motyw.K(Color.FromArgb(200, 0, 0)) : SystemColors.ControlText;
             UpdateTray();
@@ -890,13 +1064,13 @@ namespace Ecxp
                 string ocena;
                 if (n == P.Koordynacja)
                 {
-                    if (w == null) ocena = "brak sygnału ECXP – automatyzacja nie używa jeszcze protokołu";
+                    if (w == null) ocena = Jezyk.T("brak sygnału ECXP – automatyzacja nie używa jeszcze protokołu");
                     else if ((teraz - w.Ostatnio).TotalMinutes > 25) ocena = "⚠ milczy od " + P.Wiek(teraz - w.Ostatnio) + " (powinna co 10 min)";
-                    else ocena = "✓ działa (automatyzacja co 10 min)";
+                    else ocena = Jezyk.T("✓ działa (automatyzacja co 10 min)");
                 }
-                else if (!kontakt.HasValue) ocena = "jeszcze się nie odezwał";
+                else if (!kontakt.HasValue) ocena = Jezyk.T("jeszcze się nie odezwał");
                 else if (czekaNa > 0) ocena = "ma " + czekaNa + " nieodebranych – czyta między etapami";
-                else ocena = "✓ bez zaległości";
+                else ocena = Jezyk.T("✓ bez zaległości");
                 var it = new ListViewItem(P.Nazwa(n) + "  (" + n + ")");
                 it.SubItems.Add(kontakt.HasValue ? kontakt.Value.ToString("dd.MM HH:mm") + "  (" + P.Wiek(teraz - kontakt.Value) + " temu)" : "—");
                 it.SubItems.Add(w != null ? w.Akcja : "");
@@ -913,20 +1087,20 @@ namespace Ecxp
 
             // pasek: sygnał koordynacji
             Wezel k; wezly.TryGetValue(P.Koordynacja, out k);
-            if (k == null) { stSyg.Text = "Codex · koordynacja: brak sygnału ECXP"; stSyg.ForeColor = Motyw.Slaby; }
+            if (k == null) { stSyg.Text = Jezyk.T("Codex · koordynacja: brak sygnału ECXP"); stSyg.ForeColor = Motyw.Slaby; }
             else
             {
                 var wiek = teraz - k.Ostatnio;
                 if (wiek.TotalMinutes > 25)
                 {
-                    stSyg.Text = "⚠ Codex · koordynacja milczy od " + P.Wiek(wiek); stSyg.ForeColor = Motyw.K(Color.FromArgb(200, 0, 0));
+                    stSyg.Text = Jezyk.T("⚠ Codex · koordynacja milczy od ") + P.Wiek(wiek); stSyg.ForeColor = Motyw.K(Color.FromArgb(200, 0, 0));
                     if (!ciszaPokazana)
                     {
                         ciszaPokazana = true;
-                        ShowPop("Codex · koordynacja milczy", "Ostatni sygnał " + k.Ostatnio.ToString("HH:mm") + " (" + P.Wiek(wiek) + " temu). Automatyzacja co 10 min mogła stanąć – zajrzyj do czatu ELV3-CORE w Codexie.", new List<Msg>(), false);
+                        ShowPop(Jezyk.T("Codex · koordynacja milczy"), Jezyk.T("Ostatni sygnał ") + k.Ostatnio.ToString(Jezyk.T("HH:mm")) + " (" + P.Wiek(wiek) + Jezyk.T(" temu). Automatyzacja co 10 min mogła stanąć – zajrzyj do czatu koordynacji w Codexie."), new List<Msg>(), false);
                     }
                 }
-                else { stSyg.Text = "Codex · koordynacja: ✓ " + k.Ostatnio.ToString("HH:mm"); stSyg.ForeColor = Motyw.K(Color.FromArgb(0, 128, 0)); ciszaPokazana = false; }
+                else { stSyg.Text = Jezyk.T("Codex · koordynacja: ✓ ") + k.Ostatnio.ToString(Jezyk.T("HH:mm")); stSyg.ForeColor = Motyw.K(Color.FromArgb(0, 128, 0)); ciszaPokazana = false; }
             }
         }
 
@@ -955,7 +1129,7 @@ namespace Ecxp
                 if (m.Katalog == "do-wlasciciela" && m.Blad == null && File.Exists(m.Sciezka))
                 {
                     try { Stos("potwierdz", P.D("id", m.Id, "wynik", "obsluzona", "uwagi", "przeczytane przez operatora")); }
-                    catch (Exception ex) { stInfo.Text = "Nie udało się potwierdzić " + m.Plik + ": " + ex.Message; }
+                    catch (Exception ex) { stInfo.Text = Jezyk.T("Nie udało się potwierdzić ") + m.Plik + ": " + ex.Message; }
                 }
             }
             SaveRead();
@@ -1033,14 +1207,14 @@ namespace Ecxp
                     Skanuj();
                     var termin = Convert.ToInt32(r["termin_potwierdzenia_min"]);
                     var ileK = ((r["kopie_dla_pary"] as System.Collections.ICollection) ?? new object[0]).Count;
-                    stInfo.Text = "Wysłano do " + string.Join(" + ", ((System.Collections.IEnumerable)r["adresaci"]).Cast<object>()) + (ileK > 0 ? " (kopia dla pary: " + ileK + ")" : "") +
+                    stInfo.Text = Jezyk.T("Wysłano do ") + string.Join(" + ", ((System.Collections.IEnumerable)r["adresaci"]).Cast<object>()) + (ileK > 0 ? Jezyk.T(" (kopia dla pary: ") + ileK + ")" : "") +
                         (termin > 0 ? ", termin potwierdzenia " + termin + " min" : "");
-                    ShowPop("Wysłano: " + P.Nazwa(f.Adresat), "Temat " + P.Baza(f.tbTemat.Text.Length > 0 ? f.tbTemat.Text : (string)r["id"]) +
+                    ShowPop(Jezyk.T("Wysłano: ") + P.Nazwa(f.Adresat), Jezyk.T("Temat ") + P.Baza(f.tbTemat.Text.Length > 0 ? f.tbTemat.Text : (string)r["id"]) +
                         (termin > 0 ? ". Jeśli adresat nie potwierdzi w " + termin + " min, kanał ponowi i zaalarmuje." : "."), new List<Msg>(), false);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(form, "Nie wysłano: " + ex.Message, "Napisz", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(form, Jezyk.T("Nie wysłano: ") + ex.Message, Jezyk.T("Napisz"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
@@ -1080,26 +1254,26 @@ namespace Ecxp
                 bool pelna = cx.Length > 0 && cl.Length > 0;
                 var it = new ListViewItem(pr);
                 it.SubItems.Add(mod);
-                it.SubItems.Add(cx.Length > 0 ? ZnacznikEcxp + "  " + cx : "— brak —");
-                it.SubItems.Add(cl.Length > 0 ? ZnacznikEcxp + "  " + cl : "— brak —");
-                it.SubItems.Add(pelna ? "✓ para 1:1" : "⚠ niepełna");
+                it.SubItems.Add(cx.Length > 0 ? ZnacznikEcxp + "  " + cx : Jezyk.T("— brak —"));
+                it.SubItems.Add(cl.Length > 0 ? ZnacznikEcxp + "  " + cl : Jezyk.T("— brak —"));
+                it.SubItems.Add(pelna ? Jezyk.T("✓ para 1:1") : Jezyk.T("⚠ niepełna"));
                 it.SubItems.Add(string.Join("; ", role));
                 it.SubItems.Add(TytulPary(pr, mod));
                 var gal = Galezie.Stan(pr, mod);
                 var um = gal.ContainsKey("umowa") ? gal["umowa"] as Dictionary<string, object> : null;
                 var rozb = P.S(gal, "para_stan") == "rozbieznosc";
-                it.SubItems.Add(rozb ? "⛔ ROZBIEŻNOŚĆ – para wstrzymana" : um == null ? "brak umowy" : P.S(um, "galaz") + " (" + P.S(um, "stan") + ")");
+                it.SubItems.Add(rozb ? Jezyk.T("⛔ ROZBIEŻNOŚĆ – para wstrzymana") : um == null ? Jezyk.T("brak umowy") : P.S(um, "galaz") + " (" + P.S(um, "stan") + ")");
                 var lr = Lancuchy.Wszystkie().Where(l => P.S(l, "projekt") == pr && P.S(l, "modul") == mod && P.S(l, "stan") != "zakonczony")
                     .OrderByDescending(l => P.S(l, "id")).FirstOrDefault();
                 if (lr != null)
                 {
                     var kr = P.L(lr, "kroki"); int k = Convert.ToInt32(lr["krok"]);
-                    it.SubItems.Add("krok " + (k + 1) + "/" + kr.Count + ": " + (k < kr.Count ? kr[k] : "—") + " · " + P.S(lr, "stan"));
+                    it.SubItems.Add(Jezyk.T("krok ") + (k + 1) + "/" + kr.Count + ": " + (k < kr.Count ? kr[k] : "—") + " · " + P.S(lr, "stan"));
                 }
                 else it.SubItems.Add("—");
                 var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).Select(a => P.S(a, "nazwa")).ToList();
-                if (wTle.Contains(cx)) it.SubItems[2].Text += "  (w tle)";
-                if (wTle.Contains(cl)) it.SubItems[3].Text += "  (w tle)";
+                if (wTle.Contains(cx)) it.SubItems[2].Text += Jezyk.T("  (w tle)");
+                if (wTle.Contains(cl)) it.SubItems[3].Text += Jezyk.T("  (w tle)");
                 it.ForeColor = pelna && !rozb ? Zielony : Czerwony;
                 it.Tag = d;
                 lvAg.Items.Add(it);
@@ -1140,7 +1314,7 @@ namespace Ecxp
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
                 }
-                catch (Exception ex) { MessageBox.Show(form, "Nie utworzono: " + ex.Message, "Nowe zadanie", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -1162,16 +1336,16 @@ namespace Ecxp
                 {
                     Stos("rola", P.D("nazwa", cbN.Text.Trim(), "projekt", cbP.Text, "modul", tbM.Text, "role", Formularz.Zaznaczone(rl), "opis", tbO.Text));
                     Skanuj();
-                    stInfo.Text = "Przypisano " + cbN.Text + " do " + cbP.Text + "/" + tbM.Text;
+                    stInfo.Text = Jezyk.T("Przypisano ") + cbN.Text + Jezyk.T(" do ") + cbP.Text + "/" + tbM.Text;
                 }
-                catch (Exception ex) { MessageBox.Show(form, "Nie przypisano: " + ex.Message, "Role", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie przypisano: ") + ex.Message, Jezyk.T("Role"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
         void PakietyStartowe()
         {
             var para = WybranaPara();
-            if (para == null) { MessageBox.Show(form, "Zaznacz parę na liście agentów.", "Pakiety startowe"); return; }
+            if (para == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Pakiety startowe")); return; }
             Func<string, Dictionary<string, object>> pak = n =>
             {
                 var plik = Path.Combine(P.Root, "stan", "start", n + ".txt");
@@ -1232,15 +1406,15 @@ namespace Ecxp
             int uAdresata = all.Count(m => m.Katalog != "przeczytane");
             if (cand.Count == 0)
             {
-                var why = new StringBuilder("Nic nie przeniesiono.");
-                if (mlode > 0) why.Append("\n\n• " + mlode + " przeczytanych jest młodszych niż wybrany wiek – wybierz „wszystkie przeczytane”.");
-                if (nowe > 0) why.Append("\n\n• " + nowe + " nie oznaczyłeś jeszcze jako przeczytane.");
-                if (otwarte > 0) why.Append("\n\n• " + otwarte + " to pytania lub zadania bez odpowiedzi – zostają do odpowiedzi.");
-                if (uAdresata > 0) why.Append("\n\n• " + uAdresata + " czeka w kolejkach – zostają, dopóki adresat ich nie potwierdzi.");
-                MessageBox.Show(form, why.ToString(), "Wyczyść", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var why = new StringBuilder(Jezyk.T("Nic nie przeniesiono."));
+                if (mlode > 0) why.Append(Jezyk.T("\n\n• ") + mlode + Jezyk.T(" przeczytanych jest młodszych niż wybrany wiek – wybierz „wszystkie przeczytane”."));
+                if (nowe > 0) why.Append(Jezyk.T("\n\n• ") + nowe + Jezyk.T(" nie oznaczyłeś jeszcze jako przeczytane."));
+                if (otwarte > 0) why.Append(Jezyk.T("\n\n• ") + otwarte + Jezyk.T(" to pytania lub zadania bez odpowiedzi – zostają do odpowiedzi."));
+                if (uAdresata > 0) why.Append(Jezyk.T("\n\n• ") + uAdresata + Jezyk.T(" czeka w kolejkach – zostają, dopóki adresat ich nie potwierdzi."));
+                MessageBox.Show(form, why.ToString(), Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (MessageBox.Show(form, "Przenieść " + cand.Count + " przeczytanych wiadomości do archiwum?\n\n" +
+            if (MessageBox.Show(form, Jezyk.T("Przenieść ") + cand.Count + Jezyk.T(" przeczytanych wiadomości do archiwum?\n\n") +
                 "Nic nie zostanie skasowane: pliki trafią do " + Path.Combine(P.Root, "archiwum") + "\\RRRR-MM.\n" +
                 "Wiadomości w kolejkach, nieprzeczytane i pytania bez odpowiedzi zostają.", "Wyczyść",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
@@ -1251,12 +1425,12 @@ namespace Ecxp
                 ok = Convert.ToInt32(r["przeniesione"]); err = Convert.ToInt32(r["bledy"]);
                 foreach (var m in cand) read.Remove(m.Plik);
             }
-            catch (Exception ex) { MessageBox.Show(form, "Nie przeniesiono: " + ex.Message, "Wyczyść", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie przeniesiono: ") + ex.Message, Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             var kept = new HashSet<string>(P.Wszystkie(false).Select(m => m.Plik));
             read.RemoveWhere(r => r.StartsWith("STAN|") ? r != StanKey() : !kept.Contains(r));
             SaveRead();
             Skanuj();
-            stInfo.Text = "Przeniesiono do archiwum: " + ok + (err > 0 ? ", błędy: " + err : "");
+            stInfo.Text = Jezyk.T("Przeniesiono do archiwum: ") + ok + (err > 0 ? Jezyk.T(", błędy: ") + err : "");
         }
 
         // ---------- okienko w rogu ----------
@@ -1297,7 +1471,8 @@ namespace Ecxp
             menu.Items.Add("Napisz…", null, delegate { ShowWindow(); Pisz(null); });
             menu.Items.Add("Pokaż konsolę ECXP", null, delegate { ShowWindow(); });
             menu.Items.Add("Motyw jasny / ciemny", null, delegate { PrzelaczMotyw(); });
-            menu.Items.Add("Zainstaluj / napraw rejestrację ECXP", null, delegate { MessageBox.Show(form, Instalator.Wykonaj(false), "Instalacja ECXP"); });
+            menu.Items.Add("O programie", null, delegate { ShowWindow(); OProgramie(); });
+            menu.Items.Add(Jezyk.T("Zainstaluj / napraw rejestrację ECXP"), null, delegate { MessageBox.Show(form, Instalator.Wykonaj(false), Jezyk.T("Instalacja ECXP")); });
             menu.Items.Add("Otwórz folder skrzynki", null, delegate { OpenPath(P.Root); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Zakończ", null, delegate { timer.Stop(); fsw.EnableRaisingEvents = false; if (klient != null) klient.Dispose(); tray.Visible = false; ExitThread(); });
@@ -1333,13 +1508,13 @@ namespace Ecxp
             if (fresh.Count == 1)
             {
                 var m = fresh[0];
-                ShowPop((m.Do == P.Wlasciciel ? "Do Ciebie od " : "Nowa wiadomość: ") + P.Nazwa(m.Od) + (m.Do == P.Wlasciciel ? "" : " → " + P.Nazwa(m.Do)),
+                ShowPop((m.Do == P.Wlasciciel ? Jezyk.T("Do Ciebie od ") : Jezyk.T("Nowa wiadomość: ")) + P.Nazwa(m.Od) + (m.Do == P.Wlasciciel ? "" : " → " + P.Nazwa(m.Do)),
                     Zdanie(m), fresh, stanZm);
             }
             else if (fresh.Count > 1)
-                ShowPop("Nowe wiadomości: " + fresh.Count, string.Join("\n", fresh.Take(3).Select(m => P.Nazwa(m.Od) + " → " + P.Nazwa(m.Do) + ": " + P.Baza(m.Temat))), fresh, stanZm);
+                ShowPop(Jezyk.T("Nowe wiadomości: ") + fresh.Count, string.Join(Jezyk.T("\n"), fresh.Take(3).Select(m => P.Nazwa(m.Od) + " → " + P.Nazwa(m.Do) + ": " + P.Baza(m.Temat))), fresh, stanZm);
             else if (stanZm)
-                ShowPop("Zmienił się stan modułów", CzekaNaCiebie().Split('\n')[0], new List<Msg>(), true);
+                ShowPop(Jezyk.T("Zmienił się stan modułów"), CzekaNaCiebie().Split('\n')[0], new List<Msg>(), true);
 
             if (form.Visible) RefreshView(); else { RefreshPolaczenia(DateTime.Now); UpdateTray(); }
         }
@@ -1385,7 +1560,7 @@ namespace Ecxp
             {
                 var raport = Instalator.Wykonaj(args[0] == "/odinstaluj");
                 try { File.WriteAllText(Path.Combine(P.Root, "stan", "instalacja.txt"), raport, new UTF8Encoding(false)); } catch { }
-                if (!args.Contains("/cicho")) MessageBox.Show(raport, "Instalacja ECXP");
+                if (!args.Contains(Jezyk.T("/cicho"))) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
                 return 0;
             }
             if (args.Length >= 1 && args[0] == "/spis-galezi") { Motyw.Ciemny = args.Contains("/ciemny"); ZbudujSpis(); return 0; }
@@ -1399,6 +1574,92 @@ namespace Ecxp
                 Application.Run(new App());
             }
             return 0;
+        }
+    }
+
+    // ---------- języki konsoli: polski (źródłowy), angielski, francuski, czeski, niemiecki ----------
+    // Słownik jezyki.json (zasób programu): polski tekst → tłumaczenie. Teksty kontrolek tłumaczy przejście po oknie
+    // (z zapamiętaniem oryginału), teksty komunikatów – Jezyk.T(). Treści wiadomości agentów nie są tłumaczone.
+    static class Jezyk
+    {
+        public static string Kod = "pl";
+        public static readonly string[][] Dostepne = { new[] { "pl", "Polski" }, new[] { "en", "English" }, new[] { "fr", "Français" }, new[] { "cs", "Čeština" }, new[] { "de", "Deutsch" } };
+        static Dictionary<string, Dictionary<string, object>> slowniki;
+        static readonly Dictionary<object, string[]> oryg = new Dictionary<object, string[]>();
+
+        static void Wczytaj()
+        {
+            if (slowniki != null) return;
+            slowniki = new Dictionary<string, Dictionary<string, object>>();
+            try
+            {
+                using (var st = Assembly.GetExecutingAssembly().GetManifestResourceStream("jezyki.json"))
+                using (var r = new StreamReader(st, Encoding.UTF8))
+                {
+                    var d = P.Js().Deserialize<Dictionary<string, object>>(r.ReadToEnd());
+                    foreach (var kv in d) if (kv.Value is Dictionary<string, object>) slowniki[kv.Key] = (Dictionary<string, object>)kv.Value;
+                }
+            }
+            catch { }
+        }
+
+        public static string T(string pl)
+        {
+            if (Kod == "pl" || string.IsNullOrEmpty(pl)) return pl;
+            Wczytaj();
+            Dictionary<string, object> d;
+            if (!slowniki.TryGetValue(Kod, out d)) return pl;
+            object v;
+            if (d.TryGetValue(pl, out v)) return (string)v;
+            var i = pl.IndexOf(" (");
+            if (i > 0 && d.TryGetValue(pl.Substring(0, i), out v)) return v + pl.Substring(i);
+            return pl;
+        }
+
+        static string Tlumacz(object o, string teraz)
+        {
+            string[] st;
+            if (!oryg.TryGetValue(o, out st) || st[1] != teraz) st = new[] { teraz, teraz };   // tekst zmieniony przez program → nowy oryginał
+            var t = T(st[0]);
+            st[1] = t; oryg[o] = st;
+            return t;
+        }
+
+        public static void Zastosuj(ToolStrip ts)
+        {
+            if (ts == null) return;
+            foreach (ToolStripItem it in ts.Items) if (it.Text.Length > 0 && !(it is ToolStripStatusLabel)) it.Text = Tlumacz(it, it.Text);
+        }
+
+        static bool trwa;
+        public static void Zastosuj(Control c)
+        {
+            if (c == null || trwa) return;
+            trwa = true;
+            try { ZastosujW(c); } finally { trwa = false; }
+        }
+
+        static void ZastosujW(Control c)
+        {
+            if ((c is Form || c is Label || c is ButtonBase || c is TabPage) && !(c is LinkLabel) && c.Text.Length > 0) c.Text = Tlumacz(c, c.Text);
+            if (c is ListView) foreach (ColumnHeader h in ((ListView)c).Columns) h.Text = Tlumacz(h, h.Text);
+            if (c is ComboBox && ((ComboBox)c).DropDownStyle == ComboBoxStyle.DropDownList)
+            {
+                var cb = (ComboBox)c;
+                for (int i = 0; i < cb.Items.Count; i++)
+                {
+                    var s = cb.Items[i] as string;
+                    if (s == null) continue;
+                    var klucz = cb.GetHashCode() + "#" + i;
+                    string[] st;
+                    var org = oryg.TryGetValue(klucz, out st) && st[1] == s ? st[0] : s;
+                    var t = T(org);
+                    oryg[klucz] = new[] { org, t };
+                    if (t != s) { var sel = cb.SelectedIndex; cb.Items[i] = t; cb.SelectedIndex = sel; }
+                }
+            }
+            if (c is ToolStrip) Zastosuj((ToolStrip)c);
+            foreach (Control d in c.Controls) ZastosujW(d);
         }
     }
 
@@ -1540,7 +1801,7 @@ namespace Ecxp
             {
                 if (Clipboard.ContainsImage()) Dodaj(Zapisz(Clipboard.GetImage(), "schowek"));
                 else if (Clipboard.ContainsFileDropList()) foreach (var p in Clipboard.GetFileDropList()) Dodaj(p);
-                else MessageBox.Show(FindForm(), "W schowku nie ma obrazu ani plików.", "Wklej ze schowka");
+                else MessageBox.Show(FindForm(), Jezyk.T("W schowku nie ma obrazu ani plików."), Jezyk.T("Wklej ze schowka"));
             };
         }
         static Button Przycisk(string t) { return new Button { Text = t, AutoSize = true, Height = 30, Margin = new Padding(0, 0, 6, 4) }; }
@@ -1571,7 +1832,7 @@ namespace Ecxp
         public void Dodaj(string p)
         {
             if (!File.Exists(p) || Pliki.Contains(p)) return;
-            if (new FileInfo(p).Length > P.MaxObiekt) { MessageBox.Show(FindForm(), "Plik większy niż 32 MB: " + p, "Załącznik"); return; }
+            if (new FileInfo(p).Length > P.MaxObiekt) { MessageBox.Show(FindForm(), Jezyk.T("Plik większy niż 32 MB: ") + p, Jezyk.T("Załącznik")); return; }
             Pliki.Add(p);
             var chip = new Label { Text = "📎 " + Path.GetFileName(p) + "  ✕", AutoSize = true, Cursor = Cursors.Hand, Margin = new Padding(4, 8, 6, 0) };
             new ToolTip().SetToolTip(chip, p + "\nKliknij, aby usunąć z wiadomości.");
@@ -1764,7 +2025,7 @@ namespace Ecxp
         }
         public void TylkoZamknij() { ok.Text = "Zamknij"; }
         public Zalaczniki Zalaczniki(string e) { var z = new Zalaczniki(); Wiersz(e, z, false); return z; }
-        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); base.OnLoad(e); }
+        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); Jezyk.Zastosuj(this); base.OnLoad(e); }
         public void PrzyciskOk(string tekst) { ok.Text = tekst; }
     }
 
@@ -1775,7 +2036,7 @@ namespace Ecxp
         public TextBox tbTemat, tbTresc;
         public CheckBox chPilne;
         public Zalaczniki zal = new Zalaczniki();
-        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); base.OnLoad(e); }
+        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); Jezyk.Zastosuj(this); base.OnLoad(e); }
         public string OdpNa = "";
         readonly Label hint;
         static readonly string[] TypyPl = { "Pytanie", "Zadanie", "Informacja", "Odpowiedź", "Blokada (potrzebna decyzja)" };
@@ -1867,8 +2128,8 @@ namespace Ecxp
         void Wyslij()
         {
             if (Adresat == P.Wlasciciel || !(P.PoprawnyAdresat(Adresat) || System.Text.RegularExpressions.Regex.IsMatch(Adresat, @"^(para:|\*/|codex/|claude/)[a-z0-9-]+$|^rola:[a-z0-9-]+@([a-z0-9-]+|\*)$")))
-            { MessageBox.Show(this, "Wybierz adresata z listy albo wpisz nazwę w postaci codex-<czat> lub claude-<sesja>.", "Napisz"); return; }
-            if (tbTresc.Text.Trim().Length == 0) { MessageBox.Show(this, "Wpisz treść wiadomości.", "Napisz"); tbTresc.Focus(); return; }
+            { MessageBox.Show(this, Jezyk.T("Wybierz adresata z listy albo wpisz nazwę w postaci codex-<czat> lub claude-<sesja>."), Jezyk.T("Napisz")); return; }
+            if (tbTresc.Text.Trim().Length == 0) { MessageBox.Show(this, Jezyk.T("Wpisz treść wiadomości."), Jezyk.T("Napisz")); tbTresc.Focus(); return; }
             DialogResult = DialogResult.OK;
             Close();
         }
