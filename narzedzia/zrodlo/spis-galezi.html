@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spis gałęzi – ECXP</title>
+<style>
+:root{--tlo:#f6f7f9;--karta:#fff;--tekst:#1d1f23;--slaby:#5f6670;--ramka:#dde1e6;--akcent:#9b192a;--zolty:#ffde00;
+--a:#2e7d32;--b:#b26a00;--c:#6a4fb3;--d:#c62828;--e:#1565c0;--f:#6b7280;--tlo-a:#e8f5e9;--tlo-b:#fff3e0;--tlo-c:#efeafb;--tlo-d:#fdecec;--tlo-e:#e3f0fd;--tlo-f:#eef0f3}
+body.ciemny{--tlo:#202124;--karta:#2a2c30;--tekst:#e7e9ec;--slaby:#a0a4aa;--ramka:#3c3f45;
+--a:#81c784;--b:#ffb74d;--c:#b39ddb;--d:#ef9a9a;--e:#90caf9;--f:#b0b6bf;--tlo-a:#1f3322;--tlo-b:#3a2d17;--tlo-c:#2c2540;--tlo-d:#3d2323;--tlo-e:#1b2b3d;--tlo-f:#2f3237}
+*{box-sizing:border-box}
+body{margin:0;background:var(--tlo);color:var(--tekst);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 22px;background:var(--karta);border-bottom:1px solid var(--ramka);position:sticky;top:0;z-index:2}
+header h1{font-size:20px;font-weight:600;margin:0}
+header .meta{color:var(--slaby);font-size:13px}
+header .znak{width:34px;height:34px}
+main{padding:18px 22px;max-width:1400px;margin:0 auto}
+.karty{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.karta{background:var(--karta);border:1px solid var(--ramka);border-radius:10px;padding:12px 14px;cursor:pointer;transition:transform .08s}
+.karta:hover{transform:translateY(-1px)}
+.karta.wl{outline:2px solid var(--akcent)}
+.karta .l{font-size:28px;font-weight:600}
+.karta .n{font-weight:600}
+.karta .o{color:var(--slaby);font-size:12px}
+.pasek{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:6px 0 12px}
+.pasek input[type=search]{flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--ramka);border-radius:8px;background:var(--karta);color:var(--tekst);font-size:14px}
+.pasek label{color:var(--slaby);font-size:13px;display:flex;gap:6px;align-items:center}
+table{width:100%;border-collapse:collapse;background:var(--karta);border:1px solid var(--ramka);border-radius:10px;overflow:hidden}
+th,td{padding:7px 10px;border-bottom:1px solid var(--ramka);text-align:left;vertical-align:top}
+th{background:var(--karta);font-weight:600;cursor:pointer;user-select:none;white-space:nowrap}
+th .s{color:var(--slaby);font-size:11px}
+tr.w:hover{background:var(--tlo)}
+td.mono,.mono{font-family:Consolas,monospace;font-size:12.5px}
+.g{display:inline-block;min-width:22px;text-align:center;font-weight:700;border-radius:6px;padding:1px 6px}
+.ga{color:var(--a);background:var(--tlo-a)}.gb{color:var(--b);background:var(--tlo-b)}.gc{color:var(--c);background:var(--tlo-c)}
+.gd{color:var(--d);background:var(--tlo-d)}.ge{color:var(--e);background:var(--tlo-e)}.gf{color:var(--f);background:var(--tlo-f)}
+.odz{font-size:12px;border-radius:6px;padding:1px 7px;white-space:nowrap}
+.istn{color:var(--a);background:var(--tlo-a)}.przen{color:var(--b);background:var(--tlo-b)}.brak{color:var(--f);background:var(--tlo-f)}
+.rozwin{cursor:pointer;color:var(--slaby);user-select:none}
+.galezie{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
+.gal{border:1px solid var(--ramka);border-radius:6px;padding:2px 8px;font-size:12px}
+.gal b{font-weight:600}
+.st-W_GITHUB_ELV3{border-color:var(--a);color:var(--a)}
+.st-TYLKO_W_KLONIE{border-color:var(--d);color:var(--d);background:var(--tlo-d)}
+.st-W_LOKALNYM_ELV3{border-color:var(--e);color:var(--e)}
+.st-repo{border-color:var(--c);color:var(--c)}
+.legenda{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;color:var(--slaby);font-size:12px}
+section{margin-top:22px}
+section h2{font-size:16px;margin:0 0 8px}
+.uwaga{color:var(--slaby);font-size:12.5px;margin-top:6px}
+.pusto{padding:30px;text-align:center;color:var(--slaby)}
+@media(max-width:700px){th:nth-child(5),td:nth-child(5),th:nth-child(6),td:nth-child(6){display:none}}
+</style>
+</head>
+<body>
+<header>
+<svg class="znak" viewBox="0 0 132 132" aria-hidden="true"><g stroke="currentColor" stroke-width="7" stroke-linecap="round"><line x1="24" y1="84" x2="66" y2="48"/><line x1="66" y1="48" x2="108" y2="84"/></g><circle cx="24" cy="84" r="13" fill="currentColor"/><circle cx="108" cy="84" r="13" fill="currentColor"/><circle cx="66" cy="48" r="17" fill="#9B192A"/></svg>
+<div><h1>Spis gałęzi</h1><div class="meta" id="meta"></div></div>
+</header>
+<main>
+<div class="karty" id="karty"></div>
+<div class="pasek">
+<input id="szukaj" type="search" placeholder="Szukaj: katalog, gałąź, commit…" autofocus>
+<label><input type="checkbox" id="tylkoIstn"> tylko istniejące katalogi</label>
+<label><input type="checkbox" id="tylkoNiescal"> tylko z niescalonym kodem</label>
+</div>
+<div class="legenda" id="legenda"></div>
+<table>
+<thead><tr>
+<th data-k="grupa">Grupa <span class="s"></span></th>
+<th data-k="katalog">Katalog <span class="s"></span></th>
+<th data-k="galaz">Gałąź (HEAD) <span class="s"></span></th>
+<th data-k="data">Data <span class="s"></span></th>
+<th data-k="zmiany">Zmiany <span class="s"></span></th>
+<th data-k="niescalone">Niescalone <span class="s"></span></th>
+<th data-k="odz">Katalog teraz <span class="s"></span></th>
+</tr></thead>
+<tbody id="wiersze"></tbody>
+</table>
+<div class="pusto" id="pusto" hidden>Brak pozycji dla wybranych filtrów.</div>
+<section><h2>Gałęzie głównego repozytorium</h2><div class="galezie" id="glowne"></div>
+<div class="uwaga" id="lokalny"></div></section>
+</main>
+<script>
+const DANE = /*__DANE__*/null;
+if (DANE && DANE.ciemny) document.body.classList.add('ciemny');
+const GRUPY = {
+  A:['Scalone i czyste','wszystkie gałęzie w elv3, brak zmian'],
+  B:['Niezapisane pliki','zmienione, nowe pliki lub stash'],
+  C:['Raporty kontroli','katalogi recenzji, audytów, raportów'],
+  D:['Niescalony kod','gałęzie tylko w klonie lub poza elv3'],
+  E:['Aktywne worktree','robocze kopie repozytorium'],
+  F:['Bez Git / pliki','katalogi bez repozytorium, łatki']
+};
+const STANY = {W_GITHUB_ELV3:'w elv3 na GitHubie',TYLKO_W_KLONIE:'tylko w tym klonie',W_LOKALNYM_ELV3:'w lokalnym elv3',W_REPO_BEZ_GALEZI:'w repo, bez gałęzi'};
+const el = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let wiersze = (DANE && DANE.pozycje) || [];
+let grupaWl = null, sortK = 'grupa', sortDir = 1, otwarte = new Set();
+wiersze.forEach(w => {
+  w.zmiany = (w.zmienione||0) + (w.nowe||0) + (w.stash||0);
+  w.niescalone = (w.galezie||[]).filter(g => g.stan !== 'W_GITHUB_ELV3' && g.stan !== 'W_LOKALNYM_ELV3').length;
+  w.odz = w.istnieje ? 1 : w.przeniesiony ? 2 : 3;
+});
+el('meta').textContent = DANE ? `${DANE.plik} · ${wiersze.length} pozycji · wygenerowano ${DANE.wygenerowano}` : 'brak danych';
+function karty(){
+  const k = el('karty'); k.innerHTML = '';
+  Object.entries(GRUPY).forEach(([g,[n,o]]) => {
+    const lst = wiersze.filter(w => w.grupa === g), ist = lst.filter(w => w.istnieje).length;
+    const d = document.createElement('div');
+    d.className = 'karta' + (grupaWl === g ? ' wl' : '');
+    d.innerHTML = `<div><span class="g g${g.toLowerCase()}">${g}</span> <span class="n">${esc(n)}</span></div><div class="l">${lst.length}</div><div class="o">${esc(o)} · istnieje: ${ist}</div>`;
+    d.onclick = () => { grupaWl = grupaWl === g ? null : g; karty(); rysuj(); };
+    k.appendChild(d);
+  });
+}
+function badge(g){
+  const cls = g.stan.startsWith('W_GALEZI_REPO') ? 'st-repo' : 'st-' + g.stan;
+  const opis = g.stan.startsWith('W_GALEZI_REPO:') ? 'w gałęzi ' + g.stan.slice(14) : (STANY[g.stan] || g.stan);
+  return `<span class="gal ${cls}" title="${esc(opis)}"><b>${esc(g.galaz)}</b> <span class="mono">${esc(g.sha)}</span> · ${esc(opis)}</span>`;
+}
+function rysuj(){
+  const q = el('szukaj').value.trim().toLowerCase();
+  let lst = wiersze.filter(w => (!grupaWl || w.grupa === grupaWl) && (!el('tylkoIstn').checked || w.istnieje) && (!el('tylkoNiescal').checked || w.niescalone > 0));
+  if (q) lst = lst.filter(w => [w.katalog, w.galaz, w.head, ...(w.galezie||[]).map(g => g.galaz + ' ' + g.sha)].join(' ').toLowerCase().includes(q));
+  lst.sort((a,b) => { const x = a[sortK] ?? '', y = b[sortK] ?? ''; return (x > y ? 1 : x < y ? -1 : a.katalog.localeCompare(b.katalog)) * sortDir; });
+  document.querySelectorAll('th').forEach(th => th.querySelector('.s').textContent = th.dataset.k === sortK ? (sortDir > 0 ? '▲' : '▼') : '');
+  const tb = el('wiersze'); tb.innerHTML = '';
+  lst.forEach(w => {
+    const tr = document.createElement('tr'); tr.className = 'w';
+    const odz = w.istnieje ? '<span class="odz istn">istnieje</span>' : w.przeniesiony ? '<span class="odz przen">przeniesiony do usunięcia</span>' : '<span class="odz brak">brak</span>';
+    const n = (w.galezie||[]).length;
+    tr.innerHTML = `<td><span class="g g${w.grupa.toLowerCase()}">${w.grupa}</span></td>
+      <td class="mono">${esc(w.katalog)} <span class="rozwin">${n ? (otwarte.has(w.katalog) ? '▾' : '▸') + ' ' + n + ' gał.' : ''}</span></td>
+      <td class="mono">${esc(w.galaz || w.typ)}${w.head ? ' <span style="color:var(--slaby)">@' + esc(w.head) + '</span>' : ''}</td>
+      <td>${esc(w.data || '')}</td>
+      <td>${w.zmiany ? `<span class="g gb">${w.zmienione||0}/${w.nowe||0}${w.stash ? ' · stash ' + w.stash : ''}</span>` : '–'}</td>
+      <td>${w.niescalone ? `<span class="g gd">${w.niescalone}</span>` : '–'}</td>
+      <td>${odz}</td>`;
+    tr.onclick = () => { otwarte.has(w.katalog) ? otwarte.delete(w.katalog) : otwarte.add(w.katalog); rysuj(); };
+    tb.appendChild(tr);
+    if (otwarte.has(w.katalog) && n) {
+      const d = document.createElement('tr');
+      d.innerHTML = `<td></td><td colspan="6"><div class="galezie">${w.galezie.map(badge).join('')}</div></td>`;
+      tb.appendChild(d);
+    }
+  });
+  el('pusto').hidden = lst.length > 0;
+}
+document.querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; rysuj(); });
+['szukaj','tylkoIstn','tylkoNiescal'].forEach(id => el(id).addEventListener('input', rysuj));
+el('legenda').innerHTML = 'Stan gałęzi: ' + [['st-W_GITHUB_ELV3','w elv3 na GitHubie'],['st-W_LOKALNYM_ELV3','w lokalnym elv3'],['st-TYLKO_W_KLONIE','tylko w tym klonie'],['st-repo','w innej gałęzi repozytorium']].map(([c,t]) => `<span class="gal ${c}">${t}</span>`).join(' ') + ' · Zmiany: zmienione/nowe pliki · kliknij wiersz, by zobaczyć gałęzie';
+el('glowne').innerHTML = ((DANE && DANE.glowne) || []).map(g => badge(g)).join('');
+el('lokalny').textContent = DANE && DANE.lokalny_elv3 ? 'Lokalny elv3: ' + DANE.lokalny_elv3 : '';
+karty(); rysuj();
+</script>
+</body>
+</html>

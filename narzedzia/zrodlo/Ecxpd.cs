@@ -385,7 +385,7 @@ namespace Ecxp
                     }
                 case "nowe_zadanie":
                     TylkoOperator(s);
-                    return Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik);
+                    return Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a));
                 case "straz":
                     {
                         var al = P.Straz();

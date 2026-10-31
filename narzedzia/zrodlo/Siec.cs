@@ -330,7 +330,7 @@ namespace Ecxp
         }
 
         // ---------- nowe zadanie / moduł: para o tych samych nazwach po obu stronach ----------
-        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik)
+        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null)
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
@@ -377,7 +377,7 @@ namespace Ecxp
                     File.WriteAllText(Path.Combine(sd, ja + ".txt"), txt, new UTF8Encoding(false));
                     pakiety[strona] = P.D("nazwa", ja, "tytul_sesji", tytulSesji, "plik", Path.Combine(sd, ja + ".txt"), "tekst", txt);
                 }
-                var w = Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + modul, Projekt = projekt, Modul = modul, Typ = "zadanie", Temat = tytul, Tresc = opis.Trim() });
+                var w = Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + modul, Projekt = projekt, Modul = modul, Typ = "zadanie", Temat = tytul, Tresc = opis.Trim(), Czesci = czesci ?? new List<Dictionary<string, object>>() });
                 P.Zdarzenie("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "codex", codex, "claude", claude, "tytul", tytulSesji));
                 return P.D("projekt", projekt, "modul", modul, "tytul_sesji", tytulSesji, "para", Para(projekt, modul), "pakiety", pakiety, "zadanie", w);
             });

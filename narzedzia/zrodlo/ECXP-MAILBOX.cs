@@ -42,6 +42,13 @@ namespace Ecxp
         readonly Font fontN = new Font("Segoe UI", 10);
         readonly Font fontS = new Font("Segoe UI", 8.5f);
         readonly Font fontH = new Font("Segoe UI", 12, FontStyle.Bold);
+        readonly Font fontTresc = new Font("Segoe UI", 11f);
+        readonly Font fontTytul = new Font("Segoe UI", 14f, FontStyle.Bold);
+        FlowLayoutPanel pnlZal;
+        PictureBox logoBox;
+        Button bMotyw;
+        int wciecie;
+        string UstawieniaPlik;
 
         Form form, pop;
         TextBox czeka, txtStan, szukaj;
@@ -64,12 +71,16 @@ namespace Ecxp
         TabPage tabAg;
         ListView lvAg;
         Label lblAg;
-        static readonly Color Zolty = Color.FromArgb(255, 222, 0), Zielony = Color.FromArgb(0, 128, 0), Czerwony = Color.FromArgb(200, 0, 0);
+        static readonly Color Zolty = Color.FromArgb(255, 222, 0);
+        static Color Zielony { get { return Motyw.K(Color.FromArgb(0, 128, 0)); } }
+        static Color Czerwony { get { return Motyw.K(Color.FromArgb(200, 0, 0)); } }
 
         public App()
         {
             Stan = Path.Combine(P.Root, "STAN-MODULOW.md");
             ReadFile = Path.Combine(P.Root, "narzedzia", "przeczytane-wlasciciel.txt");
+            UstawieniaPlik = Path.Combine(P.Root, "narzedzia", "ustawienia-wlasciciel.txt");
+            Motyw.Ciemny = P.Czytaj(UstawieniaPlik).Contains("motyw=ciemny");
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -77,6 +88,7 @@ namespace Ecxp
             iconNew = Icon.FromHandle(IconBitmap(true, 32).GetHicon());
             BuildForm();
             BuildPop();
+            Motyw.Zastosuj(form); Motyw.Zastosuj(pop);
             BuildTray();
             var uchwyt = form.Handle;   // uchwyt okna potrzebny do przekazywania zdarzeń stosu do wątku okna
             Polacz();
@@ -199,13 +211,13 @@ namespace Ecxp
 
         static Color Kolor(Msg m)
         {
-            if (m.Blad != null) return Color.FromArgb(170, 0, 0);
+            if (m.Blad != null) return Motyw.K(Color.FromArgb(170, 0, 0));
             switch (P.Rodzaj(m))
             {
-                case "Pytanie": case "Zadanie": case "Blokada": return Color.FromArgb(200, 0, 0);
-                case "Gotowe": case "Meldunek": return Color.FromArgb(0, 128, 0);
-                case "Recenzja": return Color.FromArgb(128, 0, 170);
-                default: return Color.FromArgb(0, 80, 200);
+                case "Pytanie": case "Zadanie": case "Blokada": return Motyw.K(Color.FromArgb(200, 0, 0));
+                case "Gotowe": case "Meldunek": return Motyw.K(Color.FromArgb(0, 128, 0));
+                case "Recenzja": return Motyw.K(Color.FromArgb(128, 0, 170));
+                default: return Motyw.K(Color.FromArgb(0, 80, 200));
             }
         }
 
@@ -284,10 +296,8 @@ namespace Ecxp
 
             // --- nagłówek: logo ECXP, projekt, nowe zadanie ---
             var head = new Panel { Dock = DockStyle.Top, Height = 64, BackColor = Color.White };
-            var logo = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(10, 6), Size = new Size(172, 52) };
-            var lp = Path.Combine(P.Root, "logo", "ecxp-logo-light.png");
-            if (!File.Exists(lp)) lp = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "..", "logo", "ecxp-logo-light.png");
-            if (File.Exists(lp)) logo.Image = Image.FromStream(new MemoryStream(File.ReadAllBytes(lp)));
+            var logo = logoBox = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(10, 6), Size = new Size(172, 52) };
+            UstawLogo();
             var lblProj = new Label { Text = "Projekt:", AutoSize = true, Location = new Point(200, 22) };
             cbProjekt = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(262, 18), Width = 180 };
             cbProjekt.Items.Add("Wszystkie projekty");
@@ -295,8 +305,11 @@ namespace Ecxp
             cbProjekt.SelectedIndex = cbProjekt.Items.Count > 1 ? 1 : 0;
             var bNoweH = Btn("＋  Nowe zadanie / moduł…");
             bNoweH.Font = fontB; bNoweH.BackColor = Zolty; bNoweH.FlatStyle = FlatStyle.Flat; bNoweH.Location = new Point(460, 14);
-            var lblMotto = new Label { Text = "Evidsec Context eXchange Protocol · para 1:1 ChatGPT/Codex ↔ Claude", AutoSize = true, ForeColor = Color.DimGray, Location = new Point(700, 23) };
-            head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, lblMotto });
+            bMotyw = Btn(Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny");
+            bMotyw.Location = new Point(700, 14);
+            bMotyw.Click += delegate { PrzelaczMotyw(); };
+            var lblMotto = new Label { Text = "ECXP · para 1:1 ChatGPT/Codex ↔ Claude", AutoSize = true, ForeColor = Color.DimGray, Location = new Point(870, 23) };
+            head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bMotyw, lblMotto });
 
             var lblCzeka = new Label { Text = "Czeka na Ciebie", Dock = DockStyle.Top, Height = 24, Font = fontB };
             czeka = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Top, Height = 90,
@@ -321,13 +334,16 @@ namespace Ecxp
             top.Controls.AddRange(new Control[] { bPisz, bOdp, cbWidok, cbModul, lblSz, szukaj });
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
-            lv = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true };
+            lv = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
+                SmallImageList = new ImageList { ImageSize = new Size(1, 26) } };
             foreach (var c in new object[][] { new object[] { "Czas", 100 }, new object[] { "", 26 }, new object[] { "Od → Do", 230 },
                 new object[] { "Moduł", 95 }, new object[] { "Treść", 420 }, new object[] { "Doręczenie", 300 } })
                 lv.Columns.Add((string)c[0], (int)c[1]);
             det = new RichTextBox { ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, BorderStyle = BorderStyle.None, DetectUrls = false };
             split.Panel1.Controls.Add(lv);
             split.Panel2.Controls.Add(det);
+            pnlZal = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 4), Visible = false };
+            split.Panel2.Controls.Add(pnlZal);
             tabMsg.Controls.Add(split);
             tabMsg.Controls.Add(top);
 
@@ -340,7 +356,7 @@ namespace Ecxp
             var bPakiet = Btn("Pakiety startowe…");
             var bNazwy = Btn("Nazwy sesji wg ECXP…");
             agTop.Controls.AddRange(new Control[] { bNowe, bRola, bPakiet, bNazwy });
-            lblAg = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(6), ForeColor = Color.DimGray,
+            lblAg = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(6), ForeColor = Motyw.Slaby,
                 Text = "Zasada 1:1: w każdym module pracuje para – sesja ChatGPT/Codex i sesja Claude – nad tym samym zadaniem i jedną gałęzią. " +
                        "Sesje w parze noszą wspólny znacznik " + "🔗ECXP" + " przed nazwą." };
             lvAg = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
@@ -427,11 +443,7 @@ namespace Ecxp
             bClean.Click += delegate { Clean(new[] { 0, 1, 3, 7 }[cbAge.SelectedIndex]); };
             bRef.Click += delegate { Skanuj(); };
             bDir.Click += delegate { OpenPath(P.Root); };
-            bSpis.Click += delegate
-            {
-                var s = new DirectoryInfo(P.Root).GetFiles("SPIS-GALEZI-*.md").OrderByDescending(f => f.Name).FirstOrDefault();
-                if (s != null) System.Diagnostics.Process.Start("notepad.exe", "\"" + s.FullName + "\"");
-            };
+            bSpis.Click += delegate { SpisGalezi(); };
             form.KeyDown += (s, e) =>
             {
                 if (e.Control && e.KeyCode == Keys.N) { e.Handled = true; Pisz(null); }
@@ -448,40 +460,216 @@ namespace Ecxp
         void Dopisz(string t, Font f, Color c)
         {
             det.SelectionStart = det.TextLength; det.SelectionLength = 0;
-            det.SelectionFont = f; det.SelectionColor = c;
+            det.SelectionFont = f; det.SelectionColor = c; det.SelectionIndent = wciecie;
             det.AppendText(t);
         }
 
+        // Czytelny widok rozmowy: nagłówek wątku, każda wiadomość jako blok (nadawca → adresat, rodzaj, czas),
+        // treść większą czcionką z wcięciem, załączniki do kliknięcia nad treścią, dane techniczne drobno na końcu.
         void PokazWatek(Msg sel)
         {
             det.SuspendLayout();
             det.Clear();
             var w = msgs.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ToList();
             var teraz = DateTime.Now;
-            Dopisz("Rozmowa: " + P.Baza(sel.Temat) + "   ·   wiadomości: " + w.Count + "\n\n", fontH, Color.Black);
+            wciecie = 0;
+            Dopisz(P.Baza(sel.Temat) + "\n", fontTytul, Motyw.Tekst);
+            Dopisz(w.Count + (w.Count == 1 ? " wiadomość" : " wiadomości") + (sel.Projekt.Length > 0 ? "   ·   projekt " + sel.Projekt : "") +
+                (sel.Modul.Length > 0 ? "   ·   moduł " + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
             int poz = 0;
+            var zal = new List<Dictionary<string, object>>();
             foreach (var m in w)
             {
                 if (m == sel) poz = det.TextLength;
-                Dopisz((m == sel ? "▶ " : "") + m.Czas.ToString("dd.MM.yyyy HH:mm") + "   " + P.Nazwa(m.Od) + "  →  " + P.Nazwa(m.Do) +
-                    "   ·   " + P.Rodzaj(m) + (m.Pilne ? " · PILNE" : "") + (m.Modul.Length > 0 ? "   ·   moduł " + m.Modul : "") + "\n", fontB, Kolor(m));
-                if (m.Blad != null) Dopisz("Nie da się odczytać wiadomości: " + m.Blad + "\n", fontN, Color.FromArgb(170, 0, 0));
-                if (m.Uwagi.Trim().Length > 0) Dopisz(m.Uwagi.Trim() + "\n", fontN, Color.Black);
+                wciecie = 0;
+                Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
+                Dopisz(P.Nazwa(m.Od) + "  →  " + (m.Lustro.Count > 1 ? "para: " + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : P.Nazwa(m.Do)), fontB, Motyw.Tekst);
+                Dopisz("     " + P.Rodzaj(m) + (m.Pilne ? " · PILNE" : "") + (m.KopiaDla.Length > 0 ? " · kopia dla pary (1:1)" : "") + "   ·   " + m.Czas.ToString("dd.MM HH:mm") + "\n", fontS, Kolor(m));
+                wciecie = 24;
+                if (m.Blad != null) Dopisz("Nie da się odczytać wiadomości: " + m.Blad + "\n", fontN, Czerwony);
+                if (m.Uwagi.Trim().Length > 0) Dopisz(m.Uwagi.Trim() + "\n", fontTresc, Motyw.Tekst);
+                foreach (var c in m.Czesci)
+                {
+                    var rodzaj = P.S(c, "rodzaj");
+                    if (rodzaj == "plik")
+                    {
+                        long roz; long.TryParse(P.S(c, "rozmiar"), out roz);
+                        Dopisz("📎 " + (P.S(c, "nazwa").Length > 0 ? P.S(c, "nazwa") : P.S(c, "sha256").Substring(0, 12)) + "  (" + Rozmiar(roz) + ")\n", fontN, Motyw.K(Color.FromArgb(0, 80, 200)));
+                        zal.Add(c);
+                    }
+                    else if (rodzaj == "dane") Dopisz("🗂 dane: " + (P.S(c, "schemat").Length > 0 ? P.S(c, "schemat") : "JSON") + "\n", fontN, Motyw.Slaby);
+                    else if (rodzaj == "tekst" && P.S(c, "tekst") != m.Uwagi) Dopisz(P.S(c, "tekst").Trim() + "\n", fontTresc, Motyw.Tekst);
+                }
                 if (m.Kontrole.Count > 0)
                 {
-                    Dopisz("Kontrole:\n", fontB, Color.Black);
+                    Dopisz("Kontrole:\n", fontB, Motyw.Tekst);
                     foreach (var k in m.Kontrole)
-                        Dopisz("   • " + k + "\n", fontN, k.StartsWith("[PASS") ? Color.FromArgb(0, 128, 0) : (k.StartsWith("[FAIL") || k.StartsWith("[BLOCKED")) ? Color.FromArgb(200, 0, 0) : Color.Black);
+                        Dopisz("• " + k + "\n", fontN, k.StartsWith("[PASS") ? Zielony : (k.StartsWith("[FAIL") || k.StartsWith("[BLOCKED")) ? Czerwony : Motyw.Tekst);
                 }
-                if (m.Pliki.Count > 0) { Dopisz("Pliki:\n", fontB, Color.Black); foreach (var p in m.Pliki) Dopisz("   • " + p + "\n", fontN, Color.Black); }
-                if (m.Commit.Length > 0) Dopisz("Commit: " + m.Commit + "\n", fontN, Color.DimGray);
-                if (m.Ograniczenia.Length > 0) Dopisz("Ograniczenia: " + m.Ograniczenia + "\n", fontN, Color.DimGray);
-                Dopisz("Doręczenie: " + Doreczenie(m, teraz) + "\n", fontS, Color.DimGray);
-                Dopisz("id " + m.Id + (m.Seq > 0 ? "  ·  seq " + m.Seq : "") + "  ·  " + m.Sciezka + "\n\n", fontS, Color.Gray);
+                if (m.Pliki.Count > 0) { Dopisz("Pliki:\n", fontB, Motyw.Tekst); foreach (var p in m.Pliki) Dopisz("• " + p + "\n", fontN, Motyw.Tekst); }
+                if (m.Commit.Length > 0) Dopisz("Commit: " + m.Commit + "\n", fontN, Motyw.Slaby);
+                if (m.Ograniczenia.Length > 0) Dopisz("Ograniczenia: " + m.Ograniczenia + "\n", fontS, Motyw.Slaby);
+                Dopisz("Doręczenie: " + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
+                wciecie = 0;
+                Dopisz("\n", fontS, Motyw.Slaby);
             }
             det.SelectionStart = poz; det.SelectionLength = 0;
             det.ScrollToCaret();
             det.ResumeLayout();
+
+            pnlZal.SuspendLayout();
+            pnlZal.Controls.Clear();
+            if (zal.Count > 0)
+            {
+                pnlZal.Controls.Add(new Label { Text = "Załączniki w tej rozmowie:", AutoSize = true, ForeColor = Motyw.Slaby, Margin = new Padding(0, 6, 8, 0) });
+                foreach (var c in zal)
+                {
+                    var cc = c;
+                    var ll = new LinkLabel { Text = "📎 " + (P.S(c, "nazwa").Length > 0 ? P.S(c, "nazwa") : P.S(c, "sha256").Substring(0, 12)), AutoSize = true, Margin = new Padding(4, 6, 8, 0),
+                        LinkColor = Motyw.K(Color.FromArgb(0, 80, 200)) };
+                    ll.LinkClicked += delegate { OtworzZalacznik(cc); };
+                    pnlZal.Controls.Add(ll);
+                }
+            }
+            pnlZal.Visible = zal.Count > 0;
+            pnlZal.ResumeLayout();
+        }
+
+        static string Rozmiar(long b) { return b >= 1048576 ? (b / 1048576.0).ToString("0.0") + " MB" : b >= 1024 ? (b / 1024) + " kB" : b + " B"; }
+
+        // Otwiera załącznik z magazynu kontekstu (po sprawdzeniu SHA-256). Typy wykonywalne nie są uruchamiane –
+        // dla nich otwiera się tylko folder z plikiem.
+        void OtworzZalacznik(Dictionary<string, object> c)
+        {
+            var sha = P.S(c, "sha256");
+            var src = sha.Length == 64 ? P.ObjPath(sha) : "";
+            if (src.Length == 0 || !File.Exists(src)) { MessageBox.Show(form, "Nie ma tego załącznika w magazynie kontekstu.", "Załącznik"); return; }
+            if (P.ShaPliku(src) != sha) { MessageBox.Show(form, "Załącznik jest uszkodzony – skrót SHA-256 się nie zgadza. Nie otwieram go.", "Załącznik", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            var nazwa = Path.GetFileName(P.S(c, "nazwa"));
+            if (nazwa.Length == 0) nazwa = sha.Substring(0, 12);
+            var dir = Path.Combine(Path.GetTempPath(), "ecxp-podglad", sha.Substring(0, 12));
+            Directory.CreateDirectory(dir);
+            var dst = Path.Combine(dir, nazwa);
+            if (!File.Exists(dst)) File.Copy(src, dst);
+            var bezpieczne = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf", ".txt", ".md", ".log", ".json", ".csv", ".xml", ".html", ".htm" };
+            if (bezpieczne.Contains(Path.GetExtension(dst).ToLowerInvariant())) System.Diagnostics.Process.Start(dst);
+            else System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + dst + "\"");
+        }
+
+        // Załączniki → obiekty kontekstu w stosie (SHA-256) → części wiadomości typu plik.
+        List<Dictionary<string, object>> WyslijZalaczniki(List<string> pliki)
+        {
+            var r = new List<Dictionary<string, object>>();
+            foreach (var p in pliki)
+            {
+                var o = (Dictionary<string, object>)Stos("kontekst_zapisz", P.D("sciezka", p, "nazwa", Path.GetFileName(p), "typ", Mime(p)));
+                r.Add(P.D("rodzaj", "plik", "sha256", P.S(o, "sha256"), "nazwa", Path.GetFileName(p), "typ", Mime(p)));
+            }
+            return r;
+        }
+
+        static string Mime(string p)
+        {
+            switch (Path.GetExtension(p).ToLowerInvariant())
+            {
+                case ".png": return "image/png";
+                case ".jpg": case ".jpeg": return "image/jpeg";
+                case ".gif": return "image/gif";
+                case ".pdf": return "application/pdf";
+                case ".txt": case ".md": case ".log": return "text/plain";
+                case ".json": return "application/json";
+                case ".zip": return "application/zip";
+                default: return "application/octet-stream";
+            }
+        }
+
+        // ---------- spis gałęzi jako strona HTML+JS ----------
+        // Dane: najnowszy SPIS-GALEZI-*.json, grupy A–F z opisu SPIS-GALEZI-*.md, bieżący stan katalogów
+        // (istnieje / przeniesiony do usunięcia) z pól katalog_agentow i katalog_przeniesionych w projekty\*\projekt.json.
+        void SpisGalezi()
+        {
+            try { System.Diagnostics.Process.Start(ZbudujSpis()); }
+            catch (Exception ex) { MessageBox.Show(form, "Nie udało się zbudować spisu: " + ex.Message, "Spis gałęzi"); }
+        }
+
+        public static string ZbudujSpis()
+        {
+            var plik = new DirectoryInfo(P.Root).GetFiles("SPIS-GALEZI-*.json").OrderByDescending(f => f.Name).FirstOrDefault();
+            if (plik == null) throw new EcxpException("Brak pliku SPIS-GALEZI-*.json w katalogu skrzynki.");
+            {
+                var d = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(plik.FullName));
+                var grupy = new Dictionary<string, string>();
+                var md = Path.ChangeExtension(plik.FullName, ".md");
+                string akt = null;
+                foreach (var l in P.Czytaj(md).Split('\n'))
+                {
+                    var h = Regex.Match(l, @"^## ([A-F])\. ");
+                    if (h.Success) { akt = h.Groups[1].Value; continue; }
+                    if (l.StartsWith("## ")) { akt = null; continue; }
+                    var m = Regex.Match(l, @"^- `([^`]+)`");
+                    if (akt != null && m.Success && !grupy.ContainsKey(m.Groups[1].Value)) grupy[m.Groups[1].Value] = akt;
+                }
+                var pr = P.Projekty().FirstOrDefault(x => P.S(x, "katalog_agentow").Length > 0);
+                string kat = pr != null ? P.S(pr, "katalog_agentow") : "", przen = pr != null ? P.S(pr, "katalog_przeniesionych") : "";
+                Func<string, string, bool> jest = (k, n) => k.Length > 0 && (Directory.Exists(Path.Combine(k, n)) || File.Exists(Path.Combine(k, n)));
+                var pozycje = new List<object>();
+                foreach (var o in (System.Collections.IEnumerable)d["agents"])
+                {
+                    var w = o as Dictionary<string, object>;
+                    if (w == null) continue;
+                    var nazwa = P.S(w, "katalog");
+                    w["istnieje"] = jest(kat, nazwa);
+                    w["przeniesiony"] = jest(przen, nazwa);
+                    string g;
+                    // pozycje opisane w spisie mają jego grupę; nieopisane w istniejącym spisie to grupa A (scalone i czyste)
+                    w["grupa"] = grupy.TryGetValue(nazwa, out g) ? g : grupy.Count > 0 ? (P.S(w, "typ") == "WORKTREE" ? "E" : "A") : Grupa(w);
+                    pozycje.Add(w);
+                }
+                var dane = P.D("plik", plik.Name, "wygenerowano", DateTime.Now.ToString("yyyy-MM-dd HH:mm"), "ciemny", Motyw.Ciemny, "pozycje", pozycje,
+                    "glowne", d.ContainsKey("main_branches") ? d["main_branches"] : new object[0], "lokalny_elv3", P.S(d, "local_elv3"));
+                string szablon;
+                using (var st = Assembly.GetExecutingAssembly().GetManifestResourceStream("spis-galezi.html"))
+                using (var r = new StreamReader(st, Encoding.UTF8)) szablon = r.ReadToEnd();
+                var html = szablon.Replace("/*__DANE__*/null", P.Js().Serialize(dane));
+                var wy = Path.Combine(P.Root, "stan", "spis-galezi.html");
+                Directory.CreateDirectory(Path.GetDirectoryName(wy));
+                File.WriteAllText(wy, html, new UTF8Encoding(false));
+                return wy;
+            }
+        }
+
+        static string Grupa(Dictionary<string, object> w)
+        {
+            var typ = P.S(w, "typ");
+            if (typ == "WORKTREE") return "E";
+            if (typ == "PLIK" || typ == "BEZ_GIT") return "F";
+            var gal = P.Lista(w, "galezie");
+            if (Regex.IsMatch(P.S(w, "galaz") + " " + P.S(w, "katalog"), "gate-|review|recenz|audit|audyt|raport", RegexOptions.IgnoreCase)) return "C";
+            if (gal.Any(g => P.S(g, "stan") != "W_GITHUB_ELV3" && P.S(g, "stan") != "W_LOKALNYM_ELV3")) return "D";
+            int zm, nw, st;
+            int.TryParse(P.S(w, "zmienione"), out zm); int.TryParse(P.S(w, "nowe"), out nw); int.TryParse(P.S(w, "stash"), out st);
+            return zm + nw + st > 0 ? "B" : "A";
+        }
+
+        // ---------- motyw ----------
+        void UstawLogo()
+        {
+            var nazwa = Motyw.Ciemny ? "ecxp-logo-dark.png" : "ecxp-logo-light.png";
+            var lp = Path.Combine(P.Root, "logo", nazwa);
+            if (!File.Exists(lp)) lp = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "..", "logo", nazwa);
+            if (File.Exists(lp)) logoBox.Image = Image.FromStream(new MemoryStream(File.ReadAllBytes(lp)));
+        }
+
+        void PrzelaczMotyw()
+        {
+            Motyw.Ciemny = !Motyw.Ciemny;
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+            bMotyw.Text = Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny";
+            UstawLogo();
+            Motyw.Zastosuj(form); Motyw.Zastosuj(pop);
+            RefreshView();
+            var m = Wybrana(); if (m != null) PokazWatek(m);
+            StanStosu();
         }
 
         bool Pasuje(Msg m)
@@ -562,9 +750,9 @@ namespace Ecxp
                     it.ForeColor = Kolor(m);
                     if (m.Nowa) it.Font = fontB;
                     var c = Czeka(m, teraz);
-                    if (m.Blad != null || (m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona))) it.BackColor = Color.FromArgb(255, 205, 205);
-                    else if (c.HasValue && c.Value.TotalHours >= 6) it.BackColor = Color.FromArgb(255, 220, 220);
-                    else if (c.HasValue && c.Value.TotalHours >= 1) it.BackColor = Color.FromArgb(255, 242, 200);
+                    if (m.Blad != null || (m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona))) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 205, 205));
+                    else if (c.HasValue && c.Value.TotalHours >= 6) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 220, 220));
+                    else if (c.HasValue && c.Value.TotalHours >= 1) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 242, 200));
                     lv.Items.Add(it);
                     widoczne.Add(m);
                     if (m.Plik == selPlik) it.Selected = true;
@@ -579,7 +767,7 @@ namespace Ecxp
             int bezOdp = msgs.Count(m => m.WymagaOdp && !m.Odpowiedziano);
             stInfo.Text = string.Format("Nowe dla Ciebie: {0}   ·   w kolejkach adresatów: {1}   ·   pytań bez odpowiedzi: {2}   ·   dziennik: {3}   ·   {4:HH:mm:ss}",
                 nowe, wKolejce, bezOdp, spojnosc, teraz);
-            stInfo.ForeColor = spojnosc.StartsWith("NARUSZONY") ? Color.FromArgb(200, 0, 0) : SystemColors.ControlText;
+            stInfo.ForeColor = spojnosc.StartsWith("NARUSZONY") ? Motyw.K(Color.FromArgb(200, 0, 0)) : SystemColors.ControlText;
             UpdateTray();
         }
 
@@ -620,8 +808,8 @@ namespace Ecxp
                 it.SubItems.Add(czekaNa.ToString());
                 it.SubItems.Add(niepotw.ToString());
                 it.SubItems.Add(ocena);
-                if (ocena.StartsWith("⚠")) it.ForeColor = Color.FromArgb(200, 0, 0);
-                else if (ocena.StartsWith("✓")) it.ForeColor = Color.FromArgb(0, 128, 0);
+                if (ocena.StartsWith("⚠")) it.ForeColor = Motyw.K(Color.FromArgb(200, 0, 0));
+                else if (ocena.StartsWith("✓")) it.ForeColor = Motyw.K(Color.FromArgb(0, 128, 0));
                 lvPol.Items.Add(it);
             }
             lvPol.EndUpdate();
@@ -630,20 +818,20 @@ namespace Ecxp
 
             // pasek: sygnał koordynacji
             Wezel k; wezly.TryGetValue(P.Koordynacja, out k);
-            if (k == null) { stSyg.Text = "Codex · koordynacja: brak sygnału ECXP"; stSyg.ForeColor = Color.DimGray; }
+            if (k == null) { stSyg.Text = "Codex · koordynacja: brak sygnału ECXP"; stSyg.ForeColor = Motyw.Slaby; }
             else
             {
                 var wiek = teraz - k.Ostatnio;
                 if (wiek.TotalMinutes > 25)
                 {
-                    stSyg.Text = "⚠ Codex · koordynacja milczy od " + P.Wiek(wiek); stSyg.ForeColor = Color.FromArgb(200, 0, 0);
+                    stSyg.Text = "⚠ Codex · koordynacja milczy od " + P.Wiek(wiek); stSyg.ForeColor = Motyw.K(Color.FromArgb(200, 0, 0));
                     if (!ciszaPokazana)
                     {
                         ciszaPokazana = true;
                         ShowPop("Codex · koordynacja milczy", "Ostatni sygnał " + k.Ostatnio.ToString("HH:mm") + " (" + P.Wiek(wiek) + " temu). Automatyzacja co 10 min mogła stanąć – zajrzyj do czatu ELV3-CORE w Codexie.", new List<Msg>(), false);
                     }
                 }
-                else { stSyg.Text = "Codex · koordynacja: ✓ " + k.Ostatnio.ToString("HH:mm"); stSyg.ForeColor = Color.FromArgb(0, 128, 0); ciszaPokazana = false; }
+                else { stSyg.Text = "Codex · koordynacja: ✓ " + k.Ostatnio.ToString("HH:mm"); stSyg.ForeColor = Motyw.K(Color.FromArgb(0, 128, 0)); ciszaPokazana = false; }
             }
         }
 
@@ -738,7 +926,8 @@ namespace Ecxp
                 if (f.ShowDialog(form) != DialogResult.OK) return;
                 try
                 {
-                    var r = (Dictionary<string, object>)Stos("wyslij", P.D("do", f.Adresat, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
+                    var czesci = WyslijZalaczniki(f.zal.Pliki);
+                    var r = (Dictionary<string, object>)Stos("wyslij", P.D("czesci", czesci, "do", f.Adresat, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
                         "temat", f.tbTemat.Text, "tresc", f.tbTresc.Text, "odpowiedz_na", f.OdpNa, "pilne", f.chPilne.Checked,
                         "ograniczenia", "Wiadomość operatora przez ECXP. Push, merge, USER_ACCEPTED, usuwanie, zmiany rezerwacji i ustawień bezpieczeństwa wymagają zgody operatora w czacie."));
                     foreach (var w in (r["wyslane"] as System.Collections.IEnumerable) ?? new object[0])
@@ -825,6 +1014,7 @@ namespace Ecxp
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
                 var tbO = f.Wielowiersz("Zadanie (trafi do obu stron pary):", "");
+                var zalN = f.Zalaczniki("Załączniki:");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
                 f.PrzyciskOk("✉  Wyślij do pary (Codex + Claude)");
@@ -832,7 +1022,7 @@ namespace Ecxp
                 try
                 {
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
-                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl)));
+                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki)));
                     Skanuj();
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
@@ -993,6 +1183,7 @@ namespace Ecxp
             var menu = new ContextMenuStrip();
             menu.Items.Add("Napisz…", null, delegate { ShowWindow(); Pisz(null); });
             menu.Items.Add("Pokaż konsolę ECXP", null, delegate { ShowWindow(); });
+            menu.Items.Add("Motyw jasny / ciemny", null, delegate { PrzelaczMotyw(); });
             menu.Items.Add("Otwórz folder skrzynki", null, delegate { OpenPath(P.Root); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Zakończ", null, delegate { timer.Stop(); fsw.EnableRaisingEvents = false; if (klient != null) klient.Dispose(); tray.Visible = false; ExitThread(); });
@@ -1075,6 +1266,7 @@ namespace Ecxp
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
             if (args.Length >= 1 && args[0] == "/selftest") return Test.Uruchom(args.Length > 1 ? args[1] : P.Root);
             if (args.Length >= 2 && args[0] == "/selftest-stos") return Test.Stos(args[1]);
+            if (args.Length >= 1 && args[0] == "/spis-galezi") { Motyw.Ciemny = args.Contains("/ciemny"); ZbudujSpis(); return 0; }
 
             bool created;
             using (var mutex = new Mutex(true, @"Local\ECXP-MAILBOX-" + P.Sha(P.Root.ToLowerInvariant()).Substring(0, 12), out created))
@@ -1085,6 +1277,184 @@ namespace Ecxp
                 Application.Run(new App());
             }
             return 0;
+        }
+    }
+
+    // ---------- motyw jasny / ciemny ----------
+    static class Motyw
+    {
+        public static bool Ciemny;
+        public static Color Tlo { get { return Ciemny ? Color.FromArgb(32, 33, 36) : SystemColors.Control; } }
+        public static Color Panel { get { return Ciemny ? Color.FromArgb(40, 42, 46) : SystemColors.Control; } }
+        public static Color Pole { get { return Ciemny ? Color.FromArgb(24, 25, 28) : Color.White; } }
+        public static Color Tekst { get { return Ciemny ? Color.FromArgb(231, 233, 236) : Color.Black; } }
+        public static Color Slaby { get { return Ciemny ? Color.FromArgb(160, 164, 170) : Color.DimGray; } }
+        public static Color Ramka { get { return Ciemny ? Color.FromArgb(70, 73, 79) : SystemColors.ControlDark; } }
+        public static Color Naglowek { get { return Ciemny ? Color.FromArgb(24, 25, 28) : Color.White; } }
+        public static Color Czeka { get { return Ciemny ? Color.FromArgb(58, 52, 30) : Color.FromArgb(255, 248, 220); } }
+        static readonly int[] Slabe = { Color.DimGray.ToArgb(), Color.FromArgb(160, 164, 170).ToArgb() };
+        static readonly int[] Biale = { Color.White.ToArgb(), Color.FromArgb(24, 25, 28).ToArgb() };
+        static readonly int[] Kremowe = { Color.FromArgb(255, 248, 220).ToArgb(), Color.FromArgb(58, 52, 30).ToArgb() };
+
+        // Kolor znaczący (status, rola) – w ciemnym motywie rozjaśniony, żeby był czytelny na ciemnym tle.
+        public static Color K(Color c)
+        {
+            if (!Ciemny) return c;
+            return Color.FromArgb(c.R + (255 - c.R) * 55 / 100, c.G + (255 - c.G) * 55 / 100, c.B + (255 - c.B) * 55 / 100);
+        }
+        // Tło ostrzeżenia (pastel) – w ciemnym motywie przyciemnione.
+        public static Color Ostrz(Color c) { return Ciemny ? Color.FromArgb(c.R / 4 + 20, c.G / 5 + 16, c.B / 5 + 16) : c; }
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
+        static void Pasek(Form f) { try { int v = Ciemny ? 1 : 0; DwmSetWindowAttribute(f.Handle, 20, ref v, 4); } catch { } }
+
+        public static void Zastosuj(Control c)
+        {
+            if (c is Form)
+            {
+                var f = (Form)c; f.BackColor = Tlo; f.ForeColor = Tekst;
+                if (f.IsHandleCreated) Pasek(f); else f.HandleCreated += delegate { Pasek(f); };
+            }
+            else if (c is TextBoxBase)
+            {
+                c.BackColor = Kremowe.Contains(c.BackColor.ToArgb()) ? Czeka : Pole; c.ForeColor = Tekst;
+            }
+            else if (c is ListView)
+            {
+                var lv = (ListView)c; lv.BackColor = Pole; lv.ForeColor = Tekst;
+                if (!lv.OwnerDraw)
+                {
+                    lv.OwnerDraw = true;
+                    lv.DrawColumnHeader += (s, e) =>
+                    {
+                        using (var b = new SolidBrush(Ciemny ? Panel : SystemColors.Control)) e.Graphics.FillRectangle(b, e.Bounds);
+                        using (var pen = new Pen(Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 3, e.Bounds.Right - 1, e.Bounds.Bottom - 3);
+                        TextRenderer.DrawText(e.Graphics, e.Header.Text, lv.Font, new Rectangle(e.Bounds.X + 5, e.Bounds.Y, e.Bounds.Width - 6, e.Bounds.Height), Tekst,
+                            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                    };
+                    lv.DrawItem += (s, e) => { e.DrawDefault = true; };
+                    lv.DrawSubItem += (s, e) => { e.DrawDefault = true; };
+                }
+                lv.Invalidate();
+            }
+            else if (c is ListBox) { c.BackColor = Pole; c.ForeColor = Tekst; }
+            else if (c is ComboBox)
+            {
+                var cb = (ComboBox)c; cb.FlatStyle = Ciemny ? FlatStyle.Flat : FlatStyle.Standard; cb.BackColor = Pole; cb.ForeColor = Tekst;
+                if (cb.DropDownStyle == ComboBoxStyle.DropDownList && cb.DrawMode != DrawMode.OwnerDrawFixed)
+                {
+                    cb.DrawMode = DrawMode.OwnerDrawFixed;
+                    cb.DrawItem += (s, e) =>
+                    {
+                        bool zazn = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+                        using (var b = new SolidBrush(zazn ? (Ciemny ? Color.FromArgb(60, 64, 72) : SystemColors.Highlight) : Pole)) e.Graphics.FillRectangle(b, e.Bounds);
+                        if (e.Index >= 0)
+                            TextRenderer.DrawText(e.Graphics, cb.Items[e.Index].ToString(), cb.Font, e.Bounds, zazn && !Ciemny ? SystemColors.HighlightText : Tekst,
+                                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                    };
+                }
+                cb.Invalidate();
+            }
+            else if (c is Button)
+            {
+                var b = (Button)c;
+                if (b.BackColor.ToArgb() == Color.FromArgb(255, 222, 0).ToArgb()) b.ForeColor = Color.Black;
+                else
+                {
+                    b.FlatStyle = Ciemny ? FlatStyle.Flat : FlatStyle.Standard;
+                    b.BackColor = Ciemny ? Panel : SystemColors.Control; b.ForeColor = Tekst; b.UseVisualStyleBackColor = !Ciemny;
+                    b.FlatAppearance.BorderColor = Ramka;
+                }
+            }
+            else if (c is LinkLabel) { c.BackColor = Color.Transparent; }
+            else if (c is Label) { c.ForeColor = Slabe.Contains(c.ForeColor.ToArgb()) ? Slaby : Tekst; }
+            else if (c is CheckBox) { c.ForeColor = Tekst; }
+            else if (c is StatusStrip || c is ToolStrip)
+            {
+                c.BackColor = Panel;
+                foreach (ToolStripItem it in ((ToolStrip)c).Items)
+                    if (it.ForeColor.ToArgb() == SystemColors.ControlText.ToArgb() || it.ForeColor.ToArgb() == Color.FromArgb(231, 233, 236).ToArgb()) it.ForeColor = Tekst;
+            }
+            else if (c is TabControl)
+            {
+                var t = (TabControl)c;
+                if (t.DrawMode != TabDrawMode.OwnerDrawFixed) { t.DrawMode = TabDrawMode.OwnerDrawFixed; t.Padding = new Point(14, 5); t.DrawItem += RysujZakladke; }
+                t.Invalidate();
+            }
+            else if (c is SplitContainer) { c.BackColor = Ramka; }
+            else if (c is Panel && !(c is TableLayoutPanel) && !(c is FlowLayoutPanel) && !(c is SplitterPanel) && Biale.Contains(c.BackColor.ToArgb())) { c.BackColor = Naglowek; }
+            else if (!(c is PictureBox)) { c.BackColor = Tlo; c.ForeColor = Tekst; }
+            foreach (Control d in c.Controls) Zastosuj(d);
+        }
+
+        static void RysujZakladke(object s, DrawItemEventArgs e)
+        {
+            var t = (TabControl)s;
+            var r = t.GetTabRect(e.Index);
+            bool sel = e.Index == t.SelectedIndex;
+            using (var b = new SolidBrush(sel ? (Ciemny ? Pole : Color.White) : (Ciemny ? Panel : SystemColors.Control))) e.Graphics.FillRectangle(b, r);
+            TextRenderer.DrawText(e.Graphics, t.TabPages[e.Index].Text, t.Font, r, Tekst, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+    }
+
+    // ---------- załączniki: pliki, zrzut ekranu, obraz ze schowka ----------
+    class Zalaczniki : FlowLayoutPanel
+    {
+        public readonly List<string> Pliki = new List<string>();
+        readonly FlowLayoutPanel lista;
+        public Zalaczniki()
+        {
+            AutoSize = true; Dock = DockStyle.Fill; WrapContents = true; Margin = new Padding(0);
+            var bP = Przycisk("📎  Dodaj plik…"); var bZ = Przycisk("📷  Zrzut ekranu"); var bS = Przycisk("📋  Wklej ze schowka");
+            lista = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(6, 0, 0, 0) };
+            Controls.AddRange(new Control[] { bP, bZ, bS, lista });
+            bP.Click += delegate
+            {
+                using (var d = new OpenFileDialog { Multiselect = true, Title = "Załącz pliki (bez danych spraw, haseł i kluczy)" })
+                    if (d.ShowDialog(FindForm()) == DialogResult.OK) foreach (var p in d.FileNames) Dodaj(p);
+            };
+            bZ.Click += delegate { Zrzut(); };
+            bS.Click += delegate
+            {
+                if (Clipboard.ContainsImage()) Dodaj(Zapisz(Clipboard.GetImage(), "schowek"));
+                else if (Clipboard.ContainsFileDropList()) foreach (var p in Clipboard.GetFileDropList()) Dodaj(p);
+                else MessageBox.Show(FindForm(), "W schowku nie ma obrazu ani plików.", "Wklej ze schowka");
+            };
+        }
+        static Button Przycisk(string t) { return new Button { Text = t, AutoSize = true, Height = 30, Margin = new Padding(0, 0, 6, 4) }; }
+        static string Katalog() { var d = Path.Combine(Path.GetTempPath(), "ecxp-zalaczniki"); Directory.CreateDirectory(d); return d; }
+        static string Zapisz(Image img, string co)
+        {
+            var p = Path.Combine(Katalog(), co + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".png");
+            img.Save(p, System.Drawing.Imaging.ImageFormat.Png);
+            return p;
+        }
+        // Zrzut całego pulpitu (wszystkie monitory) – okna konsoli są na ten czas ukryte.
+        void Zrzut()
+        {
+            var f = FindForm(); var wl = f.Owner;
+            f.Opacity = 0; if (wl != null) wl.Opacity = 0;
+            Application.DoEvents(); Thread.Sleep(350);
+            try
+            {
+                var r = SystemInformation.VirtualScreen;
+                using (var bmp = new Bitmap(r.Width, r.Height))
+                {
+                    using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(r.Left, r.Top, 0, 0, r.Size);
+                    Dodaj(Zapisz(bmp, "zrzut"));
+                }
+            }
+            finally { f.Opacity = 1; if (wl != null) wl.Opacity = 1; }
+        }
+        public void Dodaj(string p)
+        {
+            if (!File.Exists(p) || Pliki.Contains(p)) return;
+            if (new FileInfo(p).Length > P.MaxObiekt) { MessageBox.Show(FindForm(), "Plik większy niż 32 MB: " + p, "Załącznik"); return; }
+            Pliki.Add(p);
+            var chip = new Label { Text = "📎 " + Path.GetFileName(p) + "  ✕", AutoSize = true, Cursor = Cursors.Hand, Margin = new Padding(4, 8, 6, 0) };
+            new ToolTip().SetToolTip(chip, p + "\nKliknij, aby usunąć z wiadomości.");
+            chip.Click += delegate { Pliki.Remove(p); lista.Controls.Remove(chip); };
+            lista.Controls.Add(chip);
         }
     }
 
@@ -1151,6 +1521,8 @@ namespace Ecxp
             Wiersz(e, p, true);
         }
         public void TylkoZamknij() { ok.Text = "Zamknij"; }
+        public Zalaczniki Zalaczniki(string e) { var z = new Zalaczniki(); Wiersz(e, z, false); return z; }
+        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); base.OnLoad(e); }
         public void PrzyciskOk(string tekst) { ok.Text = tekst; }
     }
 
@@ -1160,6 +1532,8 @@ namespace Ecxp
         public ComboBox cbDo, cbProjekt, cbModul, cbTyp;
         public TextBox tbTemat, tbTresc;
         public CheckBox chPilne;
+        public Zalaczniki zal = new Zalaczniki();
+        protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); base.OnLoad(e); }
         public string OdpNa = "";
         readonly Label hint;
         static readonly string[] TypyPl = { "Pytanie", "Zadanie", "Informacja", "Odpowiedź", "Blokada (potrzebna decyzja)" };
@@ -1207,6 +1581,7 @@ namespace Ecxp
             Wiersz(t, "Rodzaj:", rodz, SizeType.AutoSize);
             Wiersz(t, "Temat:", tbTemat, SizeType.AutoSize);
             Wiersz(t, "Treść:", tbTresc, SizeType.Percent);
+            Wiersz(t, "Załączniki:", zal, SizeType.AutoSize);
             Wiersz(t, "", uwaga, SizeType.AutoSize);
             Wiersz(t, "", przyciski, SizeType.AutoSize);
             Controls.Add(t);
@@ -1307,6 +1682,15 @@ namespace Ecxp
 
                 var r4 = (Dictionary<string, object>)k.Wywolaj("rola", P.D("nazwa", "codex-elan", "projekt", "testowy", "modul", "elan", "role", new List<string> { "programista", "tester" }, "opis", "test"));
                 ok(((System.Collections.IEnumerable)r4["karty_rol"]).Cast<object>().Count() == 2, "nadanie ról: sesja dostała 2 karty ról");
+
+                var plikTest = Path.Combine(P.Root, "zrzut-test.png");
+                using (var bmp = new Bitmap(40, 20)) bmp.Save(plikTest, System.Drawing.Imaging.ImageFormat.Png);
+                var obj = (Dictionary<string, object>)k.Wywolaj("kontekst_zapisz", P.D("sciezka", plikTest, "nazwa", "zrzut-test.png", "typ", "image/png"));
+                var r5 = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "para:elan", "projekt", "testowy", "typ", "informacja", "tresc", "Zrzut w załączniku.",
+                    "czesci", new List<object> { P.D("rodzaj", "plik", "sha256", obj["sha256"], "nazwa", "zrzut-test.png", "typ", "image/png") }));
+                var zz = P.Wszystkie(false).Where(m => m.LustroId == P.S(r5, "lustro_id")).ToList();
+                ok(zz.Count == 2 && zz.All(m => m.Czesci.Any(c => P.S(c, "rodzaj") == "plik" && P.S(c, "sha256") == P.S(obj, "sha256"))) && File.Exists(P.ObjPath(P.S(obj, "sha256"))),
+                    "załącznik (zrzut PNG) jako obiekt SHA-256 dotarł do obu stron pary");
 
                 var tr = (Dictionary<string, object>)k.Wywolaj("trasy", P.D("projekt", "testowy"));
                 ok(((System.Collections.IEnumerable)tr["pary"]).Cast<object>().Count() >= 1, "tablica tras czytelna dla klienta");

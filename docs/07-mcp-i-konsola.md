@@ -62,12 +62,16 @@ flowchart LR
 | Funkcja | Stan |
 |---|---|
 | rozmowy w wątkach, kolory typów, stan doręczenia, filtry, wyszukiwanie | jest |
-| „Napisz” i „Odpowiedz”: projekt, moduł, adresat, rodzaj, pilne | jest, przechodzi na stos |
+| „Napisz” i „Odpowiedz”: projekt, moduł, adresat (para / strona / rola), rodzaj, pilne – przez stos | jest |
+| załączniki: plik, zrzut ekranu (wszystkie monitory), obraz lub pliki ze schowka → obiekty kontekstu SHA-256 → części `plik`; otwieranie po sprawdzeniu skrótu, typy wykonywalne tylko pokazywane w folderze | jest |
+| czytelny widok rozmowy: bloki wiadomości, większa treść z wcięciem, załączniki do kliknięcia, dane techniczne drobno | jest |
+| motyw jasny / ciemny (pasek tytułu, listy, zakładki, logo), zapamiętany w ustawieniach operatora | jest |
+| spis gałęzi jako strona HTML+JS: grupy A–F, filtry, wyszukiwanie, sortowanie, gałęzie z kolorowym stanem, bieżący stan katalogów | jest |
 | „Wyczyść”: archiwizacja przeczytanych do `archiwum\RRRR-MM\`, nic nie kasuje | jest |
 | zakładka Połączenia: węzły, ostatni kontakt, ocena | jest |
-| pary 1:1 obok siebie, role, nowe zadanie z parą i pakietami startowymi | w budowie |
+| pary 1:1 obok siebie, role, nowe zadanie z parą, załącznikami i pakietami startowymi, znaczniki 🔗ECXP | jest |
 | łańcuchy ról (programista → tester → recenzent → decyzja → integrator) | plan |
 | tworzenie agentów (Claude Code CLI w tle, sesja w aplikacji, Codex: pakiet startowy) | plan |
 | decyzje podpisane (ramka DECYZJA) | plan, czeka na decyzję właściciela |
 
-Test protokołu: `ECXP-MAILBOX.exe /selftest <pusty katalog>`.
+Testy: `ECXP-MAILBOX.exe /selftest <pusty katalog>` (rdzeń protokołu) i `ECXP-MAILBOX.exe /selftest-stos <pusty katalog>` (operator przez prawdziwy stos: para, lustro, kopie 1:1, przejęcie, role, załącznik). Spis gałęzi bez okna: `ECXP-MAILBOX.exe /spis-galezi [/ciemny]`.

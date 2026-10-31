@@ -6,7 +6,7 @@ rem   ..\ecxp-mcp.exe     - adapter MCP dla agentow ChatGPT/Codex i Claude (klie
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:"%FW%\System.Web.Extensions.dll"
-set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll
+set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html
 set RDZEN=Protokol.cs Siec.cs Ramka.cs
 cd /d "%~dp0"
 "%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs %RDZEN% || exit /b 1
