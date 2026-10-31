@@ -1,0 +1,13 @@
+# Repozytorium ECXP-MAILBOX śledzi tylko kod, dokumentację i logo.
+# Dane robocze skrzynki (wiadomości, dziennik, stan, kontekst, archiwum) i programy .exe zostają lokalnie.
+/*
+!/.gitignore
+!/README.md
+!/SPECYFIKACJA-ECXP.md
+!/docs/
+!/logo/
+/logo/konsola-*.png
+!/przyklady/
+!/narzedzia/
+/narzedzia/*
+!/narzedzia/zrodlo/

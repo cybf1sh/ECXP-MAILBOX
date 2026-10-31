@@ -1,0 +1,16 @@
+{
+  "nazwa": "moj-projekt",
+  "opis": "Przykładowy projekt ECXP",
+  "repozytorium": "D:/Projekty/moj-projekt",
+  "galaz": "main",
+  "stan": "STAN-MODULOW.md",
+  "zasady": ["AGENTS.md"],
+  "moduly": ["rdzen", "interfejs", "testy"],
+  "pary": {
+    "rdzen": { "codex": "codex-rdzen", "claude": "claude-rdzen", "tytul": "🔗ECXP rdzeń" }
+  },
+  "wezly": [
+    { "nazwa": "codex-rdzen", "opis": "Codex · rdzeń" },
+    { "nazwa": "claude-rdzen", "opis": "Claude · rdzeń" }
+  ]
+}
