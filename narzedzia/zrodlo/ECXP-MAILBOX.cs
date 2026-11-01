@@ -210,7 +210,7 @@ namespace Ecxp
         string CzekaNaCiebie()
         {
             var m = Regex.Match(P.Czytaj(Stan), @"^## Czeka na Ciebie\s*(.*?)(?=^---|^## )", RegexOptions.Multiline | RegexOptions.Singleline);
-            var s = m.Success ? m.Groups[1].Value.Trim() : "(brak sekcji „Czeka na Ciebie”)";
+            var s = m.Success ? m.Groups[1].Value.Trim() : Jezyk.T("(brak sekcji „Czeka na Ciebie”)");
             if (alarmy.Count > 0) s = string.Join("\n", alarmy.Select(a => "⚠ " + a)) + "\n" + s;
             return s;
         }
@@ -1260,7 +1260,7 @@ namespace Ecxp
             int wKolejce = msgs.Count(m => m.Katalog == "do-codex" || m.Katalog == "do-claude");
             int bezOdp = msgs.Count(m => m.WymagaOdp && !m.Odpowiedziano);
             stInfo.Text = string.Format(Jezyk.T("Nowe dla Ciebie: {0}   ·   w kolejkach adresatów: {1}   ·   pytań bez odpowiedzi: {2}   ·   dziennik: {3}   ·   {4:HH:mm:ss}"),
-                nowe, wKolejce, bezOdp, spojnosc.Replace("spójny, wpisów:", Jezyk.T("spójny, wpisów:")).Replace("NARUSZONY", Jezyk.T("NARUSZONY")), teraz);
+                nowe, wKolejce, bezOdp, spojnosc.Replace("spójny, wpisów:", Jezyk.T("spójny, wpisów:")).Replace("pusty (brak zdarzeń)", Jezyk.T("pusty (brak zdarzeń)")).Replace("NARUSZONY", Jezyk.T("NARUSZONY")), teraz);
             stInfo.ForeColor = spojnosc.StartsWith("NARUSZONY") ? Motyw.K(Color.FromArgb(200, 0, 0)) : SystemColors.ControlText;
             UpdateTray();
         }
@@ -1877,9 +1877,12 @@ namespace Ecxp
             if (args.Length >= 3 && args[0] == "/demo") return Test.Demo(args[1], args[2], args.Length > 3 ? args[3] : "pl");
             if (args.Length >= 1 && (args[0] == "/instaluj" || args[0] == "/odinstaluj"))
             {
+                var mj = Regex.Match(P.Czytaj(Path.Combine(exeDir, "ustawienia-wlasciciel.txt")), @"jezyk=([a-z]{2})");
+                if (mj.Success) Jezyk.Kod = mj.Groups[1].Value;
+                for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/jezyk") Jezyk.Kod = args[i + 1];
                 var raport = Instalator.Wykonaj(args[0] == "/odinstaluj");
                 try { File.WriteAllText(Path.Combine(P.Root, "stan", "instalacja.txt"), raport, new UTF8Encoding(false)); } catch { }
-                if (!args.Contains(Jezyk.T("/cicho"))) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
+                if (!args.Contains("/cicho")) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
                 return 0;
             }
             if (args.Length >= 1 && args[0] == "/spis-galezi") { Motyw.Ciemny = args.Contains("/ciemny"); ZbudujSpis(); return 0; }
@@ -2208,15 +2211,15 @@ namespace Ecxp
             var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             Directory.CreateDirectory(Path.Combine(P.Root, "stan")); Directory.CreateDirectory(Path.Combine(P.Root, "projekty"));
-            log.AppendLine((usun ? "Odinstalowanie" : "Instalacja") + " ECXP na stanowisku " + Environment.MachineName + ", katalog: " + P.Root);
+            log.AppendLine(Jezyk.T(usun ? "Odinstalowanie" : "Instalacja") + Jezyk.T(" ECXP na stanowisku ") + Environment.MachineName + Jezyk.T(", katalog: ") + P.Root);
 
             // 1. Claude Code: serwer MCP ecxp (zakres użytkownika)
             var claude = Agenci.Program("claude");
-            if (claude.Length == 0) log.AppendLine("• Claude Code CLI: brak na tym stanowisku – pomijam rejestrację w Claude.");
+            if (claude.Length == 0) log.AppendLine(Jezyk.T("• Claude Code CLI: brak na tym stanowisku – pomijam rejestrację w Claude."));
             else
             {
                 Uruchom(claude, "mcp remove ecxp --scope user");
-                log.AppendLine(usun ? "• Claude: usunięto serwer MCP ecxp." : "• Claude: " + Uruchom(claude, "mcp add --scope user ecxp -- \"" + mcp + "\"").Split('\n')[0]);
+                log.AppendLine(usun ? Jezyk.T("• Claude: usunięto serwer MCP ecxp.") : "• Claude: " + Uruchom(claude, "mcp add --scope user ecxp -- \"" + mcp + "\"").Split('\n')[0]);
             }
 
             // 2. Claude Code: hook UserPromptSubmit (lustro wpisów operatora z czatu)
@@ -2235,13 +2238,13 @@ namespace Ecxp
                 Directory.CreateDirectory(Path.GetDirectoryName(sp));
                 Kopia(sp);
                 File.WriteAllText(sp, Ladnie(P.Js().Serialize(st)), new UTF8Encoding(false));
-                log.AppendLine(usun ? "• Claude: usunięto hook lustra czatu." : "• Claude: hook lustra czatu (UserPromptSubmit) w " + sp + ".");
+                log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hook lustra czatu.") : Jezyk.T("• Claude: hook lustra czatu (UserPromptSubmit) w ") + sp + ".");
             }
-            catch (Exception ex) { log.AppendLine("• Claude: NIE zmieniono " + sp + " (" + ex.Message + ")."); }
+            catch (Exception ex) { log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
 
             // 3. Codex: serwer MCP ecxp w config.toml
             var cp = Path.Combine(dom, ".codex", "config.toml");
-            if (!File.Exists(cp)) log.AppendLine("• Codex: brak " + cp + " – pomijam (zainstaluj aplikację Codex i uruchom instalację ponownie).");
+            if (!File.Exists(cp)) log.AppendLine(Jezyk.T("• Codex: brak ") + cp + Jezyk.T(" – pomijam (zainstaluj aplikację Codex i uruchom instalację ponownie)."));
             else
             {
                 var linie = File.ReadAllLines(cp).ToList();
@@ -2256,7 +2259,7 @@ namespace Ecxp
                 if (!usun) { wynik.Add(""); wynik.Add("[mcp_servers.ecxp]"); wynik.Add("command = '" + mcp + "'"); wynik.Add("args = []"); wynik.Add("startup_timeout_sec = 60"); }
                 Kopia(cp);
                 File.WriteAllLines(cp, wynik, new UTF8Encoding(false));
-                log.AppendLine(usun ? "• Codex: usunięto [mcp_servers.ecxp]." : "• Codex: [mcp_servers.ecxp] w " + cp + " – uruchom ponownie aplikację Codex.");
+                log.AppendLine(usun ? Jezyk.T("• Codex: usunięto [mcp_servers.ecxp].") : Jezyk.T("• Codex: [mcp_servers.ecxp] w ") + cp + Jezyk.T(" – uruchom ponownie aplikację Codex."));
             }
 
             // 4. Skróty: pulpit i autostart
@@ -2269,14 +2272,14 @@ namespace Ecxp
                     var sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
                     var s = sh.GetType().InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, sh, new object[] { lnk });
                     var exe = Path.Combine(narz, "ECXP-MAILBOX.exe");
-                    foreach (var kv in new[] { new[] { "TargetPath", exe }, new[] { "WorkingDirectory", narz }, new[] { "IconLocation", exe + ",0" }, new[] { "Description", "ECXP-MAILBOX – konsola operatora ECXP" } })
+                    foreach (var kv in new[] { new[] { "TargetPath", exe }, new[] { "WorkingDirectory", narz }, new[] { "IconLocation", exe + ",0" }, new[] { "Description", Jezyk.T("ECXP-MAILBOX – konsola operatora ECXP") } })
                         s.GetType().InvokeMember(kv[0], System.Reflection.BindingFlags.SetProperty, null, s, new object[] { kv[1] });
                     s.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, s, null);
                 }
-                catch (Exception ex) { log.AppendLine("• Skrót " + lnk + ": " + ex.Message); }
+                catch (Exception ex) { log.AppendLine(Jezyk.T("• Skrót ") + lnk + ": " + ex.Message); }
             }
-            log.AppendLine(usun ? "• Usunięto skróty." : "• Skróty: pulpit i autostart.");
-            log.AppendLine("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak.");
+            log.AppendLine(Jezyk.T(usun ? "• Usunięto skróty." : "• Skróty: pulpit i autostart."));
+            log.AppendLine(Jezyk.T("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak."));
             return log.ToString();
         }
     }
