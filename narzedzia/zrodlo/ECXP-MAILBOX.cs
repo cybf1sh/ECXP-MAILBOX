@@ -56,14 +56,31 @@ namespace Ecxp
         bool odswiezanieListy;
         string podpisListy = "", podpisPodgladu = "", watekPodgladu = "";
         Button noweWiadomosci;
+        SplitContainer rozmowySplit, modulySplit;
+        TextBox szybkaTresc;
+        ComboBox szybkiAdres;
+        CheckBox szybkiePilne;
+        Zalaczniki szybkieZal;
+        Panel szybkiPanel;
+        Label rozmowaTytul;
+        string draftWatek = "";
+        Msg odpowiedzKotwica;
+        class Szkic { public string Tekst = ""; public int Adres; public bool Pilne; public List<string> Pliki = new List<string>(); }
+        readonly Dictionary<string, Szkic> szkice = new Dictionary<string, Szkic>();
+        readonly Dictionary<string, Form> oknaWiadomosci = new Dictionary<string, Form>();
+        readonly List<Tuple<int, int, Msg>> zakresyWiadomosci = new List<Tuple<int, int, Msg>>();
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessage")]
         static extern IntPtr SendPoint(IntPtr hwnd, int msg, IntPtr wparam, ref Point point);
         class SpokojnaLista : ListView { public SpokojnaLista() { DoubleBuffered = true; } }
+        static string PodpisDanych(IEnumerable<Msg> wiadomosci)
+        {
+            return string.Join("|", wiadomosci.Select(m => P.Sha(P.Js().Serialize(new { m.Id, m.Watek, m.Od, m.Do, m.Projekt, m.Modul, m.Temat, m.Status, m.Typ, m.Uwagi, m.Ograniczenia, m.Commit, m.OdpNa, m.Blad, m.Seq, m.Pilne, m.Nowa, m.WymagaOdp, m.Odpowiedziano, m.Czas, m.Kontrole, m.Pliki, m.Czesci, m.Lustro, m.LustroId, m.KopiaDla, m.Dor }))));
+        }
         string PodpisWatku(string id)
         {
-            return P.Sha(P.Js().Serialize(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList()) + Jezyk.Kod + Motyw.Ciemny);
+            return P.Sha(PodpisDanych(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas)) + Jezyk.Kod + Motyw.Ciemny);
         }
         void SprawdzPodglad()
         {
@@ -391,7 +408,7 @@ namespace Ecxp
 
             // --- Skrzynka ---
             tabMsg = new TabPage("Rozmowy");
-            var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, WrapContents = false };
+            var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
             var bPisz = Btn("✉  Napisz…");
             bPisz.Font = fontB; bPisz.BackColor = Color.FromArgb(255, 222, 0); bPisz.FlatStyle = FlatStyle.Flat;
             var bOdp = Btn("↩  Odpowiedz…");
@@ -408,12 +425,22 @@ namespace Ecxp
             var bZamknij = Btn("⊘  Zamknij wątek…");
             bZamknij.Click += delegate { ZamknijWatki(); };
             new ToolTip().SetToolTip(bZamknij, "Zamyka wątki zaznaczonych wiadomości – także niedoręczone i bez odpowiedzi.\nWiadomości trafiają do archiwum (nic nie jest kasowane), strażnik przestaje o nie upominać.");
-            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij, cbWidok, cbModul, lblSz, szukaj });
+            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij });
 
-            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+            var split = rozmowySplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, Size = new Size(1000, 500), SplitterDistance = 300, Panel1MinSize = 180, Panel2MinSize = 300 };
             lv = new SpokojnaLista { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
-                SmallImageList = new ImageList { ImageSize = new Size(1, 26) } };
-            lv.ShowGroups = false; lv.ShowItemToolTips = true;
+                SmallImageList = new ImageList { ImageSize = new Size(1, 68) } };
+            lv.ShowGroups = false; lv.ShowItemToolTips = true; lv.HeaderStyle = ColumnHeaderStyle.None; lv.OwnerDraw = true;
+            lv.DrawItem += delegate { };
+            lv.DrawSubItem += (sender, e) => {
+                if (e.ColumnIndex != 0) return;
+                bool selected = e.Item.Selected;
+                Color back = selected ? Akcent : Motyw.Pole;
+                using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, e.Bounds);
+                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.Font, new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 6, Math.Max(1, e.Bounds.Width - 18), e.Bounds.Height - 10), Motyw.Tekst, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+                using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+                if (selected && lv.Focused) e.DrawFocusRectangle(e.Bounds);
+            };
             lv.Columns.Add("Rozmowa", 330); lv.Columns.Add("Moduł", 110); lv.Columns.Add("Stan", 220);
             det = new RichTextBox { ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, BorderStyle = BorderStyle.None, DetectUrls = false };
             split.Panel1.Controls.Add(lv);
@@ -424,8 +451,24 @@ namespace Ecxp
             split.Panel2.Controls.Add(noweWiadomosci);
             pnlZal = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 4), Visible = false };
             split.Panel2.Controls.Add(pnlZal);
-            tabMsg.Controls.Add(split);
-            tabMsg.Controls.Add(top);
+            modulySplit = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1200, 600), SplitterDistance = 180, FixedPanel = FixedPanel.Panel1, Panel1MinSize = 160, Panel2MinSize = 480 };
+            var nav = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(8) };
+            var wszystkie = Btn("Wszystkie rozmowy"); wszystkie.Click += delegate { cbWidok.SelectedIndex = 0; };
+            var uwaga = Btn("Wymaga uwagi"); uwaga.Click += delegate { cbWidok.SelectedIndex = 3; };
+            cbWidok.Width = 150; cbModul.Width = 150; szukaj.Width = 150;
+            nav.Controls.AddRange(new Control[] { wszystkie, uwaga, new Label { Text = "Widok", AutoSize = true }, cbWidok, new Label { Text = "Moduły", AutoSize = true }, cbModul, lblSz, szukaj });
+            modulySplit.Panel1.Controls.Add(nav); modulySplit.Panel2.Controls.Add(split);
+            rozmowaTytul = new Label { Dock = DockStyle.Top, Height = 58, Padding = new Padding(12, 8, 8, 4), Font = fontB, Text = "Wybierz rozmowę", AutoEllipsis = true };
+            split.Panel2.Controls.Add(rozmowaTytul);
+            BudujSzybkaOdpowiedz(split.Panel2);
+            tabMsg.Controls.Add(modulySplit); tabMsg.Controls.Add(top);
+            var filtrPanel = Btn("Filtry"); top.Controls.Add(filtrPanel);
+            filtrPanel.Click += delegate { modulySplit.Panel1Collapsed = !modulySplit.Panel1Collapsed; };
+            lv.Resize += delegate { if (lv.Columns.Count > 0) { lv.Columns[0].Width = Math.Max(120, lv.ClientSize.Width - 5); for (int i = 1; i < lv.Columns.Count; i++) lv.Columns[i].Width = 0; } };
+            det.MouseUp += (sender, e) => { if (e.Button != MouseButtons.Left || det.SelectionLength != 0) return; int pos = det.GetCharIndexFromPosition(e.Location); var r = zakresyWiadomosci.FirstOrDefault(x => pos >= x.Item1 && pos < x.Item2); if (r != null) OtworzWiadomosc(r.Item3); };
+            lv.MouseClick += (sender, e) => { var hit = lv.HitTest(e.Location); if (hit.Item != null) OtworzWiadomosc((Msg)hit.Item.Tag); };
+            lv.KeyDown += (sender, e) => { if (e.KeyCode == Keys.Enter && Wybrana() != null) { e.Handled = true; OtworzWiadomosc(Wybrana()); } };
+            form.Resize += delegate { UkladRozmow(); };
 
             // --- Agenci (pary 1:1, role, znaczniki) ---
             tabAg = new TabPage("Agenci");
@@ -484,8 +527,16 @@ namespace Ecxp
             tabs.TabPages.Add(tabAg);
             tabs.TabPages.Add(tabPol);
             tabs.TabPages.Add(tabStan);
+            var administracja = new TabPage("Administracja");
+            var uslugiHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            head.Controls.Remove(pnlPasek);
+            pnlPasek.Dock = DockStyle.Top; pnlPasek.WrapContents = true;
+            uslugiHost.Controls.Add(pnlKarty); uslugiHost.Controls.Add(pnlPasek);
+            administracja.Controls.Add(uslugiHost); tabs.TabPages.Add(administracja);
+            tabStan.Controls.Add(czeka); tabStan.Controls.Add(lblCzeka);
+            czeka.Dock = DockStyle.Bottom; lblCzeka.Dock = DockStyle.Bottom;
 
-            var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42 };
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, WrapContents = true };
             var bRead = Btn("Przeczytane");
             var bAll = Btn("Wszystkie przeczytane");
             var bClean = Btn("Archiwizuj przeczytane…");
@@ -505,14 +556,11 @@ namespace Ecxp
             strip.Items.AddRange(new ToolStripItem[] { stInfo, stCli, stStos, stSyg });
 
             form.Controls.Add(tabs);
-            form.Controls.Add(czeka);
-            form.Controls.Add(lblCzeka);
-            form.Controls.Add(pnlBiez);
-            form.Controls.Add(pnlKarty);
+            // Bieżąca para jest widoczna przy rozmowie. Usługi są w Administracji.
             form.Controls.Add(head);
             form.Controls.Add(bar);
             form.Controls.Add(strip);
-            form.Shown += delegate { split.SplitterDistance = (int)(split.Height * 0.5); };
+            form.Shown += delegate { UkladRozmow(); };
 
             lv.SelectedIndexChanged += delegate { if (odswiezanieListy) return; var m = Wybrana(); if (m != null) PokazWatek(m); };
             lv.DoubleClick += delegate { var m = Wybrana(); if (m != null) MarkRead(msgs.Where(x => x.Watek == m.Watek).ToList()); };
@@ -521,7 +569,7 @@ namespace Ecxp
             {
                 var m = Wybrana();
                 if (m == null) { MessageBox.Show(form, Jezyk.T("Najpierw zaznacz wiadomość, na którą chcesz odpowiedzieć."), Jezyk.T("Odpowiedz")); return; }
-                Pisz(m);
+                if (szybkiPanel.Visible) szybkaTresc.Focus(); else Pisz(m);
             };
             cbWidok.SelectedIndexChanged += delegate { RefreshView(); };
             cbModul.SelectedIndexChanged += delegate { RefreshView(); };
@@ -541,7 +589,8 @@ namespace Ecxp
             form.KeyDown += (s, e) =>
             {
                 if (e.Control && e.KeyCode == Keys.N) { e.Handled = true; Pisz(null); }
-                else if (e.Control && e.KeyCode == Keys.R) { e.Handled = true; var m = Wybrana(); if (m != null) Pisz(m); }
+                else if (e.Control && e.KeyCode == Keys.R) { e.Handled = true; if (szybkiPanel.Visible) szybkaTresc.Focus(); else if (Wybrana() != null) Pisz(Wybrana()); }
+                else if (e.Control && e.KeyCode == Keys.F) { e.Handled = true; szukaj.Focus(); }
                 else if (e.KeyCode == Keys.F5) { e.Handled = true; Skanuj(); }
             };
             form.FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; form.Hide(); } };
@@ -571,7 +620,9 @@ namespace Ecxp
             SendMessage(det.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
             try {
             det.SuspendLayout();
-            det.Clear();
+            det.Clear(); zakresyWiadomosci.Clear();
+            ZmienSzkic(sel);
+            rozmowaTytul.Text = P.Baza(sel.Temat) + "\n" + sel.Projekt + " / " + sel.Modul + " · " + OpisPary(sel.Projekt, sel.Modul);
             var w = msgs.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ToList();
             var teraz = DateTime.Now;
             wciecie = 0;
@@ -580,8 +631,12 @@ namespace Ecxp
                 (sel.Modul.Length > 0 ? Jezyk.T("   ·   moduł ") + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
             int poz = 0;
             var zal = new List<Dictionary<string, object>>();
+            var wyswietloneLustra = new HashSet<string>();
             foreach (var m in w)
             {
+                string lustroKlucz = m.LustroId.Length > 0 ? m.LustroId : m.Id;
+                if (m.LustroId.Length > 0 && m.Lustro.Count > 1 && !wyswietloneLustra.Add(lustroKlucz)) continue;
+                int poczatekWiadomosci = det.TextLength;
                 if (m == sel) poz = det.TextLength;
                 wciecie = 0;
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
@@ -611,9 +666,13 @@ namespace Ecxp
                 if (m.Pliki.Count > 0) { Dopisz(Jezyk.T("Pliki:\n"), fontB, Motyw.Tekst); foreach (var p in m.Pliki) Dopisz("• " + p + "\n", fontN, Motyw.Tekst); }
                 if (m.Commit.Length > 0) Dopisz(Jezyk.T("Commit: ") + m.Commit + "\n", fontN, Motyw.Slaby);
                 if (m.Ograniczenia.Length > 0) Dopisz(Jezyk.T("Ograniczenia: ") + m.Ograniczenia + "\n", fontS, Motyw.Slaby);
+                if (m.Lustro.Count > 1)
+                    foreach (var kopia in w.Where(x => x.Id == m.Id || (m.LustroId.Length > 0 && x.LustroId == m.LustroId)))
+                        Dopisz(NazwaW(kopia.Do) + ": " + Doreczenie(kopia, teraz) + "\n", fontS, Motyw.Slaby);
                 Dopisz(Jezyk.T("Doręczenie: ") + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
                 wciecie = 0;
                 Dopisz("\n", fontS, Motyw.Slaby);
+                zakresyWiadomosci.Add(Tuple.Create(poczatekWiadomosci, det.TextLength, m));
             }
             det.SelectionStart = poz; det.SelectionLength = 0;
             if (utrzymaj)
@@ -1183,7 +1242,7 @@ namespace Ecxp
             widokUslug = widok;
             pnlPasek.Visible = widok == "pasek";
             pnlKarty.Visible = widok == "karty";
-            naglowek.Height = widok == "pasek" ? 150 : 70;
+            naglowek.Height = 70;
             if (zapisz) ZapiszUstawienia();
             PokazCli();
         }
@@ -1369,7 +1428,7 @@ namespace Ecxp
                 .Where(w => PasujeWatek(w, teraz) && w.Any(Pasuje))
                 .OrderByDescending(w => w.Any(m => m.Nowa)).ThenByDescending(w => w.Max(m => m.Czas)).ToList();
 
-            string podpis = P.Sha(P.Js().Serialize(watki) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + teraz.ToString("yyyyMMddHHmm"));
+            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + teraz.ToString("yyyyMMddHHmm"));
             if (podpis != podpisListy)
             {
             var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Watek));
@@ -1388,7 +1447,7 @@ namespace Ecxp
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
                     : Jezyk.T("✓ bez oczekujących");
                 var representative = w.LastOrDefault(x => x.Od != P.Wlasciciel && x.KopiaDla.Length == 0) ?? w.Last();
-                var it = new ListViewItem(P.Baza(w[0].Temat)) { Tag = representative };
+                var it = new ListViewItem(P.Baza(w[0].Temat) + "\n" + representative.Modul + " · " + stanW) { Tag = representative };
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
                 it.SubItems.Add(stanW);
                 it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
@@ -1512,6 +1571,109 @@ namespace Ecxp
             Skanuj();
         }
 
+        string OpisPary(string projekt, string modul)
+        {
+            var pary = Siec.Opis(projekt)["pary"] as List<object> ?? new List<object>();
+            var para = pary.Cast<Dictionary<string, object>>().FirstOrDefault(x => P.S(x, "modul") == modul);
+            return para == null ? Jezyk.T("Brak przypisanej pary") : P.S(para, "codex") + " + " + P.S(para, "claude");
+        }
+
+        void UkladRozmow()
+        {
+            if (modulySplit == null || rozmowySplit == null) return;
+            modulySplit.Panel1Collapsed = form.ClientSize.Width < 1100;
+            if (szybkiPanel != null) szybkiPanel.Visible = form.ClientSize.Height >= 620;
+            rozmowySplit.Orientation = Orientation.Vertical;
+            if (rozmowySplit.Orientation == Orientation.Vertical && rozmowySplit.Width > 500)
+                rozmowySplit.SplitterDistance = Math.Max(180, Math.Min(300, rozmowySplit.Width - 320));
+            else if (rozmowySplit.Height > 500) rozmowySplit.SplitterDistance = 180;
+        }
+
+        void BudujSzybkaOdpowiedz(Control parent)
+        {
+            szybkiPanel = new Panel { Dock = DockStyle.Bottom, Height = 220, Padding = new Padding(8) };
+            var row = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
+            szybkiAdres = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210 };
+            szybkiAdres.Items.AddRange(new object[] { "Para Codex + Claude", "Tylko Codex", "Tylko Claude", "Nadawca wiadomości" }); szybkiAdres.SelectedIndex = 0;
+            szybkiePilne = new CheckBox { Text = "Pilne", AutoSize = true };
+            row.Controls.AddRange(new Control[] { new Label { Text = "Do:", AutoSize = true }, szybkiAdres, szybkiePilne });
+            szybkaTresc = new TextBox { Multiline = true, Dock = DockStyle.Fill, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Font = fontTresc };
+            szybkieZal = new Zalaczniki { Dock = DockStyle.Bottom, AutoSize = true };
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft };
+            var wyslij = Btn("Wyślij (Ctrl+Enter)"); wyslij.BackColor = Zolty; wyslij.Click += delegate { WyslijSzybko(); };
+            bottom.Controls.Add(wyslij);
+            szybkiPanel.Controls.Add(szybkaTresc); szybkiPanel.Controls.Add(szybkieZal); szybkiPanel.Controls.Add(bottom); szybkiPanel.Controls.Add(row);
+            parent.Controls.Add(szybkiPanel);
+            szybkaTresc.KeyDown += (o, e) => { if (e.Control && e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; WyslijSzybko(); } };
+        }
+
+        void ZmienSzkic(Msg m)
+        {
+            if (draftWatek == m.Watek) return;
+            if (draftWatek.Length > 0) szkice[draftWatek] = new Szkic { Tekst = szybkaTresc.Text, Adres = szybkiAdres.SelectedIndex, Pilne = szybkiePilne.Checked, Pliki = szybkieZal.Pliki.ToList() };
+            draftWatek = m.Watek; odpowiedzKotwica = m;
+            Szkic d; if (!szkice.TryGetValue(draftWatek, out d)) d = new Szkic();
+            szybkaTresc.Text = d.Tekst; szybkiAdres.SelectedIndex = d.Adres; szybkiePilne.Checked = d.Pilne;
+            szybkieZal.UstawPliki(d.Pliki);
+        }
+
+        void WyslijSzybko()
+        {
+            var m = Wybrana();
+            if (m == null || draftWatek != m.Watek) { MessageBox.Show(form, Jezyk.T("Wybierz rozmowę")); return; }
+            // Odpowiedź odnosi się do wiadomości pokazanej przy otwarciu rozmowy, nie do niewidocznej nowej wiadomości.
+            if (odpowiedzKotwica != null && odpowiedzKotwica.Watek == m.Watek) m = odpowiedzKotwica;
+            if (string.IsNullOrWhiteSpace(szybkaTresc.Text)) { szybkaTresc.Focus(); return; }
+            string adres = szybkiAdres.SelectedIndex == 0 ? "para:" + m.Modul : szybkiAdres.SelectedIndex == 1 ? "codex/" + m.Modul : szybkiAdres.SelectedIndex == 2 ? "claude/" + m.Modul : m.Od == P.Wlasciciel ? m.Do : m.Od;
+            if (adres == P.Straznik) adres = P.Koordynacja;
+            using (var f = new PiszForm(new List<string> { adres }, new List<string> { m.Projekt }, new List<string> { m.Modul }, fontN, fontB))
+            {
+                f.UstawAdresata(adres); f.cbProjekt.Text = m.Projekt; f.cbModul.Text = m.Modul;
+                f.cbTyp.SelectedIndex = 3; f.OdpNa = m.Id; f.tbTemat.Text = P.Baza(m.Temat);
+                f.tbTresc.Text = szybkaTresc.Text; f.chPilne.Checked = szybkiePilne.Checked; f.zal.UstawPliki(szybkieZal.Pliki);
+                if (WyslijFormularz(f)) { szybkaTresc.Clear(); szybkieZal.UstawPliki(new List<string>()); szkice.Remove(draftWatek); SprawdzPodglad(); }
+            }
+        }
+
+        void OtworzWiadomosc(Msg m)
+        {
+            Form istnieje;
+            if (oknaWiadomosci.TryGetValue(m.Id, out istnieje) && !istnieje.IsDisposed) { istnieje.Show(); istnieje.Activate(); return; }
+            var f = new Form { Text = P.Baza(m.Temat) + " — " + NazwaW(m.Od), Size = new Size(850, 650), MinimumSize = new Size(560, 400), StartPosition = FormStartPosition.CenterParent, Font = fontN };
+            var tekst = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, Font = fontTresc, DetectUrls = false, BorderStyle = BorderStyle.None };
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), WrapContents = true };
+            var odpowiedz = Btn("Odpowiedz…"); odpowiedz.Click += delegate { Pisz(m); };
+            var odswiez = Btn("Odśwież");
+            var meta = Btn("Szczegóły doręczenia");
+            var zal = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(8) };
+            bool szczegoly = false;
+            Action<bool> render = zachowaj => {
+                int start = tekst.SelectionStart, length = tekst.SelectionLength; Point scroll = new Point();
+                if (zachowaj) SendPoint(tekst.Handle, 0x04DD, IntPtr.Zero, ref scroll);
+                SendMessage(tekst.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
+                try {
+                    string body = m.Uwagi + string.Concat(m.Czesci.Where(c => P.S(c, "rodzaj") == "tekst" && P.S(c, "tekst") != m.Uwagi).Select(c => "\r\n" + P.S(c, "tekst")));
+                    tekst.Text = NazwaW(m.Od) + " → " + NazwaW(m.Do) + "\r\n" + m.Czas.ToString("dd.MM.yyyy HH:mm") + " · " + Jezyk.T(P.Rodzaj(m)) + "\r\n\r\n" + body +
+                        (m.Kontrole.Count > 0 ? "\r\n\r\n" + Jezyk.T("Kontrole:") + "\r\n" + string.Join("\r\n", m.Kontrole) : "") +
+                        (m.Ograniczenia.Length > 0 ? "\r\n\r\n" + Jezyk.T("Ograniczenia: ") + m.Ograniczenia : "") +
+                        (m.Blad != null ? "\r\n\r\n" + m.Blad : "") +
+                        (szczegoly ? "\r\n\r\n" + Doreczenie(m, DateTime.Now) + "\r\nID: " + m.Id + "\r\nCommit: " + m.Commit + "\r\n" + string.Join("\r\n", m.Pliki) : "");
+                    if (zachowaj) { tekst.Select(Math.Min(start, tekst.TextLength), Math.Min(length, Math.Max(0, tekst.TextLength - start))); SendPoint(tekst.Handle, 0x04DE, IntPtr.Zero, ref scroll); }
+                    else tekst.Select(0, 0);
+                    zal.Controls.Clear();
+                    foreach (var c in m.Czesci.Where(c => P.S(c, "rodzaj") == "plik")) { var copy = c; var b = Btn("📎 " + P.S(c, "nazwa")); b.Click += delegate { OtworzZalacznik(copy); }; zal.Controls.Add(b); }
+                } finally { SendMessage(tekst.Handle, 0x000B, new IntPtr(1), IntPtr.Zero); tekst.Invalidate(); }
+            };
+            odswiez.Click += delegate { var aktualna = msgs.FirstOrDefault(x => x.Id == m.Id); if (aktualna != null) m = aktualna; render(true); };
+            meta.Click += delegate { szczegoly = !szczegoly; render(true); };
+            actions.Controls.AddRange(new Control[] { odpowiedz, odswiez, meta });
+            f.Controls.Add(tekst); f.Controls.Add(zal); f.Controls.Add(actions);
+            Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
+            oknaWiadomosci[m.Id] = f; f.FormClosed += delegate { oknaWiadomosci.Remove(m.Id); };
+            f.Show(); render(false); MarkRead(new List<Msg> { m });
+        }
+
+
         // ---------- pisanie ----------
         void Pisz(Msg odp)
         {
@@ -1569,7 +1731,13 @@ namespace Ecxp
                     f.cbTyp.SelectedIndex = 3;   // odpowiedź
                 }
                 if (f.ShowDialog(form) != DialogResult.OK) return;
-                try
+                WyslijFormularz(f);
+            }
+        }
+
+        bool WyslijFormularz(PiszForm f)
+        {
+            try
                 {
                     var czesci = WyslijZalaczniki(f.zal.Pliki);
                     var r = (Dictionary<string, object>)Stos("wyslij", P.D("czesci", czesci, "do", f.AdresatDoWyslania, "bez_kopii", f.BezKopii, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
@@ -1587,12 +1755,13 @@ namespace Ecxp
                         (termin > 0 ? ", termin potwierdzenia " + termin + " min" : "");
                     ShowPop(Jezyk.T("Wysłano: ") + NazwaW(f.Adresat), Jezyk.T("Temat ") + P.Baza(f.tbTemat.Text.Length > 0 ? f.tbTemat.Text : (string)r["id"]) +
                         (termin > 0 ? ". Jeśli adresat nie potwierdzi w " + termin + " min, kanał ponowi i zaalarmuje." : "."), new List<Msg>(), false);
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(form, Jezyk.T("Nie wysłano: ") + ex.Message, Jezyk.T("Napisz"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return false;
                 }
-            }
         }
 
         // ---------- agenci: pary 1:1, role, znaczniki ----------
@@ -2179,6 +2348,7 @@ namespace Ecxp
 
         protected override void ExitThreadCore()
         {
+            foreach (var okno in oknaWiadomosci.Values.ToList()) okno.Close();
             tray.Visible = false;
             tray.Dispose();
             base.ExitThreadCore();
@@ -2537,6 +2707,11 @@ namespace Ecxp
                 }
             }
             finally { f.Opacity = 1; if (wl != null) wl.Opacity = 1; }
+        }
+        public void UstawPliki(IEnumerable<string> pliki)
+        {
+            var copy = pliki.ToList(); Pliki.Clear(); lista.Controls.Clear();
+            foreach (var p in copy) Dodaj(p);
         }
         public void Dodaj(string p)
         {
