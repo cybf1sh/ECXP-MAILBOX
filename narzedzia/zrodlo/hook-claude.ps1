@@ -1,4 +1,4 @@
-# ECXP – hook UserPromptSubmit dla Claude Code (lustro 1:1).
+﻿# ECXP – hook UserPromptSubmit dla Claude Code (lustro 1:1).
 # Wpis operatora w czacie sesji Claude należącej do pary ECXP trafia do stosu (stan\wejscia\), a stos przekazuje go
 # dosłownie drugiej stronie pary. Sesje spoza ECXP: skrypt nic nie zapisuje. Nie blokuje wpisu i nic nie wypisuje.
 # Katalog skrzynki: zmienna ECXP_SKRZYNKA albo katalog nadrzędny wobec tego skryptu (<skrzynka>\narzedzia\hook-claude.ps1).
@@ -10,6 +10,8 @@ try {
     $sesja = [string]$we.session_id
     $tekst = [string]$we.prompt
     if (-not $sesja -or -not $tekst) { exit 0 }
+    # zdarzenia systemowe (powiadomienia o zadaniach w tle, przypomnienia) to nie wpisy operatora
+    if ($tekst -match '^\s*<(task-notification|system-reminder|local-command|command-name|command-message|bash-input|bash-stdout|user-prompt-submit-hook)') { exit 0 }
     $cache = Join-Path $root 'stan\hook-sesje'
     New-Item -ItemType Directory -Force $cache | Out-Null
     $plikC = Join-Path $cache ($sesja + '.txt')
@@ -25,9 +27,16 @@ try {
             $m = [regex]::Match($tekst, 'Twoja nazwa w ECXP: (claude-[a-z0-9-]+)')
             $tp = [string]$we.transcript_path
             if (-not $m.Success -and $tp -and (Test-Path $tp)) {
-                $t = [IO.File]::ReadAllText($tp)
-                $m = [regex]::Match($t, 'Twoja nazwa w ECXP: (claude-[a-z0-9-]+)')
-                if (-not $m.Success) { $m = [regex]::Match($t, 'ecxp_przypisz[\s\S]{0,600}?\\*"ja\\*"\s*:\s*\\*"(claude-[a-z0-9-]+)') }
+                # tylko pakiet wklejony przez użytkownika (wpis użytkownika, nie wynik narzędzia) albo własne wywołanie
+                # ecxp_przypisz – sesja, która tylko wyświetliła cudzy pakiet, nie staje się stroną pary
+                foreach ($l in [IO.File]::ReadLines($tp)) {
+                    if ($l -match '"type":"user"' -and $l -notmatch '"tool_use_id"') {
+                        $m = [regex]::Match($l, 'Twoja nazwa w ECXP: (claude-[a-z0-9-]+)'); if ($m.Success) { break }
+                    }
+                    elseif ($l -match '"type":"assistant"' -and $l -match '"name":"mcp__ecxp__ecxp_przypisz"') {
+                        $m = [regex]::Match($l, '"name":"mcp__ecxp__ecxp_przypisz"[^}]*?"ja":"(claude-[a-z0-9-]+)"'); if ($m.Success) { break }
+                    }
+                }
             }
             if ($m.Success) { $nazwa = $m.Groups[1].Value; [IO.File]::WriteAllText($plikC, $nazwa) }
             else { [IO.File]::WriteAllText($plikC, '-|' + [DateTime]::UtcNow.Ticks) }

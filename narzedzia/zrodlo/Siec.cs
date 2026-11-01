@@ -371,7 +371,8 @@ namespace Ecxp
                     var ja = strona == "codex" ? codex : claude;
                     var partner = strona == "codex" ? claude : codex;
                     var role = strona == "codex" ? roleCodex : roleClaude;
-                    var txt = "Nazwa tej sesji: " + tytulSesji + "\n\n" +
+                    var txt = "Nazwa tej sesji: " + tytulSesji + "\n" +
+                        "Jeśli masz narzędzie do zmiany nazwy tej sesji (np. set_session_title), od razu nadaj jej dokładnie tę nazwę.\n\n" +
                         "Jesteś sesją " + (strona == "codex" ? "ChatGPT/Codex" : "Claude") + " w parze ECXP (zasada 1:1) projektu " + projekt + ", moduł " + modul + ".\n" +
                         "Twoja nazwa w ECXP: " + ja + ". Druga strona pary: " + partner + ". Role: " + (role.Count > 0 ? string.Join(", ", role) : "do ustalenia przez operatora") + ".\n\n" +
                         "Na początku: wywołaj narzędzie ecxp_przypisz (ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + ", sesja=<identyfikator tej sesji, jeśli go znasz>), potem ecxp_odbierz (ja=" + ja + ").\n" +

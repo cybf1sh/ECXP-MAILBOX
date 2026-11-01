@@ -1599,6 +1599,7 @@ namespace Ecxp
                 var tbO = f.Wielowiersz("Zadanie (trafi do obu stron pary):", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
+                var chSes = f.Wybor("Załóż sesje w aplikacjach automatycznie (Codex: wątek z nazwą; Claude: nowa sesja z pakietem)", true);
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
@@ -1611,10 +1612,32 @@ namespace Ecxp
                         "lancuch", tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     var pk = (Dictionary<string, object>)r["pakiety"];
-                    PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
+                    if (chSes.Checked) ZalozSesje(cbP.Text, P.S(r, "modul"), P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
+                    else PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
                 }
                 catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
+        }
+
+        void ZalozSesje(string projekt, string modul, string tytul, Dictionary<string, object> pkCodex, Dictionary<string, object> pkClaude)
+        {
+            var katalog = SesjeAplikacji.Katalog(projekt);
+            stInfo.Text = tytul + ": " + Jezyk.T("zakładam sesje – Codex w tle, Claude otwiera się w aplikacji…");
+            try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); }
+            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            new Thread(() =>
+            {
+                string wynik;
+                try
+                {
+                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } });
+                    wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” założony i zgłoszony do ECXP (") + w + ").";
+                }
+                catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
+                try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
+            }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
+            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – zobaczysz go w aplikacji Codex.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem – potwierdź katalog i kliknij „Wyślij”. Sesja sama nada sobie nazwę."), tytul),
+                "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         void NadajRole()
@@ -1962,6 +1985,7 @@ namespace Ecxp
                 if (!args.Contains("/cicho")) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
                 return 0;
             }
+            if (args.Length >= 4 && args[0] == "/test-para") return Test.Para(args[1], args[2], args[3], args.Contains("/bez-claude"));
             if (args.Length >= 2 && args[0] == "/procesy-agentow")
             {
                 var l = ProcesyAgentow.Wybierz();
@@ -2252,6 +2276,133 @@ namespace Ecxp
     // aplikacja Claude (Claude Desktop) i Claude Code, aplikacja i CLI Codex, CLI uruchomione przez node,
     // adaptery ecxp-mcp, agenci w tle ECXP – razem ze wszystkimi procesami potomnymi.
     // Nie zamyka: tej konsoli, stosu ecxpd (usługa ECXP) ani procesów systemowych.
+    // Zakładanie sesji pary w aplikacjach – bez ręcznego tworzenia czatów:
+    //  * Codex: `codex app-server` (ta sama baza wątków co aplikacja Codex) – nowy wątek, nazwa „🔗ECXP …”, pakiet jako
+    //    pierwsza wiadomość; wątek od razu zgłasza się do ECXP i jest widoczny w aplikacji Codex;
+    //  * Claude: link claude://code/new – nowa sesja w aplikacji Claude z wpisanym pakietem i katalogiem pracy
+    //    (aplikacja wymaga potwierdzenia katalogu i „Wyślij”); pakiet każe sesji nadać sobie nazwę.
+    static class SesjeAplikacji
+    {
+        public static string Katalog(string projekt)
+        {
+            var pr = P.Projekty().FirstOrDefault(x => P.S(x, "nazwa") == projekt);
+            var repo = pr != null ? P.S(pr, "repozytorium").Replace('/', '\\') : "";
+            if (repo.Length > 0 && Directory.Exists(repo)) return repo;
+            var d = Path.Combine(P.Root, "projekty", projekt);
+            Directory.CreateDirectory(d);
+            return d;
+        }
+
+        // Zwraca identyfikator wątku Codex. Czeka na koniec pierwszej tury (najwyżej maxMinut).
+        public static string ZalozCodex(string tytul, string katalog, string pakiet, int maxMinut, Action<string> log)
+        {
+            var prog = Agenci.Program("codex");
+            if (prog.Length == 0) throw new EcxpException("Na tym stanowisku nie ma Codex CLI (polecenie codex).");
+            var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? new System.Diagnostics.ProcessStartInfo(prog, "app-server")
+                : new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" app-server\"");
+            psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.WorkingDirectory = katalog;
+            psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+            psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
+            var js = P.Js(); js.MaxJsonLength = int.MaxValue;
+            var odp = new Dictionary<int, Dictionary<string, object>>();
+            var koniecTury = new ManualResetEvent(false);
+            string watek = null; string bladTury = null;
+            using (var pr = System.Diagnostics.Process.Start(psi))
+            {
+                var we = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+                Action<object> pisz = o => { lock (we) we.WriteLine(js.Serialize(o)); };
+                pr.ErrorDataReceived += (s, e) => { };
+                pr.BeginErrorReadLine();
+                var czytnik = new Thread(() =>
+                {
+                    string l;
+                    while ((l = pr.StandardOutput.ReadLine()) != null)
+                    {
+                        Dictionary<string, object> m;
+                        try { m = js.Deserialize<Dictionary<string, object>>(l); } catch { continue; }
+                        if (m == null) continue;
+                        var metoda = P.S(m, "method");
+                        if (m.ContainsKey("id") && metoda.Length > 0)
+                        {
+                            // prośba serwera o zgodę: tylko narzędzia serwera MCP „ecxp” są zatwierdzane,
+                            // polecenia systemowe, zmiany plików i inne serwery – odmowa
+                            var pa0 = m.ContainsKey("params") ? m["params"] as Dictionary<string, object> : null;
+                            bool ecxp = metoda.Contains("elicitation") && pa0 != null && P.S(pa0, "serverName") == "ecxp";
+                            object wynik = metoda.Contains("elicitation") ? (object)P.D("action", ecxp ? "accept" : "decline", "content", P.D())
+                                         : metoda.Contains("permissions") ? (object)P.D("permissions", new List<object>(), "scope", "turn")
+                                         : P.D("decision", "decline");
+                            pisz(P.D("jsonrpc", "2.0", "id", m["id"], "result", wynik));
+                            if (!ecxp) log("Codex: prośba „" + metoda + "” – odrzucona");
+                            continue;
+                        }
+                        if (m.ContainsKey("id")) { int id; if (int.TryParse(P.S(m, "id"), out id)) lock (odp) { odp[id] = m; Monitor.PulseAll(odp); } continue; }
+                        if (metoda == "turn/completed")
+                        {
+                            var pa = m.ContainsKey("params") ? m["params"] as Dictionary<string, object> : null;
+                            var tu = pa != null && pa.ContainsKey("turn") ? pa["turn"] as Dictionary<string, object> : null;
+                            if (tu != null && P.S(tu, "status") == "failed") bladTury = P.Js().Serialize(tu.ContainsKey("error") ? tu["error"] : tu);
+                            koniecTury.Set();
+                        }
+                    }
+                    koniecTury.Set();
+                }) { IsBackground = true };
+                czytnik.Start();
+                int nr = 0;
+                Func<string, Dictionary<string, object>, int, Dictionary<string, object>> rpc = (metoda, par, ms) =>
+                {
+                    int id = ++nr;
+                    pisz(P.D("jsonrpc", "2.0", "id", id, "method", metoda, "params", par));
+                    var koniec = DateTime.Now.AddMilliseconds(ms);
+                    lock (odp)
+                        while (!odp.ContainsKey(id))
+                        {
+                            var zostalo = (int)(koniec - DateTime.Now).TotalMilliseconds;
+                            if (zostalo <= 0 || pr.HasExited) throw new EcxpException("Codex app-server nie odpowiedział na " + metoda + ".");
+                            Monitor.Wait(odp, Math.Min(zostalo, 500));
+                        }
+                    var r = odp[id];
+                    if (r.ContainsKey("error")) throw new EcxpException("Codex " + metoda + ": " + P.Js().Serialize(r["error"]));
+                    return r.ContainsKey("result") ? r["result"] as Dictionary<string, object> : null;
+                };
+                try
+                {
+                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1")), 120000);
+                    pisz(P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
+                    var st = rpc("thread/start", P.D("cwd", katalog, "approvalPolicy", "on-request", "sandbox", "read-only"), 120000);
+                    var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
+                    watek = th != null ? P.S(th, "id") : "";
+                    if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
+                    log("Codex: wątek " + watek);
+                    rpc("thread/name/set", P.D("threadId", watek, "name", tytul), 60000);
+                    log("Codex: nazwa wątku „" + tytul + "”");
+                    rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", new List<object> { P.D("type", "text", "text", pakiet, "text_elements", new List<object>()) }), 120000);
+                    log("Codex: pakiet wysłany, trwa pierwsza tura…");
+                    if (!koniecTury.WaitOne(TimeSpan.FromMinutes(maxMinut))) log("Codex: tura trwa dłużej niż " + maxMinut + " min – wątek zostaje, kontynuuj w aplikacji Codex.");
+                    else log(bladTury == null ? "Codex: pierwsza tura zakończona." : "Codex: tura nieudana: " + bladTury);
+                }
+                finally
+                {
+                    try { we.Close(); } catch { }
+                    try { if (!pr.WaitForExit(5000)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pr.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true }).WaitForExit(10000); } catch { }
+                }
+            }
+            return watek;
+        }
+
+        // Otwiera w aplikacji Claude nową sesję z wpisanym pakietem i katalogiem pracy.
+        public static string LinkClaude(string katalog, string pakiet)
+        {
+            var q = pakiet.Length > 12000 ? pakiet.Substring(0, 12000) : pakiet;
+            return "claude://code/new?folder=" + Uri.EscapeDataString(katalog) + "&q=" + Uri.EscapeDataString(q);
+        }
+
+        public static void OtworzClaude(string katalog, string pakiet)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LinkClaude(katalog, pakiet)) { UseShellExecute = true });
+        }
+    }
+
     static class ProcesyAgentow
     {
         public class Proc { public int Pid, Rodzic; public string Nazwa = "", Linia = "", Grupa = ""; }
@@ -2497,6 +2648,15 @@ namespace Ecxp
             Wiersz(e, c, false); return c;
         }
         public static List<string> Zaznaczone(CheckedListBox c) { return c.CheckedItems.Cast<object>().Select(x => x.ToString()).ToList(); }
+        public CheckBox Wybor(string tekst, bool zaznaczony)
+        {
+            var c = new CheckBox { Text = tekst, Checked = zaznaczony, AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
+            int r = t.RowCount++;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Controls.Add(c, 1, r);
+            return c;
+        }
+
         public void Uwaga(string tekst)
         {
             int r = t.RowCount++;
@@ -2659,6 +2819,43 @@ namespace Ecxp
                 }
             }
             return 0;
+        }
+
+        // Test pary w aplikacjach: operator tworzy parę, Codex dostaje wątek przez app-server, Claude – link do aplikacji.
+        // Raport: stan\test-para.txt. Sprawdza, czy obie strony zgłosiły się do ECXP.
+        public static int Para(string root, string projekt, string modul, bool bezClaude)
+        {
+            var log = new StringBuilder(); int zle = 0;
+            Action<bool, string> ok = (c, t) => { log.AppendLine((c ? "PASS  " : "FAIL  ") + t); if (!c) zle++; };
+            Action<string> info = t => log.AppendLine(DateTime.Now.ToString("HH:mm:ss") + "  " + t);
+            P.Root = Path.GetFullPath(root);
+            try
+            {
+                using (var k = Klient.Polacz(P.Wlasciciel, "konsola", true))
+                {
+                    var r = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "tytul", modul,
+                        "opis", "Test ECXP: zgłoś się (ecxp_przypisz), odbierz zadanie (ecxp_odbierz), potwierdź je i napisz do pary jedno zdanie (adres para:" + modul + "). Nie zmieniaj żadnych plików.",
+                        "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "recenzent", "tester" }), 120000);
+                    var tytul = P.S(r, "tytul_sesji");
+                    ok(tytul.Contains("ECXP") && tytul.Contains(modul), "para utworzona, nazwa sesji: " + tytul);
+                    var pk = (Dictionary<string, object>)r["pakiety"];
+                    var katalog = SesjeAplikacji.Katalog(projekt);
+                    if (!bezClaude) { SesjeAplikacji.OtworzClaude(katalog, P.S((Dictionary<string, object>)pk["claude"], "tekst")); info("Claude: otwarto link claude://code/new (" + katalog + ")"); }
+                    else info("Claude: link do aplikacji pominięty (" + SesjeAplikacji.LinkClaude(katalog, "…").Substring(0, 40) + "…)");
+                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S((Dictionary<string, object>)pk["codex"], "tekst"), 10, info);
+                    ok(w.Length > 0, "Codex: wątek założony w bazie aplikacji Codex: " + w);
+                }
+                var trasa = Siec.Trasy().FirstOrDefault(t => t.Nazwa == "codex-" + modul);
+                ok(trasa != null && trasa.Aktywna, "trasa codex-" + modul + " w ECXP: " + (trasa == null ? "brak" : "aktywna, sesja " + (trasa.Sesja.Length > 0 ? trasa.Sesja : "(bez id)")));
+                var odCodex = P.Wszystkie(false).Where(m => m.Od == "codex-" + modul).ToList();
+                ok(odCodex.Count > 0, "Codex napisał przez ECXP: " + odCodex.Count + " wiad. (" + string.Join(", ", odCodex.Select(m => m.Typ + "→" + m.Do)) + ")");
+                var zadanie = P.Wszystkie(false).Where(m => m.Do.Contains("codex-" + modul) || m.Do == "para:" + modul || m.Do == "codex/" + modul).ToList();
+                info("wiadomości do Codex/pary: " + zadanie.Count);
+            }
+            catch (Exception ex) { ok(false, "wyjątek: " + ex.Message); }
+            var raport = log.ToString() + (zle == 0 ? "WYNIK: PASS" : "WYNIK: FAIL (" + zle + ")");
+            File.WriteAllText(Path.Combine(P.Root, "stan", "test-para.txt"), raport, new UTF8Encoding(false));
+            return zle == 0 ? 0 : 1;
         }
 
         // Test agenta w tle (prawdziwa tura Claude Code CLI, model haiku, tylko odczyt): ECXP-MAILBOX.exe /selftest-agent <katalog instalacji testowej>

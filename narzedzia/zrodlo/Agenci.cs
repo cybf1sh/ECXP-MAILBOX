@@ -405,11 +405,14 @@ namespace Ecxp
             }
         }
 
+        static readonly Regex ReSystemowe = new Regex(@"^\s*<(task-notification|system-reminder|local-command|command-name|command-message|bash-input|bash-stdout|user-prompt-submit-hook)");
+
         public static int Przekaz(string strona, string nazwa, string sesja, string tekst)
         {
             nazwa = (nazwa ?? "").Trim().ToLowerInvariant();
             tekst = (tekst ?? "").Trim();
             if (!P.PoprawnyNadawca(nazwa) || tekst.Length == 0 || RePakiet.IsMatch(tekst)) return 0;
+            if (ReSystemowe.IsMatch(tekst)) return 0;   // powiadomienia i przypomnienia systemowe to nie wpisy operatora
             if (tekst.Length > 20000) tekst = tekst.Substring(0, 20000) + "\n[…ucięte]";
             int ile = 0;
             foreach (var t in Siec.Przynaleznosc(nazwa))
