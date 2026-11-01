@@ -1724,13 +1724,13 @@ namespace Ecxp
                 string wynik;
                 try
                 {
-                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), obrazy, 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } });
+                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), obrazy, 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } }, true);
                     wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” założony i zgłoszony do ECXP (") + w + ").";
                 }
                 catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
-            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – zobaczysz go w aplikacji Codex.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem – potwierdź katalog, zostaw pracę na tym komputerze (nie w chmurze – tam nie ma ECXP) i kliknij „Wyślij”. Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
+            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem – potwierdź katalog, zostaw pracę na tym komputerze (nie w chmurze – tam nie ma ECXP) i kliknij „Wyślij”. Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
                 "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -2411,7 +2411,8 @@ namespace Ecxp
     // Nie zamyka: tej konsoli, stosu ecxpd (usługa ECXP) ani procesów systemowych.
     // Zakładanie sesji pary w aplikacjach – bez ręcznego tworzenia czatów:
     //  * Codex: `codex app-server` (ta sama baza wątków co aplikacja Codex) – nowy wątek, nazwa „🔗ECXP …”, pakiet jako
-    //    pierwsza wiadomość; wątek od razu zgłasza się do ECXP i jest widoczny w aplikacji Codex;
+    //    pierwsza wiadomość (z obrazami z załączników); wątek zgłasza się do ECXP, a po pierwszej turze otwiera się
+    //    w aplikacji Codex linkiem codex://threads/<id> – dopiero otwarty pojawia się na liście „Najnowsze”;
     //  * Claude: link claude://code/new – nowa sesja w aplikacji Claude z wpisanym pakietem i katalogiem pracy
     //    (aplikacja wymaga potwierdzenia katalogu i „Wyślij”); pakiet każe sesji nadać sobie nazwę.
     static class SesjeAplikacji
@@ -2433,7 +2434,13 @@ namespace Ecxp
             return e == ".png" || e == ".jpg" || e == ".jpeg" || e == ".gif" || e == ".webp" || e == ".bmp";
         }
 
-        public static string ZalozCodex(string tytul, string katalog, string pakiet, List<string> obrazy, int maxMinut, Action<string> log)
+        // Pokazuje wątek w aplikacji Codex (link codex://threads/<id>).
+        public static void OtworzCodex(string watek)
+        {
+            try { if (Regex.IsMatch(watek ?? "", "^[0-9a-f-]{36}$")) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("codex://threads/" + watek) { UseShellExecute = true }); } catch { }
+        }
+
+        public static string ZalozCodex(string tytul, string katalog, string pakiet, List<string> obrazy, int maxMinut, Action<string> log, bool otworz = false)
         {
             var prog = Agenci.Program("codex");
             if (prog.Length == 0) throw new EcxpException("Na tym stanowisku nie ma Codex CLI (polecenie codex).");
@@ -2506,7 +2513,7 @@ namespace Ecxp
                 };
                 try
                 {
-                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1"), "capabilities", P.D("experimentalApi", true)), 120000);
+                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1")), 120000);
                     pisz(P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
                     var st = rpc("thread/start", P.D("cwd", katalog, "approvalPolicy", "on-request", "sandbox", "read-only"), 120000);
                     var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
@@ -2515,14 +2522,13 @@ namespace Ecxp
                     log("Codex: wątek " + watek);
                     rpc("thread/name/set", P.D("threadId", watek, "name", tytul), 60000);
                     log("Codex: nazwa wątku „" + tytul + "”");
-                    // aplikacja Codex pokazuje wątki w projektach dopasowanych po folderze – bez projektu wątek jest niewidoczny
-                    try { log(ProjektCodex(rpc, katalog, watek)); } catch (Exception ex) { log("Codex: nie dodano projektu w aplikacji – " + ex.Message); }
                     var wejscie = new List<object> { P.D("type", "text", "text", pakiet, "text_elements", new List<object>()) };
                     foreach (var o in (obrazy ?? new List<string>()).Where(File.Exists).Take(8)) wejscie.Add(P.D("type", "localImage", "path", o));
                     rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", wejscie), 120000);
                     log("Codex: pakiet wysłany, trwa pierwsza tura…");
                     if (!koniecTury.WaitOne(TimeSpan.FromMinutes(maxMinut))) log("Codex: tura trwa dłużej niż " + maxMinut + " min – wątek zostaje, kontynuuj w aplikacji Codex.");
                     else log(bladTury == null ? "Codex: pierwsza tura zakończona." : "Codex: tura nieudana: " + bladTury);
+                    if (otworz) OtworzCodex(watek);
                 }
                 finally
                 {
@@ -2531,30 +2537,6 @@ namespace Ecxp
                 }
             }
             return watek;
-        }
-
-        // Projekt aplikacji Codex dla folderu pary: istniejący (ten sam folder) albo nowy „🔗ECXP <folder>” z przypiętym wątkiem.
-        static string ProjektCodex(Func<string, Dictionary<string, object>, int, Dictionary<string, object>> rpc, string katalog, string watek)
-        {
-            var pelny = Path.GetFullPath(katalog).TrimEnd('\\');
-            var lista = rpc("project/list", P.D("limit", 200), 60000);
-            var dane = lista != null && lista.ContainsKey("data") ? lista["data"] as System.Collections.IEnumerable : null;
-            if (dane != null)
-                foreach (var x in dane)
-                {
-                    var pd = x as Dictionary<string, object>;
-                    var roots = pd != null && pd.ContainsKey("roots") ? pd["roots"] as System.Collections.IEnumerable : null;
-                    if (roots == null) continue;
-                    foreach (var r in roots)
-                    {
-                        var rp = P.S(r as Dictionary<string, object>, "path").TrimEnd('\\');
-                        if (rp.Length > 0 && pelny.StartsWith(rp, StringComparison.OrdinalIgnoreCase) && (pelny.Length == rp.Length || pelny[rp.Length] == '\\'))
-                            return "Codex: wątek w projekcie „" + P.S(pd, "name") + "”";
-                    }
-                }
-            var nazwa = "🔗ECXP " + Path.GetFileName(pelny);
-            var w = rpc("project/import", P.D("idempotencyKey", "ecxp:" + pelny.ToLowerInvariant(), "name", nazwa, "roots", new List<object> { P.D("path", pelny) }, "threads", new List<object> { watek }), 60000);
-            return "Codex: projekt „" + nazwa + "” dodany w aplikacji Codex";
         }
 
         // Otwiera w aplikacji Claude nową sesję z wpisanym pakietem i katalogiem pracy.
