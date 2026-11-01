@@ -413,9 +413,8 @@ namespace Ecxp
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
             lv = new SpokojnaLista { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
                 SmallImageList = new ImageList { ImageSize = new Size(1, 26) } };
-            foreach (var c in new object[][] { new object[] { "Czas", 100 }, new object[] { "", 26 }, new object[] { "Od → Do", 230 },
-                new object[] { "Moduł", 95 }, new object[] { "Treść", 420 }, new object[] { "Doręczenie", 300 } })
-                lv.Columns.Add((string)c[0], (int)c[1]);
+            lv.ShowGroups = false; lv.ShowItemToolTips = true;
+            lv.Columns.Add("Rozmowa", 330); lv.Columns.Add("Moduł", 110); lv.Columns.Add("Stan", 220);
             det = new RichTextBox { ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, BorderStyle = BorderStyle.None, DetectUrls = false };
             split.Panel1.Controls.Add(lv);
             split.Panel2.Controls.Add(det);
@@ -516,7 +515,7 @@ namespace Ecxp
             form.Shown += delegate { split.SplitterDistance = (int)(split.Height * 0.5); };
 
             lv.SelectedIndexChanged += delegate { if (odswiezanieListy) return; var m = Wybrana(); if (m != null) PokazWatek(m); };
-            lv.DoubleClick += delegate { var m = Wybrana(); if (m != null) MarkRead(new List<Msg> { m }); };
+            lv.DoubleClick += delegate { var m = Wybrana(); if (m != null) MarkRead(msgs.Where(x => x.Watek == m.Watek).ToList()); };
             bPisz.Click += delegate { Pisz(null); };
             bOdp.Click += delegate
             {
@@ -531,7 +530,7 @@ namespace Ecxp
             {
                 if (tabs.SelectedTab == tabStan) { read.Add(StanKey()); SaveRead(); RefreshView(); return; }
                 var sel = new List<Msg>();
-                foreach (ListViewItem it in lv.SelectedItems) sel.Add((Msg)it.Tag);
+                foreach (ListViewItem it in lv.SelectedItems) sel.AddRange(msgs.Where(x => x.Watek == ((Msg)it.Tag).Watek));
                 if (sel.Count > 0) MarkRead(sel);
             };
             bAll.Click += delegate { read.Add(StanKey()); MarkRead(msgs); };
@@ -1373,8 +1372,8 @@ namespace Ecxp
             string podpis = P.Sha(P.Js().Serialize(watki) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + teraz.ToString("yyyyMMddHHmm"));
             if (podpis != podpisListy)
             {
-            var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Id));
-            string gora = lv.TopItem != null ? ((Msg)lv.TopItem.Tag).Id : null;
+            var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Watek));
+            string gora = lv.TopItem != null ? ((Msg)lv.TopItem.Tag).Watek : null;
             odswiezanieListy = true;
             lv.BeginUpdate();
             try {
@@ -1388,30 +1387,18 @@ namespace Ecxp
                     : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? Jezyk.T("⚠ brak potwierdzenia – eskalacja")
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
                     : Jezyk.T("✓ bez oczekujących");
-                var g = new ListViewGroup(w[0].Watek, (w.Any(Biezaca) ? "▶  " : "") + P.Baza(w[0].Temat) + "   ·   " + string.Join(", ", w.Select(m => m.Modul).Where(x => x.Length > 0).Distinct()) +
-                    "   ·   " + w.Count + Jezyk.T(" wiad.   ·   ") + stanW + (w.Any(m => m.Nowa) ? Jezyk.T("   ·   NOWE") : ""));
-                lv.Groups.Add(g);
-                foreach (var m in w)
-                {
-                    var it = new ListViewItem(m.Czas.ToString("dd.MM HH:mm"), g) { Tag = m };
-                    it.SubItems.Add(m.Nowa ? "●" : "");
-                    it.SubItems.Add(NazwaW(m.Od) + "  →  " + NazwaW(m.Do));
-                    it.SubItems.Add(Biezaca(m) ? "▶ " + m.Modul : m.Modul);
-                    it.SubItems.Add(Zdanie(m));
-                    it.SubItems.Add(Doreczenie(m, teraz));
-                    it.ForeColor = Kolor(m);
-                    if (m.Nowa) it.Font = fontB;
-                    var c = Czeka(m, teraz);
-                    if (m.Blad != null || (m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona))) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 205, 205));
-                    else if (c.HasValue && c.Value.TotalHours >= 6) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 220, 220));
-                    else if (c.HasValue && c.Value.TotalHours >= 1) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 242, 200));
-                    else if (Biezaca(m)) it.BackColor = Akcent;
-                    lv.Items.Add(it);
-                    widoczne.Add(m);
-                    if (zaznaczone.Contains(m.Id)) it.Selected = true;
-                }
+                var representative = w.LastOrDefault(x => x.Od != P.Wlasciciel && x.KopiaDla.Length == 0) ?? w.Last();
+                var it = new ListViewItem(P.Baza(w[0].Temat)) { Tag = representative };
+                it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
+                it.SubItems.Add(stanW);
+                it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
+                if (w.Any(x => x.Nowa)) it.Font = fontB;
+                if (w.Any(x => x.Blad != null || (x.Dor != null && (x.Dor.Eskalacja || x.Dor.Zaginiona)))) it.ForeColor = Czerwony;
+                if (w.Any(Biezaca)) it.BackColor = Akcent;
+                lv.Items.Add(it); widoczne.AddRange(w);
+                if (zaznaczone.Contains(representative.Watek)) it.Selected = true;
             }
-            var topItem = lv.Items.Cast<ListViewItem>().FirstOrDefault(x => ((Msg)x.Tag).Id == gora);
+            var topItem = lv.Items.Cast<ListViewItem>().FirstOrDefault(x => ((Msg)x.Tag).Watek == gora);
             if (topItem != null) lv.TopItem = topItem;
             podpisListy = podpis;
             } finally { lv.EndUpdate(); odswiezanieListy = false; }
