@@ -1733,7 +1733,7 @@ namespace Ecxp
                 catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
-            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) strzałka „Wyślij” (Enter).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP). Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
+            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP). Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
                 "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
