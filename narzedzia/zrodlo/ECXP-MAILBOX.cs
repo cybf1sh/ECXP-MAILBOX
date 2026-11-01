@@ -1,4 +1,4 @@
-﻿// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
+// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
@@ -56,6 +56,8 @@ namespace Ecxp
         bool odswiezanieListy;
         string podpisListy = "", podpisPodgladu = "", watekPodgladu = "";
         Button noweWiadomosci;
+        Label alarmStaly;
+        string wybranaWiadomosc = "";
         SplitContainer rozmowySplit, modulySplit;
         TextBox szybkaTresc;
         ComboBox szybkiAdres;
@@ -74,13 +76,13 @@ namespace Ecxp
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessage")]
         static extern IntPtr SendPoint(IntPtr hwnd, int msg, IntPtr wparam, ref Point point);
         class SpokojnaLista : ListView { public SpokojnaLista() { DoubleBuffered = true; } }
-        static string PodpisDanych(IEnumerable<Msg> wiadomosci)
+        static string PodpisDanych(IEnumerable<Msg> wiadomosci, bool uwzglednijNowa = true)
         {
-            return string.Join("|", wiadomosci.Select(m => P.Sha(P.Js().Serialize(new { m.Id, m.Watek, m.Od, m.Do, m.Projekt, m.Modul, m.Temat, m.Status, m.Typ, m.Uwagi, m.Ograniczenia, m.Commit, m.OdpNa, m.Blad, m.Seq, m.Pilne, m.Nowa, m.WymagaOdp, m.Odpowiedziano, m.Czas, m.Kontrole, m.Pliki, m.Czesci, m.Lustro, m.LustroId, m.KopiaDla, m.Dor }))));
+            return string.Join("|", wiadomosci.Select(m => P.Sha(P.Js().Serialize(new { m.Id, m.Watek, m.Od, m.Do, m.Projekt, m.Modul, m.Temat, m.Status, m.Typ, m.Uwagi, m.Ograniczenia, m.Commit, m.OdpNa, m.Blad, m.Seq, m.Pilne, Nowa = uwzglednijNowa && m.Nowa, m.WymagaOdp, m.Odpowiedziano, m.Czas, m.Kontrole, m.Pliki, m.Czesci, m.Lustro, m.LustroId, m.KopiaDla, m.Dor }))));
         }
         string PodpisWatku(string id)
         {
-            return P.Sha(PodpisDanych(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas)) + Jezyk.Kod + Motyw.Ciemny);
+            return P.Sha(PodpisDanych(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas), false) + Jezyk.Kod + Motyw.Ciemny);
         }
         void SprawdzPodglad()
         {
@@ -435,9 +437,9 @@ namespace Ecxp
             lv.DrawSubItem += (sender, e) => {
                 if (e.ColumnIndex != 0) return;
                 bool selected = e.Item.Selected;
-                Color back = selected ? Akcent : Motyw.Pole;
+                Color back = selected ? Akcent : e.Item.BackColor;
                 using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, e.Bounds);
-                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.Font, new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 6, Math.Max(1, e.Bounds.Width - 18), e.Bounds.Height - 10), Motyw.Tekst, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.Font, new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 6, Math.Max(1, e.Bounds.Width - 18), e.Bounds.Height - 10), e.Item.ForeColor, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
                 using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
                 if (selected && lv.Focused) e.DrawFocusRectangle(e.Bounds);
             };
@@ -533,8 +535,12 @@ namespace Ecxp
             pnlPasek.Dock = DockStyle.Top; pnlPasek.WrapContents = true;
             uslugiHost.Controls.Add(pnlKarty); uslugiHost.Controls.Add(pnlPasek);
             administracja.Controls.Add(uslugiHost); tabs.TabPages.Add(administracja);
-            tabStan.Controls.Add(czeka); tabStan.Controls.Add(lblCzeka);
-            czeka.Dock = DockStyle.Bottom; lblCzeka.Dock = DockStyle.Bottom;
+            czeka.Dock = DockStyle.Top; czeka.Visible = false; czeka.Height = 78;
+            var oczekujace = Btn("Czeka na Ciebie — rozwiń / zwiń"); oczekujace.Dock = DockStyle.Top;
+            oczekujace.Click += delegate { czeka.Visible = !czeka.Visible; };
+            alarmStaly = new Label { Dock = DockStyle.Top, Height = 24, ForeColor = Czerwony, AutoEllipsis = true, Visible = false };
+            tabMsg.Controls.Add(czeka); tabMsg.Controls.Add(oczekujace); tabMsg.Controls.Add(alarmStaly);
+            pnlBiez.Height = 64; tabMsg.Controls.Add(pnlBiez);
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, WrapContents = true };
             var bRead = Btn("Przeczytane");
@@ -590,7 +596,7 @@ namespace Ecxp
             {
                 if (e.Control && e.KeyCode == Keys.N) { e.Handled = true; Pisz(null); }
                 else if (e.Control && e.KeyCode == Keys.R) { e.Handled = true; if (szybkiPanel.Visible) szybkaTresc.Focus(); else if (Wybrana() != null) Pisz(Wybrana()); }
-                else if (e.Control && e.KeyCode == Keys.F) { e.Handled = true; szukaj.Focus(); }
+                else if (e.Control && e.KeyCode == Keys.F) { e.Handled = true; modulySplit.Panel1Collapsed = false; szukaj.Focus(); }
                 else if (e.KeyCode == Keys.F5) { e.Handled = true; Skanuj(); }
             };
             form.FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; form.Hide(); } };
@@ -612,7 +618,16 @@ namespace Ecxp
         void PokazWatek(Msg sel, bool zachowaj = false)
         {
             string podpis = PodpisWatku(sel.Watek);
-            if (sel.Watek == watekPodgladu && podpis == podpisPodgladu) return;
+            if (sel.Watek == watekPodgladu && podpis == podpisPodgladu)
+            {
+                if (!zachowaj && wybranaWiadomosc != sel.Id)
+                {
+                    var range = zakresyWiadomosci.FirstOrDefault(x => x.Item3.Id == sel.Id || (sel.LustroId.Length > 0 && x.Item3.LustroId == sel.LustroId));
+                    if (range != null) { det.Select(range.Item1, 0); det.ScrollToCaret(); }
+                    wybranaWiadomosc = sel.Id;
+                }
+                return;
+            }
             bool utrzymaj = zachowaj && sel.Watek == watekPodgladu;
             Point przewiniecie = new Point();
             int start = det.SelectionStart, dlugosc = det.SelectionLength;
@@ -637,7 +652,7 @@ namespace Ecxp
                 string lustroKlucz = m.LustroId.Length > 0 ? m.LustroId : m.Id;
                 if (m.LustroId.Length > 0 && m.Lustro.Count > 1 && !wyswietloneLustra.Add(lustroKlucz)) continue;
                 int poczatekWiadomosci = det.TextLength;
-                if (m == sel) poz = det.TextLength;
+                if (m.Id == sel.Id || (sel.LustroId.Length > 0 && m.LustroId == sel.LustroId)) poz = det.TextLength;
                 wciecie = 0;
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
                 Dopisz(NazwaW(m.Od) + "  →  " + (m.Lustro.Count > 1 ? Jezyk.T("para: ") + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : NazwaW(m.Do)), fontB, Motyw.Tekst);
@@ -680,8 +695,7 @@ namespace Ecxp
                 det.Select(Math.Min(start, det.TextLength), Math.Min(dlugosc, Math.Max(0, det.TextLength - start)));
                 SendPoint(det.Handle, 0x04DE, IntPtr.Zero, ref przewiniecie);
             }
-            else det.ScrollToCaret();
-            det.ResumeLayout();
+
 
             pnlZal.SuspendLayout();
             pnlZal.Controls.Clear();
@@ -699,9 +713,14 @@ namespace Ecxp
             }
             pnlZal.Visible = zal.Count > 0;
             pnlZal.ResumeLayout();
-            podpisPodgladu = podpis; watekPodgladu = sel.Watek;
+            podpisPodgladu = podpis; watekPodgladu = sel.Watek; wybranaWiadomosc = sel.Id;
             noweWiadomosci.Visible = false;
-            } finally { det.ResumeLayout(); SendMessage(det.Handle, 0x000B, new IntPtr(1), IntPtr.Zero); det.Invalidate(); }
+            } finally {
+                det.ResumeLayout(); SendMessage(det.Handle, 0x000B, new IntPtr(1), IntPtr.Zero);
+                if (utrzymaj) SendPoint(det.Handle, 0x04DE, IntPtr.Zero, ref przewiniecie);
+                else det.ScrollToCaret();
+                det.Invalidate();
+            }
         }
 
         static string Rozmiar(long b) { return b >= 1048576 ? (b / 1048576.0).ToString("0.0") + " MB" : b >= 1024 ? (b / 1024) + " kB" : b + " B"; }
@@ -1419,7 +1438,7 @@ namespace Ecxp
                 cbModul.Items.Clear(); cbModul.Items.Add("Wszystkie moduły");
                 foreach (var m in moduly) cbModul.Items.Add(m);
                 cbModul.SelectedIndex = akt != null && moduly.Contains(akt) ? moduly.IndexOf(akt) + 1 : 0;
-                cbModul.EndUpdate();
+                Jezyk.Zastosuj(cbModul); cbModul.EndUpdate();
             }
 
             var wybrana = Wybrana();
@@ -1447,7 +1466,7 @@ namespace Ecxp
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
                     : Jezyk.T("✓ bez oczekujących");
                 var representative = w.LastOrDefault(x => x.Od != P.Wlasciciel && x.KopiaDla.Length == 0) ?? w.Last();
-                var it = new ListViewItem(P.Baza(w[0].Temat) + "\n" + representative.Modul + " · " + stanW) { Tag = representative };
+                var it = new ListViewItem(P.Baza(w[0].Temat) + "\n" + representative.Modul + " · " + stanW) { Tag = representative, ForeColor = Motyw.Tekst, BackColor = Motyw.Pole };
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
                 it.SubItems.Add(stanW);
                 it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
@@ -1463,6 +1482,7 @@ namespace Ecxp
             } finally { lv.EndUpdate(); odswiezanieListy = false; }
             }
             SprawdzPodglad();
+            if (alarmStaly != null) { alarmStaly.Visible = alarmy.Count > 0; alarmStaly.Text = alarmy.Count > 0 ? "⚠ " + alarmy.Last() + " (" + alarmy.Count + ")" : ""; }
             RefreshPolaczenia(teraz);
             RefreshAgenci();
             OdswiezBiezaca(teraz);
@@ -1517,8 +1537,8 @@ namespace Ecxp
                 lvPol.Items.Add(it);
             }
             lvPol.EndUpdate();
-            lblPol.Text = "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.\r\n" +
-                "Dziennik zdarzeń: " + spojnosc + "   (" + Path.Combine(P.Root, "dziennik", "dziennik.jsonl") + ")";
+            lblPol.Text = Jezyk.T("Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.") + "\r\n" +
+                Jezyk.T("Dziennik zdarzeń: ") + spojnosc + "   (" + Path.Combine(P.Root, "dziennik", "dziennik.jsonl") + ")";
 
             // pasek: sygnał koordynacji
             Wezel k; wezly.TryGetValue(P.Koordynacja, out k);
@@ -1825,7 +1845,7 @@ namespace Ecxp
                 lvAg.Items.Add(it);
             }
             lvAg.EndUpdate();
-            tabAg.Text = "Agenci (" + lvAg.Items.Count + ")";
+            tabAg.Text = Jezyk.T("Agenci") + " (" + lvAg.Items.Count + ")";
         }
 
         bool Biezaca(Msg m) { return biezMod.Length > 0 && m.Modul == biezMod && (m.Projekt.Length == 0 || m.Projekt == biezProj); }
