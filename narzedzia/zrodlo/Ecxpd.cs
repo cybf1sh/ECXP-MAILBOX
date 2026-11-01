@@ -388,6 +388,7 @@ namespace Ecxp
                         }
                         return P.D("przeniesione", ok, "bledy", err);
                     }
+                case "wycofaj": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"));
                 case "nowe_zadanie":
                     {
                         TylkoOperator(s);

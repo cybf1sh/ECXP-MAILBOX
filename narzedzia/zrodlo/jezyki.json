@@ -383,7 +383,15 @@
   ", nowe: ": ", new: ",
   "Brak pakietu dla ": "No package for ",
   "Pakiety startowe: ": "Start packages: ",
-  "📋  Wklej ze schowka (Ctrl+V)": "📋  Paste from clipboard (Ctrl+V)"
+  "📋  Wklej ze schowka (Ctrl+V)": "📋  Paste from clipboard (Ctrl+V)",
+  "⊘  Zamknij wątek…": "⊘  Close thread…",
+  "Zamknij wątek": "Close thread",
+  "Zaznacz wiadomość z wątku, który chcesz zamknąć.": "Select a message from the thread you want to close.",
+  " wiad.": " msg.",
+  "Zamknąć wątki ({0}) – wiadomości: {1}?\n\n{2}\n\nWiadomości trafią do archiwum (nic nie zostanie skasowane). Niedoręczone ({3}) nie trafią już do adresatów, a strażnik przestanie o nie upominać.": "Close threads ({0}) – messages: {1}?\n\n{2}\n\nThe messages go to the archive (nothing is deleted). Undelivered ones ({3}) will no longer reach their recipients, and the guard stops reminding about them.",
+  "Zamknięto wątki – przeniesiono do archiwum: ": "Threads closed – moved to the archive: ",
+  "Nie zamknięto: ": "Not closed: ",
+  "\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku).": "\n\nOld threads nobody will pick up any more can be closed with “⊘ Close thread…” (select a message from the thread)."
  },
  "fr": {
   "ECXP-MAILBOX działa": "ECXP-MAILBOX est actif",
@@ -769,7 +777,15 @@
   ", nowe: ": ", nouvelles : ",
   "Brak pakietu dla ": "Aucun paquet pour ",
   "Pakiety startowe: ": "Paquets de démarrage : ",
-  "📋  Wklej ze schowka (Ctrl+V)": "📋  Coller depuis le presse-papiers (Ctrl+V)"
+  "📋  Wklej ze schowka (Ctrl+V)": "📋  Coller depuis le presse-papiers (Ctrl+V)",
+  "⊘  Zamknij wątek…": "⊘  Fermer le fil…",
+  "Zamknij wątek": "Fermer le fil",
+  "Zaznacz wiadomość z wątku, który chcesz zamknąć.": "Sélectionnez un message du fil à fermer.",
+  " wiad.": " msg.",
+  "Zamknąć wątki ({0}) – wiadomości: {1}?\n\n{2}\n\nWiadomości trafią do archiwum (nic nie zostanie skasowane). Niedoręczone ({3}) nie trafią już do adresatów, a strażnik przestanie o nie upominać.": "Fermer les fils ({0}) – messages : {1} ?\n\n{2}\n\nLes messages vont aux archives (rien n’est supprimé). Les non distribués ({3}) n’atteindront plus leurs destinataires et le gardien cessera de relancer.",
+  "Zamknięto wątki – przeniesiono do archiwum: ": "Fils fermés – déplacés aux archives : ",
+  "Nie zamknięto: ": "Non fermé : ",
+  "\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku).": "\n\nLes anciens fils que personne ne récupérera se ferment avec « ⊘ Fermer le fil… » (sélectionnez un message du fil)."
  },
  "cs": {
   "ECXP-MAILBOX działa": "ECXP-MAILBOX běží",
@@ -1155,7 +1171,15 @@
   ", nowe: ": ", nové: ",
   "Brak pakietu dla ": "Žádný balíček pro ",
   "Pakiety startowe: ": "Startovací balíčky: ",
-  "📋  Wklej ze schowka (Ctrl+V)": "📋  Vložit ze schránky (Ctrl+V)"
+  "📋  Wklej ze schowka (Ctrl+V)": "📋  Vložit ze schránky (Ctrl+V)",
+  "⊘  Zamknij wątek…": "⊘  Zavřít vlákno…",
+  "Zamknij wątek": "Zavřít vlákno",
+  "Zaznacz wiadomość z wątku, który chcesz zamknąć.": "Vyberte zprávu z vlákna, které chcete zavřít.",
+  " wiad.": " zpr.",
+  "Zamknąć wątki ({0}) – wiadomości: {1}?\n\n{2}\n\nWiadomości trafią do archiwum (nic nie zostanie skasowane). Niedoręczone ({3}) nie trafią już do adresatów, a strażnik przestanie o nie upominać.": "Zavřít vlákna ({0}) – zprávy: {1}?\n\n{2}\n\nZprávy se přesunou do archivu (nic se nemaže). Nedoručené ({3}) už adresátům nepřijdou a strážce na ně přestane upozorňovat.",
+  "Zamknięto wątki – przeniesiono do archiwum: ": "Vlákna zavřena – přesunuto do archivu: ",
+  "Nie zamknięto: ": "Nezavřeno: ",
+  "\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku).": "\n\nStará vlákna, která už nikdo nepřevezme, zavřete tlačítkem „⊘ Zavřít vlákno…“ (vyberte zprávu z vlákna)."
  },
  "de": {
   "ECXP-MAILBOX działa": "ECXP-MAILBOX läuft",
@@ -1541,6 +1565,14 @@
   ", nowe: ": ", neu: ",
   "Brak pakietu dla ": "Kein Paket für ",
   "Pakiety startowe: ": "Startpakete: ",
-  "📋  Wklej ze schowka (Ctrl+V)": "📋  Aus Zwischenablage einfügen (Strg+V)"
+  "📋  Wklej ze schowka (Ctrl+V)": "📋  Aus Zwischenablage einfügen (Strg+V)",
+  "⊘  Zamknij wątek…": "⊘  Thread schließen…",
+  "Zamknij wątek": "Thread schließen",
+  "Zaznacz wiadomość z wątku, który chcesz zamknąć.": "Wählen Sie eine Nachricht aus dem Thread, den Sie schließen möchten.",
+  " wiad.": " Nachr.",
+  "Zamknąć wątki ({0}) – wiadomości: {1}?\n\n{2}\n\nWiadomości trafią do archiwum (nic nie zostanie skasowane). Niedoręczone ({3}) nie trafią już do adresatów, a strażnik przestanie o nie upominać.": "Threads schließen ({0}) – Nachrichten: {1}?\n\n{2}\n\nDie Nachrichten kommen ins Archiv (nichts wird gelöscht). Nicht zugestellte ({3}) erreichen die Empfänger nicht mehr, der Wächter mahnt nicht mehr.",
+  "Zamknięto wątki – przeniesiono do archiwum: ": "Threads geschlossen – ins Archiv verschoben: ",
+  "Nie zamknięto: ": "Nicht geschlossen: ",
+  "\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku).": "\n\nAlte Threads, die niemand mehr abholt, schließen Sie mit „⊘ Thread schließen…“ (Nachricht im Thread auswählen)."
  }
 }

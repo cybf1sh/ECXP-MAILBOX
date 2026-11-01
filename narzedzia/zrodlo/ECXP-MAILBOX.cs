@@ -377,7 +377,10 @@ namespace Ecxp
             szukaj = new TextBox { Width = 200, Margin = new Padding(3, 8, 3, 3) };
             var bDecyzjaR = Btn("⚖  Decyzja…");
             bDecyzjaR.Click += delegate { Decyzja(); };
-            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, cbWidok, cbModul, lblSz, szukaj });
+            var bZamknij = Btn("⊘  Zamknij wątek…");
+            bZamknij.Click += delegate { ZamknijWatki(); };
+            new ToolTip().SetToolTip(bZamknij, "Zamyka wątki zaznaczonych wiadomości – także niedoręczone i bez odpowiedzi.\nWiadomości trafiają do archiwum (nic nie jest kasowane), strażnik przestaje o nie upominać.");
+            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij, cbWidok, cbModul, lblSz, szukaj });
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
             lv = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
@@ -1810,6 +1813,29 @@ namespace Ecxp
         // ---------- czyszczenie ----------
         // Przenosi z przeczytane\ do archiwum\RRRR-MM\ wiadomości obsłużone przez adresata i przeczytane przez
         // właściciela, starsze niż podana liczba dni (0 = wszystkie). Nic nie kasuje. Pytania bez odpowiedzi zostają.
+        // Zamknięcie całych wątków zaznaczonych wiadomości przez operatora (operacja stosu „wycofaj”).
+        void ZamknijWatki()
+        {
+            var sel = lv.SelectedItems.Cast<ListViewItem>().Select(it => (Msg)it.Tag).ToList();
+            if (sel.Count == 0) { MessageBox.Show(form, Jezyk.T("Zaznacz wiadomość z wątku, który chcesz zamknąć."), Jezyk.T("Zamknij wątek")); return; }
+            var watki = new HashSet<string>(sel.Select(m => m.Watek));
+            var lista = msgs.Where(m => watki.Contains(m.Watek)).ToList();
+            var tematy = string.Join("\n", lista.GroupBy(m => m.Watek).Select(g => "• " + P.Baza(g.First().Temat) + " (" + g.Count() + Jezyk.T(" wiad.") + ")").Take(8));
+            int wKolejce = lista.Count(m => m.Katalog != "przeczytane");
+            if (MessageBox.Show(form, string.Format(Jezyk.T("Zamknąć wątki ({0}) – wiadomości: {1}?\n\n{2}\n\nWiadomości trafią do archiwum (nic nie zostanie skasowane). Niedoręczone ({3}) nie trafią już do adresatów, a strażnik przestanie o nie upominać."),
+                    watki.Count, lista.Count, tematy, wKolejce), Jezyk.T("Zamknij wątek"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("wycofaj", P.D("pliki", lista.Select(m => m.Plik).ToList(), "powod", "wątek zamknięty przez operatora w ECXP-MAILBOX"));
+                foreach (var m in lista) read.Remove(m.Plik);
+                SaveRead();
+                det.Clear(); pnlZal.Controls.Clear(); pnlZal.Visible = false;     // zamknięty wątek znika też z podglądu
+                Skanuj();
+                stInfo.Text = Jezyk.T("Zamknięto wątki – przeniesiono do archiwum: ") + P.S(r, "przeniesione");
+            }
+            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie zamknięto: ") + ex.Message, Jezyk.T("Zamknij wątek"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
         void Clean(int days)
         {
             var limit = DateTime.Now.AddDays(-days);
@@ -1827,6 +1853,7 @@ namespace Ecxp
                 if (nowe > 0) why.Append(Jezyk.T("\n\n• ") + nowe + Jezyk.T(" nie oznaczyłeś jeszcze jako przeczytane."));
                 if (otwarte > 0) why.Append(Jezyk.T("\n\n• ") + otwarte + Jezyk.T(" to pytania lub zadania bez odpowiedzi – zostają do odpowiedzi."));
                 if (uAdresata > 0) why.Append(Jezyk.T("\n\n• ") + uAdresata + Jezyk.T(" czeka w kolejkach – zostają, dopóki adresat ich nie potwierdzi."));
+                if (uAdresata > 0 || otwarte > 0) why.Append(Jezyk.T("\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku)."));
                 MessageBox.Show(form, why.ToString(), Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }

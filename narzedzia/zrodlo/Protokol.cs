@@ -619,6 +619,42 @@ namespace Ecxp
             });
         }
 
+        // ---------- zamknięcie wiadomości przez operatora ----------
+        // Wiadomość z dowolnej kolejki (także niedoręczona albo pytanie bez odpowiedzi) trafia do archiwum\RRRR-MM.
+        // Nic nie jest kasowane. W dzienniku: potwierdzona (wynik „wycofana”, kto: wlasciciel) – strażnik przestaje upominać.
+        public static Dictionary<string, object> Wycofaj(List<string> pliki, string powod)
+        {
+            return ZBlokada(delegate
+            {
+                string spoj;
+                var stany = Stany(out spoj);
+                var js = Js();
+                int ok = 0, brak = 0;
+                foreach (var nazwa in pliki.Select(Path.GetFileName).Distinct())
+                {
+                    FileInfo f = null; string kat = null;
+                    foreach (var k in Foldery)
+                    {
+                        var p = Path.Combine(Root, k, nazwa);
+                        if (File.Exists(p)) { f = new FileInfo(p); kat = k; break; }
+                    }
+                    if (f == null) { brak++; continue; }
+                    var m = Wczytaj(f, kat, js);
+                    var dir = Path.Combine(Root, "archiwum", m.Czas.ToString("yyyy-MM"));
+                    Directory.CreateDirectory(dir);
+                    var dst = Path.Combine(dir, m.Plik);
+                    if (File.Exists(dst)) dst = Path.Combine(dir, Path.GetFileNameWithoutExtension(m.Plik) + "-" + Losowe(2) + ".json");
+                    File.Move(f.FullName, dst);
+                    Stan s;
+                    if (stany.TryGetValue(m.Id, out s) && !s.Potwierdzona.HasValue)
+                        Zdarzenie("potwierdzona", D("id", m.Id, "kto", Wlasciciel, "wynik", "wycofana", "uwagi", string.IsNullOrEmpty(powod) ? "zamknięta przez operatora" : powod));
+                    Zdarzenie("zarchiwizowana", D("id", m.Id, "plik", m.Plik, "z", kat, "kto", Wlasciciel, "powod", powod ?? ""));
+                    ok++;
+                }
+                return D("przeniesione", ok, "brak", brak);
+            });
+        }
+
         // ---------- odbiór i potwierdzenia ----------
         public static List<Dictionary<string, object>> Odbierz(string ja, int limit)
         {

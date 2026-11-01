@@ -64,6 +64,7 @@ flowchart LR
 | rozmowy w wątkach, kolory typów, stan doręczenia, filtry, wyszukiwanie | jest |
 | „Napisz” i „Odpowiedz”: projekt, moduł, adresat (para / strona / rola), rodzaj, pilne – przez stos | jest |
 | załączniki: plik, zrzut ekranu (wszystkie monitory), obraz lub pliki ze schowka → obiekty kontekstu SHA-256 → części `plik`; otwieranie po sprawdzeniu skrótu, typy wykonywalne tylko pokazywane w folderze | jest |
+| „⊘ Zamknij wątek…”: operator zamyka całe wątki zaznaczonych wiadomości, także niedoręczone i pytania bez odpowiedzi; pliki trafiają do `archiwum\RRRR-MM` (nic nie jest kasowane), w dzienniku `potwierdzona` z wynikiem `wycofana` i `zarchiwizowana`, strażnik przestaje upominać (operacja stosu `wycofaj`, tylko operator) | jest |
 | Ctrl+V / Shift+Insert w oknach z załącznikami (Napisz, Nowe zadanie): obraz lub pliki ze schowka trafiają do załączników, tekst do pola; przeciąganie plików na okno | jest |
 | czytelny widok rozmowy: bloki wiadomości, większa treść z wcięciem, załączniki do kliknięcia, dane techniczne drobno | jest |
 | motyw jasny / ciemny (pasek tytułu, listy, zakładki, logo), zapamiętany w ustawieniach operatora | jest |
