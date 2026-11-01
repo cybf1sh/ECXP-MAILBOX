@@ -138,7 +138,7 @@ namespace Ecxp
                 P.Zdarzenie("przypisanie", P.D("kto", kto, "nazwa", nazwa, "projekt", projekt, "modul", modul, "strona", strona, "sesja", moja.Sesja, "role", moja.Role));
                 var przekazane = new List<string>();
                 foreach (var x in poprzednie) przekazane.AddRange(Przejmij(x.Nazwa, nazwa, projekt, modul));
-                P.Sygnal(nazwa, "przypisz");
+                if (kto == nazwa) P.Sygnal(nazwa, "przypisz");     // kontakt węzła liczy się tylko, gdy zgłosił się sam (nie operator za niego)
                 return P.D("nazwa", nazwa, "projekt", projekt, "modul", modul, "strona", strona, "role", moja.Role,
                     "przejeto_od", poprzednie.Select(x => x.Nazwa).ToList(), "przekazane", przekazane, "para", Para(projekt, modul));
             });
@@ -375,10 +375,11 @@ namespace Ecxp
                         "Jeśli masz narzędzie do zmiany nazwy tej sesji (np. set_session_title), od razu nadaj jej dokładnie tę nazwę.\n\n" +
                         "Jesteś sesją " + (strona == "codex" ? "ChatGPT/Codex" : "Claude") + " w parze ECXP (zasada 1:1) projektu " + projekt + ", moduł " + modul + ".\n" +
                         "Twoja nazwa w ECXP: " + ja + ". Druga strona pary: " + partner + ". Role: " + (role.Count > 0 ? string.Join(", ", role) : "do ustalenia przez operatora") + ".\n\n" +
-                        "Na początku: wywołaj narzędzie ecxp_przypisz (ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + ", sesja=<identyfikator tej sesji, jeśli go znasz>), potem ecxp_odbierz (ja=" + ja + ").\n" +
+                        "Na początku: wywołaj narzędzie ecxp_przypisz (ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + ", sesja=<identyfikator TEJ sesji; jeśli go nie znasz, pomiń – nie podawaj identyfikatora innej sesji>), potem ecxp_odbierz (ja=" + ja + ").\n" +
+                        "Narzędzia ecxp_* działają tylko w sesji na tym komputerze. Jeśli ich nie widzisz (np. sesja otworzyła się w chmurze), nie wykonuj zadania – od razu napisz operatorowi: „Brak narzędzi ECXP – otwórz tę sesję lokalnie, na komputerze z ECXP”.\n" +
                         "Każdą odebraną wiadomość potwierdzaj (ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na). Do drugiej strony pisz na adres " + (strona == "codex" ? "claude/" : "codex/") + modul + ", do obu i operatora – para:" + modul + " / wlasciciel.\n" +
                         "Z drugą stroną ustalcie wspólną gałąź roboczą i commit bazowy, zanim zaczniecie zmiany; nie piszcie naraz w tych samych plikach.\n\n" +
-                        "Zadanie od operatora:\n" + opis.Trim();
+                        "Zadanie od operatora:\n" + opis.Trim() + Zalaczniki(czesci);
                     var sd = Path.Combine(P.Root, "stan", "start");
                     Directory.CreateDirectory(sd);
                     File.WriteAllText(Path.Combine(sd, ja + ".txt"), txt, new UTF8Encoding(false));
@@ -389,6 +390,20 @@ namespace Ecxp
                 P.Zdarzenie("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "codex", codex, "claude", claude, "tytul", tytulSesji));
                 return P.D("projekt", projekt, "modul", modul, "tytul_sesji", tytulSesji, "para", Para(projekt, modul), "pakiety", pakiety, "zadanie", w);
             });
+        }
+
+        // Lista załączników do pakietu: nazwa i lokalna kopia (tylko do odczytu) – obrazy można od razu otworzyć.
+        static string Zalaczniki(List<Dictionary<string, object>> czesci)
+        {
+            if (czesci == null) return "";
+            var sb = new StringBuilder();
+            foreach (var c in czesci.Where(x => P.S(x, "rodzaj") == "plik"))
+            {
+                string sc;
+                try { sc = P.KopiaZalacznika(P.S(c, "sha256"), P.S(c, "nazwa")); } catch (Exception ex) { sc = "niedostępny: " + ex.Message; }
+                sb.Append("\n- " + P.S(c, "nazwa") + " (" + P.S(c, "typ") + "): " + sc);
+            }
+            return sb.Length == 0 ? "" : "\n\nZałączniki od operatora (otwórz plik z podanej ścieżki; ecxp_odbierz pokaże też obrazy):" + sb;
         }
 
         // Para, trasy i role dla projektu (narzędzie ecxp_trasy i konsola).

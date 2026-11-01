@@ -70,6 +70,10 @@ namespace Ecxp
         ToolStripStatusLabel stStos;
         TabPage tabAg;
         ListView lvAg;
+        // bieżąca sesja (para) operatora: wyróżniona w oknie, pasek stanu zgłoszeń obu stron, filtr „tylko ta para”
+        string biezProj = "", biezMod = "", biezTytul = ""; DateTime biezOd = DateTime.MinValue; bool tylkoBiez;
+        Panel pnlBiez; Label lblBiez; Button bBiezFiltr;
+        static Color Akcent { get { return Motyw.Ostrz(Color.FromArgb(214, 236, 255)); } }
         Label lblAg;
         static readonly Color Zolty = Color.FromArgb(255, 222, 0);
         static Color Zielony { get { return Motyw.K(Color.FromArgb(0, 128, 0)); } }
@@ -85,6 +89,8 @@ namespace Ecxp
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
             widokUslug = ust.Contains("uslugi=karty") ? "karty" : "pasek";
+            var mb = Regex.Match(ust, @"biezaca=([^|\r\n]*)\|([^|\r\n]*)\|([^|\r\n]*)\|(\d+)");
+            if (mb.Success) { biezProj = mb.Groups[1].Value; biezMod = mb.Groups[2].Value; biezTytul = mb.Groups[3].Value; biezOd = new DateTime(long.Parse(mb.Groups[4].Value)); }
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -100,6 +106,7 @@ namespace Ecxp
             msgs = Wczytaj();
             foreach (var m in msgs) seen.Add(m.Plik);
             stanSeen = StanKey();
+            if (biezMod.Length > 0 && cbProjekt.Items.IndexOf(biezProj) > 0) cbProjekt.SelectedIndex = cbProjekt.Items.IndexOf(biezProj);
 
             fsw = new FileSystemWatcher(P.Root) { IncludeSubdirectories = true, InternalBufferSize = 65536,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName };
@@ -335,6 +342,19 @@ namespace Ecxp
             bOProgramie.Click += delegate { OProgramie(); };
             head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bMotyw, cbJezyk, bOProgramie });
 
+            pnlBiez = new Panel { Dock = DockStyle.Top, Height = 46, Visible = false, Padding = new Padding(8, 4, 8, 4) };
+            var flBiez = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
+            bBiezFiltr = Btn("Pokaż wszystkie rozmowy");
+            var bBiezPakiety = Btn("Pakiety…");
+            var bBiezOdznacz = Btn("✕  Odznacz");
+            flBiez.Controls.AddRange(new Control[] { bBiezFiltr, bBiezPakiety, bBiezOdznacz });
+            lblBiez = new Label { Dock = DockStyle.Fill, Font = fontB, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+            pnlBiez.Controls.Add(lblBiez); pnlBiez.Controls.Add(flBiez);
+            bBiezFiltr.Click += delegate { tylkoBiez = !tylkoBiez; RefreshView(); };
+            bBiezOdznacz.Click += delegate { UstawBiezaca("", "", "", DateTime.MinValue, false); };
+            bBiezPakiety.Click += delegate { PakietyBiezacej(); };
+            new ToolTip().SetToolTip(lblBiez, "Sesja, nad którą teraz pracujesz. Jej rozmowy i wiersz na liście agentów są wyróżnione ▶.");
+
             var lblCzeka = new Label { Text = "Czeka na Ciebie", Dock = DockStyle.Top, Height = 24, Font = fontB };
             czeka = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Top, Height = 90,
                 BackColor = Color.FromArgb(255, 248, 220), ScrollBars = ScrollBars.Vertical };
@@ -384,7 +404,9 @@ namespace Ecxp
             var bDecyzja = Btn("⚖  Decyzja…");
             var bTlo = Btn("▶  Agent w tle…");
             var bWznow = Btn("Wznów parę / łańcuch");
-            agTop.Controls.AddRange(new Control[] { bNowe, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            var bBiez = Btn("▶  Ustaw jako bieżącą");
+            agTop.Controls.AddRange(new Control[] { bNowe, bBiez, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            bBiez.Click += delegate { BiezacaZListy(); };
             bDecyzja.Click += delegate { Decyzja(); };
             bTlo.Click += delegate { UruchomAgenta(); };
             bWznow.Click += delegate { Wznow(); };
@@ -405,6 +427,7 @@ namespace Ecxp
             bRola.Click += delegate { NadajRole(); };
             bPakiet.Click += delegate { PakietyStartowe(); };
             bNazwy.Click += delegate { NazwySesji(); };
+            lvAg.DoubleClick += delegate { BiezacaZListy(); };
             cbProjekt.SelectedIndexChanged += delegate { RefreshView(); };
 
             // --- Połączenia ---
@@ -450,6 +473,7 @@ namespace Ecxp
             form.Controls.Add(tabs);
             form.Controls.Add(czeka);
             form.Controls.Add(lblCzeka);
+            form.Controls.Add(pnlBiez);
             form.Controls.Add(pnlKarty);
             form.Controls.Add(head);
             form.Controls.Add(bar);
@@ -1215,7 +1239,8 @@ namespace Ecxp
 
         void ZapiszUstawienia()
         {
-            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine +
+                (biezMod.Length > 0 ? "biezaca=" + biezProj + "|" + biezMod + "|" + biezTytul.Replace("|", "/") + "|" + biezOd.Ticks + Environment.NewLine : ""), new UTF8Encoding(false)); } catch { }
         }
 
         // ---------- motyw ----------
@@ -1242,6 +1267,7 @@ namespace Ecxp
         bool Pasuje(Msg m)
         {
             var pr = cbProjekt != null && cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : null;
+            if (tylkoBiez && biezMod.Length > 0) { if (!Biezaca(m)) return false; pr = null; }     // filtr bieżącej sesji ma pierwszeństwo przed projektem
             if (pr != null && m.Projekt != pr) return false;
             var mod = cbModul.SelectedIndex > 0 ? (string)cbModul.SelectedItem : null;
             if (mod != null && m.Modul != mod) return false;
@@ -1303,7 +1329,7 @@ namespace Ecxp
                     : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? Jezyk.T("⚠ brak potwierdzenia – eskalacja")
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
                     : Jezyk.T("✓ zamknięta");
-                var g = new ListViewGroup(w[0].Watek, P.Baza(w[0].Temat) + "   ·   " + string.Join(", ", w.Select(m => m.Modul).Where(x => x.Length > 0).Distinct()) +
+                var g = new ListViewGroup(w[0].Watek, (w.Any(Biezaca) ? "▶  " : "") + P.Baza(w[0].Temat) + "   ·   " + string.Join(", ", w.Select(m => m.Modul).Where(x => x.Length > 0).Distinct()) +
                     "   ·   " + w.Count + Jezyk.T(" wiad.   ·   ") + stanW + (w.Any(m => m.Nowa) ? Jezyk.T("   ·   NOWE") : ""));
                 lv.Groups.Add(g);
                 foreach (var m in w)
@@ -1311,7 +1337,7 @@ namespace Ecxp
                     var it = new ListViewItem(m.Czas.ToString("dd.MM HH:mm"), g) { Tag = m };
                     it.SubItems.Add(m.Nowa ? "●" : "");
                     it.SubItems.Add(NazwaW(m.Od) + "  →  " + NazwaW(m.Do));
-                    it.SubItems.Add(m.Modul);
+                    it.SubItems.Add(Biezaca(m) ? "▶ " + m.Modul : m.Modul);
                     it.SubItems.Add(Zdanie(m));
                     it.SubItems.Add(Doreczenie(m, teraz));
                     it.ForeColor = Kolor(m);
@@ -1320,6 +1346,7 @@ namespace Ecxp
                     if (m.Blad != null || (m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona))) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 205, 205));
                     else if (c.HasValue && c.Value.TotalHours >= 6) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 220, 220));
                     else if (c.HasValue && c.Value.TotalHours >= 1) it.BackColor = Motyw.Ostrz(Color.FromArgb(255, 242, 200));
+                    else if (Biezaca(m)) it.BackColor = Akcent;
                     lv.Items.Add(it);
                     widoczne.Add(m);
                     if (m.Plik == selPlik) it.Selected = true;
@@ -1329,6 +1356,7 @@ namespace Ecxp
 
             RefreshPolaczenia(teraz);
             RefreshAgenci();
+            OdswiezBiezaca(teraz);
             Jezyk.Zastosuj(form);
             int nowe = msgs.Count(m => m.Nowa);
             int wKolejce = msgs.Count(m => m.Katalog == "do-codex" || m.Katalog == "do-claude");
@@ -1574,11 +1602,75 @@ namespace Ecxp
                 if (wTle.Contains(cx)) it.SubItems[2].Text += Jezyk.T("  (w tle)");
                 if (wTle.Contains(cl)) it.SubItems[3].Text += Jezyk.T("  (w tle)");
                 it.ForeColor = pelna && !rozb ? Zielony : Czerwony;
+                if (pr == biezProj && mod == biezMod) { it.Text = "▶ " + pr; it.Font = fontB; it.BackColor = Akcent; }
                 it.Tag = d;
                 lvAg.Items.Add(it);
             }
             lvAg.EndUpdate();
             tabAg.Text = "Agenci (" + lvAg.Items.Count + ")";
+        }
+
+        bool Biezaca(Msg m) { return biezMod.Length > 0 && m.Modul == biezMod && (m.Projekt.Length == 0 || m.Projekt == biezProj); }
+
+        void UstawBiezaca(string projekt, string modul, string tytul, DateTime od, bool filtr)
+        {
+            biezProj = projekt; biezMod = modul; biezTytul = tytul; biezOd = od; tylkoBiez = filtr && modul.Length > 0;
+            ZapiszUstawienia();
+            if (modul.Length > 0 && cbProjekt.SelectedIndex > 0 && (string)cbProjekt.SelectedItem != projekt)
+            {
+                var ip = cbProjekt.Items.IndexOf(projekt);
+                if (ip < 0) { cbProjekt.Items.Add(projekt); ip = cbProjekt.Items.Count - 1; }
+                cbProjekt.SelectedIndex = ip;      // lista rozmów i agentów pokazuje projekt bieżącej sesji
+            }
+            RefreshView();
+            if (modul.Length > 0) tabs.SelectedTab = tabMsg;
+        }
+
+        void BiezacaZListy()
+        {
+            var para = WybranaPara();
+            if (para == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Bieżąca sesja")); return; }
+            UstawBiezaca(P.S(para, "projekt"), P.S(para, "modul"), TytulPary(P.S(para, "projekt"), P.S(para, "modul")), DateTime.MinValue, true);
+        }
+
+        void PakietyBiezacej()
+        {
+            if (biezMod.Length == 0) return;
+            Func<string, Dictionary<string, object>> pak = n =>
+            {
+                var plik = Path.Combine(P.Root, "stan", "start", n + ".txt");
+                return P.D("nazwa", n, "tytul_sesji", biezTytul, "plik", plik, "tekst", File.Exists(plik) ? P.Czytaj(plik) : Jezyk.T("Brak pakietu dla ") + n);
+            };
+            PokazPakiety(Jezyk.T("Pakiety startowe: ") + biezMod, pak("codex-" + biezMod), pak("claude-" + biezMod));
+        }
+
+        // Stan zgłoszenia strony pary: kontakt z ECXP po utworzeniu pary (stos zapisuje go przy każdym narzędziu ecxp_*).
+        string StanStrony(string nazwa, string strona, Dictionary<string, Wezel> wezly, DateTime teraz)
+        {
+            Wezel w;
+            bool jest = wezly.TryGetValue(nazwa, out w) && w.Ostatnio > biezOd.AddSeconds(3);
+            if (jest) return "✓ " + strona + ": " + Jezyk.T("zgłoszona") + " " + w.Ostatnio.ToString("HH:mm");
+            if (biezOd == DateTime.MinValue) return "– " + strona + ": " + Jezyk.T("brak kontaktu");
+            if ((teraz - biezOd).TotalMinutes < 4) return "⏳ " + strona + ": " + Jezyk.T("czeka na zgłoszenie");
+            return "⚠ " + strona + ": " + (strona == "Claude" ? Jezyk.T("nie zgłosiła się – sesja mogła otworzyć się w chmurze; otwórz ją lokalnie")
+                                                              : Jezyk.T("nie zgłosiła się – sprawdź wątek w aplikacji Codex"));
+        }
+
+        void OdswiezBiezaca(DateTime teraz)
+        {
+            if (pnlBiez == null) return;
+            pnlBiez.Visible = biezMod.Length > 0;
+            if (biezMod.Length == 0) return;
+            var wezly = new Dictionary<string, Wezel>();
+            foreach (var w in P.Wezly()) wezly[w.Nazwa] = w;
+            var moje = msgs.Where(Biezaca).ToList();
+            string sx = StanStrony("codex-" + biezMod, "Codex", wezly, teraz), sl = StanStrony("claude-" + biezMod, "Claude", wezly, teraz);
+            lblBiez.Text = "▶  " + Jezyk.T("Bieżąca sesja: ") + biezTytul + "   (" + biezProj + " / " + biezMod + ")      " + sx + "    " + sl +
+                "      " + Jezyk.T("rozmowy: ") + moje.Count + (moje.Any(m => m.Nowa) ? Jezyk.T(", nowe: ") + moje.Count(m => m.Nowa) : "");
+            bool ostrz = sx.StartsWith("⚠") || sl.StartsWith("⚠");
+            pnlBiez.BackColor = ostrz ? Motyw.Ostrz(Color.FromArgb(255, 226, 200)) : Akcent;
+            lblBiez.ForeColor = Motyw.Tekst;
+            bBiezFiltr.Text = tylkoBiez ? Jezyk.T("Pokaż wszystkie rozmowy") : Jezyk.T("Pokaż tylko tę sesję");
         }
 
         Dictionary<string, object> WybranaPara()
@@ -1612,14 +1704,16 @@ namespace Ecxp
                         "lancuch", tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     var pk = (Dictionary<string, object>)r["pakiety"];
-                    if (chSes.Checked) ZalozSesje(cbP.Text, P.S(r, "modul"), P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
+                    UstawBiezaca(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), DateTime.Now, true);
+                    if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"],
+                        zalN.Pliki.Where(SesjeAplikacji.Obraz).ToList());
                     else PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
                 }
                 catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
-        void ZalozSesje(string projekt, string modul, string tytul, Dictionary<string, object> pkCodex, Dictionary<string, object> pkClaude)
+        void ZalozSesje(string projekt, string modul, string tytul, Dictionary<string, object> pkCodex, Dictionary<string, object> pkClaude, List<string> obrazy)
         {
             var katalog = SesjeAplikacji.Katalog(projekt);
             stInfo.Text = tytul + ": " + Jezyk.T("zakładam sesje – Codex w tle, Claude otwiera się w aplikacji…");
@@ -1630,13 +1724,13 @@ namespace Ecxp
                 string wynik;
                 try
                 {
-                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } });
+                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), obrazy, 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } });
                     wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” założony i zgłoszony do ECXP (") + w + ").";
                 }
                 catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
-            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – zobaczysz go w aplikacji Codex.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem – potwierdź katalog i kliknij „Wyślij”. Sesja sama nada sobie nazwę."), tytul),
+            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – zobaczysz go w aplikacji Codex.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem – potwierdź katalog, zostaw pracę na tym komputerze (nie w chmurze – tam nie ma ECXP) i kliknij „Wyślij”. Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
                 "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -1985,7 +2079,11 @@ namespace Ecxp
                 if (!args.Contains("/cicho")) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
                 return 0;
             }
-            if (args.Length >= 4 && args[0] == "/test-para") return Test.Para(args[1], args[2], args[3], args.Contains("/bez-claude"));
+            if (args.Length >= 4 && args[0] == "/test-para")
+            {
+                var io = Array.IndexOf(args, "/obraz");
+                return Test.Para(args[1], args[2], args[3], args.Contains("/bez-claude"), io > 0 && io + 1 < args.Length ? args[io + 1] : null);
+            }
             if (args.Length >= 2 && args[0] == "/procesy-agentow")
             {
                 var l = ProcesyAgentow.Wybierz();
@@ -2218,7 +2316,7 @@ namespace Ecxp
         public Zalaczniki()
         {
             AutoSize = true; Dock = DockStyle.Fill; WrapContents = true; Margin = new Padding(0);
-            var bP = Przycisk("📎  Dodaj plik…"); var bZ = Przycisk("📷  Zrzut ekranu"); var bS = Przycisk("📋  Wklej ze schowka");
+            var bP = Przycisk("📎  Dodaj plik…"); var bZ = Przycisk("📷  Zrzut ekranu"); var bS = Przycisk("📋  Wklej ze schowka (Ctrl+V)");
             lista = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(6, 0, 0, 0) };
             Controls.AddRange(new Control[] { bP, bZ, bS, lista });
             bP.Click += delegate
@@ -2227,11 +2325,46 @@ namespace Ecxp
                     if (d.ShowDialog(FindForm()) == DialogResult.OK) foreach (var p in d.FileNames) Dodaj(p);
             };
             bZ.Click += delegate { Zrzut(); };
-            bS.Click += delegate
+            bS.Click += delegate { if (!Wklej()) MessageBox.Show(FindForm(), Jezyk.T("W schowku nie ma obrazu ani plików."), Jezyk.T("Wklej ze schowka")); };
+            ParentChanged += delegate { Podepnij(FindForm()); };
+            HandleCreated += delegate { Podepnij(FindForm()); };
+        }
+
+        // Obraz albo pliki ze schowka → załączniki. Tekst zostaje dla pola, w którym jest kursor.
+        public bool Wklej()
+        {
+            try
             {
-                if (Clipboard.ContainsImage()) Dodaj(Zapisz(Clipboard.GetImage(), "schowek"));
-                else if (Clipboard.ContainsFileDropList()) foreach (var p in Clipboard.GetFileDropList()) Dodaj(p);
-                else MessageBox.Show(FindForm(), Jezyk.T("W schowku nie ma obrazu ani plików."), Jezyk.T("Wklej ze schowka"));
+                if (Clipboard.ContainsImage()) { var img = Clipboard.GetImage(); if (img != null) { Dodaj(Zapisz(img, "schowek")); return true; } }
+                if (Clipboard.ContainsFileDropList()) { foreach (var p in Clipboard.GetFileDropList()) Dodaj(p); return true; }
+            }
+            catch { }
+            return false;
+        }
+
+        // Ctrl+V / Shift+Insert w całym oknie: obraz lub pliki ze schowka trafiają do załączników; przeciąganie plików na okno.
+        Form podpiety;
+        void Podepnij(Form f)
+        {
+            if (f == null || f == podpiety) return;
+            podpiety = f;
+            f.KeyPreview = true;
+            f.KeyDown += (s, e) =>
+            {
+                bool wklej = (e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert);
+                if (!wklej) return;
+                bool tekst = false;
+                try { tekst = Clipboard.ContainsText() && !Clipboard.ContainsImage() && !Clipboard.ContainsFileDropList(); } catch { }
+                if (tekst) return;
+                if (Wklej()) { e.Handled = true; e.SuppressKeyPress = true; }
+            };
+            f.AllowDrop = true;
+            f.DragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Bitmap)) e.Effect = DragDropEffects.Copy; };
+            f.DragDrop += (s, e) =>
+            {
+                var pliki = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (pliki != null) foreach (var p in pliki) Dodaj(p);
+                else { var img = e.Data.GetData(DataFormats.Bitmap) as Image; if (img != null) Dodaj(Zapisz(img, "upuszczony")); }
             };
         }
         static Button Przycisk(string t) { return new Button { Text = t, AutoSize = true, Height = 30, Margin = new Padding(0, 0, 6, 4) }; }
@@ -2294,7 +2427,13 @@ namespace Ecxp
         }
 
         // Zwraca identyfikator wątku Codex. Czeka na koniec pierwszej tury (najwyżej maxMinut).
-        public static string ZalozCodex(string tytul, string katalog, string pakiet, int maxMinut, Action<string> log)
+        public static bool Obraz(string p)
+        {
+            var e = Path.GetExtension(p ?? "").ToLowerInvariant();
+            return e == ".png" || e == ".jpg" || e == ".jpeg" || e == ".gif" || e == ".webp" || e == ".bmp";
+        }
+
+        public static string ZalozCodex(string tytul, string katalog, string pakiet, List<string> obrazy, int maxMinut, Action<string> log)
         {
             var prog = Agenci.Program("codex");
             if (prog.Length == 0) throw new EcxpException("Na tym stanowisku nie ma Codex CLI (polecenie codex).");
@@ -2367,7 +2506,7 @@ namespace Ecxp
                 };
                 try
                 {
-                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1")), 120000);
+                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1"), "capabilities", P.D("experimentalApi", true)), 120000);
                     pisz(P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
                     var st = rpc("thread/start", P.D("cwd", katalog, "approvalPolicy", "on-request", "sandbox", "read-only"), 120000);
                     var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
@@ -2376,7 +2515,11 @@ namespace Ecxp
                     log("Codex: wątek " + watek);
                     rpc("thread/name/set", P.D("threadId", watek, "name", tytul), 60000);
                     log("Codex: nazwa wątku „" + tytul + "”");
-                    rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", new List<object> { P.D("type", "text", "text", pakiet, "text_elements", new List<object>()) }), 120000);
+                    // aplikacja Codex pokazuje wątki w projektach dopasowanych po folderze – bez projektu wątek jest niewidoczny
+                    try { log(ProjektCodex(rpc, katalog, watek)); } catch (Exception ex) { log("Codex: nie dodano projektu w aplikacji – " + ex.Message); }
+                    var wejscie = new List<object> { P.D("type", "text", "text", pakiet, "text_elements", new List<object>()) };
+                    foreach (var o in (obrazy ?? new List<string>()).Where(File.Exists).Take(8)) wejscie.Add(P.D("type", "localImage", "path", o));
+                    rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", wejscie), 120000);
                     log("Codex: pakiet wysłany, trwa pierwsza tura…");
                     if (!koniecTury.WaitOne(TimeSpan.FromMinutes(maxMinut))) log("Codex: tura trwa dłużej niż " + maxMinut + " min – wątek zostaje, kontynuuj w aplikacji Codex.");
                     else log(bladTury == null ? "Codex: pierwsza tura zakończona." : "Codex: tura nieudana: " + bladTury);
@@ -2388,6 +2531,30 @@ namespace Ecxp
                 }
             }
             return watek;
+        }
+
+        // Projekt aplikacji Codex dla folderu pary: istniejący (ten sam folder) albo nowy „🔗ECXP <folder>” z przypiętym wątkiem.
+        static string ProjektCodex(Func<string, Dictionary<string, object>, int, Dictionary<string, object>> rpc, string katalog, string watek)
+        {
+            var pelny = Path.GetFullPath(katalog).TrimEnd('\\');
+            var lista = rpc("project/list", P.D("limit", 200), 60000);
+            var dane = lista != null && lista.ContainsKey("data") ? lista["data"] as System.Collections.IEnumerable : null;
+            if (dane != null)
+                foreach (var x in dane)
+                {
+                    var pd = x as Dictionary<string, object>;
+                    var roots = pd != null && pd.ContainsKey("roots") ? pd["roots"] as System.Collections.IEnumerable : null;
+                    if (roots == null) continue;
+                    foreach (var r in roots)
+                    {
+                        var rp = P.S(r as Dictionary<string, object>, "path").TrimEnd('\\');
+                        if (rp.Length > 0 && pelny.StartsWith(rp, StringComparison.OrdinalIgnoreCase) && (pelny.Length == rp.Length || pelny[rp.Length] == '\\'))
+                            return "Codex: wątek w projekcie „" + P.S(pd, "name") + "”";
+                    }
+                }
+            var nazwa = "🔗ECXP " + Path.GetFileName(pelny);
+            var w = rpc("project/import", P.D("idempotencyKey", "ecxp:" + pelny.ToLowerInvariant(), "name", nazwa, "roots", new List<object> { P.D("path", pelny) }, "threads", new List<object> { watek }), 60000);
+            return "Codex: projekt „" + nazwa + "” dodany w aplikacji Codex";
         }
 
         // Otwiera w aplikacji Claude nową sesję z wpisanym pakietem i katalogiem pracy.
@@ -2823,7 +2990,7 @@ namespace Ecxp
 
         // Test pary w aplikacjach: operator tworzy parę, Codex dostaje wątek przez app-server, Claude – link do aplikacji.
         // Raport: stan\test-para.txt. Sprawdza, czy obie strony zgłosiły się do ECXP.
-        public static int Para(string root, string projekt, string modul, bool bezClaude)
+        public static int Para(string root, string projekt, string modul, bool bezClaude, string obraz = null)
         {
             var log = new StringBuilder(); int zle = 0;
             Action<bool, string> ok = (c, t) => { log.AppendLine((c ? "PASS  " : "FAIL  ") + t); if (!c) zle++; };
@@ -2833,22 +3000,32 @@ namespace Ecxp
             {
                 using (var k = Klient.Polacz(P.Wlasciciel, "konsola", true))
                 {
+                    var czesci = new List<object>();
+                    if (obraz != null)
+                    {
+                        var o = (Dictionary<string, object>)k.Wywolaj("kontekst_zapisz", P.D("sciezka", Path.GetFullPath(obraz), "nazwa", Path.GetFileName(obraz), "typ", "image/png"));
+                        czesci.Add(P.D("rodzaj", "plik", "sha256", P.S(o, "sha256"), "nazwa", Path.GetFileName(obraz), "typ", "image/png"));
+                        info("obraz w magazynie kontekstu: " + P.S(o, "sha256").Substring(0, 16));
+                    }
                     var r = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "tytul", modul,
-                        "opis", "Test ECXP: zgłoś się (ecxp_przypisz), odbierz zadanie (ecxp_odbierz), potwierdź je i napisz do pary jedno zdanie (adres para:" + modul + "). Nie zmieniaj żadnych plików.",
-                        "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "recenzent", "tester" }), 120000);
+                        "opis", "Test ECXP: zgłoś się (ecxp_przypisz), odbierz zadanie (ecxp_odbierz), potwierdź je i napisz do pary jedno zdanie (adres para:" + modul + ")" +
+                            (obraz != null ? " – podaj w nim liczbę widoczną na załączonym obrazie" : "") + ". Nie zmieniaj żadnych plików.",
+                        "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "recenzent", "tester" }, "czesci", czesci), 120000);
+                    projekt = P.S(r, "projekt");
                     var tytul = P.S(r, "tytul_sesji");
                     ok(tytul.Contains("ECXP") && tytul.Contains(modul), "para utworzona, nazwa sesji: " + tytul);
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     var katalog = SesjeAplikacji.Katalog(projekt);
                     if (!bezClaude) { SesjeAplikacji.OtworzClaude(katalog, P.S((Dictionary<string, object>)pk["claude"], "tekst")); info("Claude: otwarto link claude://code/new (" + katalog + ")"); }
                     else info("Claude: link do aplikacji pominięty (" + SesjeAplikacji.LinkClaude(katalog, "…").Substring(0, 40) + "…)");
-                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S((Dictionary<string, object>)pk["codex"], "tekst"), 10, info);
+                    var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S((Dictionary<string, object>)pk["codex"], "tekst"), obraz != null ? new List<string> { Path.GetFullPath(obraz) } : null, 10, info);
                     ok(w.Length > 0, "Codex: wątek założony w bazie aplikacji Codex: " + w);
                 }
                 var trasa = Siec.Trasy().FirstOrDefault(t => t.Nazwa == "codex-" + modul);
                 ok(trasa != null && trasa.Aktywna, "trasa codex-" + modul + " w ECXP: " + (trasa == null ? "brak" : "aktywna, sesja " + (trasa.Sesja.Length > 0 ? trasa.Sesja : "(bez id)")));
                 var odCodex = P.Wszystkie(false).Where(m => m.Od == "codex-" + modul).ToList();
                 ok(odCodex.Count > 0, "Codex napisał przez ECXP: " + odCodex.Count + " wiad. (" + string.Join(", ", odCodex.Select(m => m.Typ + "→" + m.Do)) + ")");
+                foreach (var m in odCodex) info("Codex → " + m.Do + ": " + (m.Uwagi.Length > 300 ? m.Uwagi.Substring(0, 300) : m.Uwagi));
                 var zadanie = P.Wszystkie(false).Where(m => m.Do.Contains("codex-" + modul) || m.Do == "para:" + modul || m.Do == "codex/" + modul).ToList();
                 info("wiadomości do Codex/pary: " + zadanie.Count);
             }

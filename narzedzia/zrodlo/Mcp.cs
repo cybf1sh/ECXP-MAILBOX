@@ -145,7 +145,9 @@ namespace Ecxp
                                     klient = null;                                      // zerwane połączenie – jedna próba ponownie
                                     r = K().Wywolaj(nazwa.Substring(5), arg);
                                 }
-                                wynik = D("content", new List<object> { D("type", "text", "text", P.Js().Serialize(r)) }, "isError", false);
+                                var tresc = new List<object> { D("type", "text", "text", P.Js().Serialize(r)) };
+                                if (nazwa == "ecxp_odbierz") tresc.AddRange(Obrazy(r));
+                                wynik = D("content", tresc, "isError", false);
                             }
                             catch (Exception ex)
                             {
@@ -160,6 +162,36 @@ namespace Ecxp
                 return D("jsonrpc", "2.0", "id", id, "result", wynik);
             }
             catch (Exception ex) { return D("jsonrpc", "2.0", "id", id, "error", D("code", -32603, "message", ex.Message)); }
+        }
+
+        // Obrazy z części wiadomości (pole sciezka od stosu): najwyżej 6, każdy do 5 MB, po sprawdzeniu SHA-256.
+        static List<object> Obrazy(object r)
+        {
+            var wynik = new List<object>();
+            var d = r as Dictionary<string, object>;
+            var lista = d != null && d.ContainsKey("wiadomosci") ? d["wiadomosci"] as System.Collections.IEnumerable : null;
+            if (lista == null) return wynik;
+            foreach (var w in lista)
+            {
+                var wd = w as Dictionary<string, object>;
+                var cz = wd != null && wd.ContainsKey("czesci") ? wd["czesci"] as System.Collections.IEnumerable : null;
+                if (cz == null) continue;
+                foreach (var c in cz)
+                {
+                    var cd = c as Dictionary<string, object>;
+                    if (cd == null || wynik.Count >= 12) continue;
+                    var typ = P.S(cd, "typ").ToLowerInvariant(); var sc = P.S(cd, "sciezka");
+                    if (!typ.StartsWith("image/") || typ == "image/svg+xml" || sc.Length == 0 || !File.Exists(sc)) continue;
+                    try
+                    {
+                        if (new FileInfo(sc).Length > 5L * 1024 * 1024 || P.ShaPliku(sc) != P.S(cd, "sha256")) continue;
+                        wynik.Add(D("type", "text", "text", "Załącznik wiadomości " + P.S(wd, "id") + ": " + P.S(cd, "nazwa") + " (" + sc + ")"));
+                        wynik.Add(D("type", "image", "data", Convert.ToBase64String(File.ReadAllBytes(sc)), "mimeType", typ == "image/jpg" ? "image/jpeg" : typ));
+                    }
+                    catch { }
+                }
+            }
+            return wynik;
         }
 
         static int Main(string[] args)

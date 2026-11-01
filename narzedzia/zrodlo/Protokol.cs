@@ -645,6 +645,7 @@ namespace Ecxp
                         "pliki", m.Pliki, "ograniczenia", m.Ograniczenia, "integralnosc", integralnosc,
                         "proba_dostarczenia", (s != null ? s.Dostarczenia : 0) + 1, "ponowienia", s != null ? s.Ponowienia : 0,
                         "wymaga_odpowiedzi", m.WymagaOdp);
+                    if (m.Czesci.Count > 0) d["czesci"] = CzesciDoOdbioru(m.Czesci);
                     wynik.Add(d);
                     Zdarzenie("dostarczona", D("id", m.Id, "kto", ja, "proba", (s != null ? s.Dostarczenia : 0) + 1));
                 }
@@ -776,6 +777,46 @@ namespace Ecxp
         public const long MaxObiekt = 32L * 1024 * 1024;
         static readonly Regex ReSha = new Regex("^[0-9a-f]{64}$");
         public static string ObjPath(string sha) { return Path.Combine(Root, "kontekst", "obiekty", sha.Substring(0, 2), sha); }
+
+        // Części wiadomości dla odbiorcy: plik dostaje pole sciezka – kopię obiektu pod właściwą nazwą
+        // (kontekst\zalaczniki\<12 znaków skrótu>\<nazwa>, tylko do odczytu), żeby agent mógł go po prostu otworzyć.
+        public static List<Dictionary<string, object>> CzesciDoOdbioru(List<Dictionary<string, object>> czesci)
+        {
+            var r = new List<Dictionary<string, object>>();
+            foreach (var c in czesci)
+            {
+                var d = new Dictionary<string, object>(c);
+                if (S(c, "rodzaj") == "plik")
+                {
+                    try { d["sciezka"] = KopiaZalacznika(S(c, "sha256"), S(c, "nazwa")); d["integralnosc"] = "ok"; }
+                    catch (Exception ex) { d["integralnosc"] = "USZKODZONA: " + ex.Message; }
+                }
+                r.Add(d);
+            }
+            return r;
+        }
+
+        public static string KopiaZalacznika(string sha, string nazwa)
+        {
+            sha = (sha ?? "").Trim().ToLowerInvariant();
+            if (!ReSha.IsMatch(sha)) throw new EcxpException("niepoprawny skrót");
+            var src = ObjPath(sha);
+            if (!File.Exists(src)) throw new EcxpException("brak obiektu w magazynie kontekstu");
+            var bezp = Regex.Replace(Path.GetFileName(nazwa ?? ""), @"[\\/:*?""<>|\x00-\x1f]", "_").Trim(' ', '.');
+            if (bezp.Length == 0) bezp = "zalacznik";
+            if (bezp.Length > 120) bezp = bezp.Substring(bezp.Length - 120);
+            var dst = Path.Combine(Root, "kontekst", "zalaczniki", sha.Substring(0, 12), bezp);
+            if (File.Exists(dst) && ShaPliku(dst) == sha) return dst;
+            if (ShaPliku(src) != sha) throw new EcxpException("skrót obiektu się nie zgadza");
+            Directory.CreateDirectory(Path.GetDirectoryName(dst));
+            if (File.Exists(dst)) File.SetAttributes(dst, FileAttributes.Normal);
+            var tmp = dst + ".tmp";
+            File.Copy(src, tmp, true);
+            File.SetAttributes(tmp, FileAttributes.Normal);
+            if (File.Exists(dst)) File.Replace(tmp, dst, null); else File.Move(tmp, dst);
+            File.SetAttributes(dst, FileAttributes.ReadOnly);
+            return dst;
+        }
         static readonly string[] Zakazane = { "\\.ssh\\", "\\.gnupg\\", "\\.aws\\", "auth.json", ".credentials", "id_rsa", "id_ed25519", ".pem", ".pfx", ".p12", ".key", "\\.env", "secret", "\\dowody\\" };
 
         public static Dictionary<string, object> ZapiszObiekt(string ja, byte[] dane, string nazwa, string typ)

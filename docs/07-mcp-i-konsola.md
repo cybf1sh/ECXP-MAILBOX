@@ -11,7 +11,7 @@ Obsługiwane metody: `initialize` (wersja protokołu MCP odbijana od klienta, do
 | Narzędzie | Wymagane | Opis |
 |---|---|---|
 | `ecxp_przypisz` | ja, projekt, modul | sesja zgłasza, że prowadzi moduł (trasa, rola, id sesji). Przejmuje kolejkę poprzedniczki |
-| `ecxp_odbierz` | ja | wiadomości dla węzła: najpierw pilne, potem od najstarszej. Wpis `dostarczona`. Pole `integralnosc` |
+| `ecxp_odbierz` | ja | wiadomości dla węzła: najpierw pilne, potem od najstarszej. Wpis `dostarczona`. Pole `integralnosc`. Części wiadomości (`czesci`): plik dostaje `sciezka` – kopię tylko do odczytu w `kontekst\zalaczniki\` pod własną nazwą; obrazy (do 5 MB, po sprawdzeniu SHA-256) adapter dołącza do wyniku jako treść obrazu |
 | `ecxp_wyslij` | ja, do, typ, tresc | adresy z [05](05-adresowanie-i-para-1-1.md). Lustro i kopie dla pary. `odpowiedz_na` potwierdza oryginał |
 | `ecxp_potwierdz` | ja, id, wynik | ACK: `obsluzona` \| `przyjeta` \| `odrzucona`, idempotentne |
 | `ecxp_stan` | ja | ile czeka na węzeł, los wysłanych, węzły, karty, spójność dziennika |
@@ -64,12 +64,15 @@ flowchart LR
 | rozmowy w wątkach, kolory typów, stan doręczenia, filtry, wyszukiwanie | jest |
 | „Napisz” i „Odpowiedz”: projekt, moduł, adresat (para / strona / rola), rodzaj, pilne – przez stos | jest |
 | załączniki: plik, zrzut ekranu (wszystkie monitory), obraz lub pliki ze schowka → obiekty kontekstu SHA-256 → części `plik`; otwieranie po sprawdzeniu skrótu, typy wykonywalne tylko pokazywane w folderze | jest |
+| Ctrl+V / Shift+Insert w oknach z załącznikami (Napisz, Nowe zadanie): obraz lub pliki ze schowka trafiają do załączników, tekst do pola; przeciąganie plików na okno | jest |
 | czytelny widok rozmowy: bloki wiadomości, większa treść z wcięciem, załączniki do kliknięcia, dane techniczne drobno | jest |
 | motyw jasny / ciemny (pasek tytułu, listy, zakładki, logo), zapamiętany w ustawieniach operatora | jest |
 | spis gałęzi jako strona HTML+JS: grupy A–F, filtry, wyszukiwanie, sortowanie, gałęzie z kolorowym stanem, bieżący stan katalogów | jest |
 | „Wyczyść”: archiwizacja przeczytanych do `archiwum\RRRR-MM\`, nic nie kasuje | jest |
 | zakładka Połączenia: węzły, ostatni kontakt, ocena | jest |
 | pary 1:1 obok siebie, role, nowe zadanie z parą, załącznikami i pakietami startowymi, znaczniki 🔗ECXP | jest |
+| „Bieżąca sesja”: pasek pod nagłówkiem z nazwą pary i stanem zgłoszenia obu stron (✓ / ⏳ / ⚠, np. sesja Claude w chmurze), wyróżnienie ▶ jej rozmów i wiersza agentów, filtr „tylko ta sesja”; ustawiana przez Nowe zadanie, „▶ Ustaw jako bieżącą” albo dwuklik pary | jest |
+| Nowe zadanie → sesje w aplikacjach: Codex dostaje projekt w aplikacji dla folderu pary (`project/import`, inaczej wątek nie jest widoczny) i obrazy z załączników w pierwszej turze; pakiet Claude podaje ścieżki załączników i każe zgłosić brak narzędzi ECXP (sesja w chmurze) | jest |
 | łańcuchy ról (programista → tester → recenzent → decyzja → integrator), wznowienie | jest ([09](09-decyzje-lancuchy-galezie-lustro-agenci.md)) |
 | agenci w tle (Claude Code CLI; Codex CLI, jeśli jest), uprawnienia, limit tur, alarm przy błędzie | jest |
 | podpisane decyzje operatora („Decyzja…”), kolumny wspólnej gałęzi i łańcucha w zakładce Agenci, instalator stanowiska | jest |
