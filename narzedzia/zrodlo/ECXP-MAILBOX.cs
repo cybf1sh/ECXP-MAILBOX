@@ -1,4 +1,4 @@
-// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
+﻿// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
@@ -53,6 +53,23 @@ namespace Ecxp
         Form form, pop;
         TextBox czeka, txtStan, szukaj;
         RichTextBox det;
+        bool odswiezanieListy;
+        string podpisListy = "", podpisPodgladu = "", watekPodgladu = "";
+        Button noweWiadomosci;
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessage")]
+        static extern IntPtr SendPoint(IntPtr hwnd, int msg, IntPtr wparam, ref Point point);
+        class SpokojnaLista : ListView { public SpokojnaLista() { DoubleBuffered = true; } }
+        string PodpisWatku(string id)
+        {
+            return P.Sha(P.Js().Serialize(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList()) + Jezyk.Kod + Motyw.Ciemny);
+        }
+        void SprawdzPodglad()
+        {
+            if (noweWiadomosci != null)
+                noweWiadomosci.Visible = watekPodgladu.Length > 0 && podpisPodgladu != PodpisWatku(watekPodgladu);
+        }
         TabControl tabs;
         TabPage tabMsg, tabStan, tabPol;
         ListView lv, lvPol;
@@ -388,7 +405,7 @@ namespace Ecxp
             top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij, cbWidok, cbModul, lblSz, szukaj });
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
-            lv = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
+            lv = new SpokojnaLista { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
                 SmallImageList = new ImageList { ImageSize = new Size(1, 26) } };
             foreach (var c in new object[][] { new object[] { "Czas", 100 }, new object[] { "", 26 }, new object[] { "Od → Do", 230 },
                 new object[] { "Moduł", 95 }, new object[] { "Treść", 420 }, new object[] { "Doręczenie", 300 } })
@@ -396,6 +413,10 @@ namespace Ecxp
             det = new RichTextBox { ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, BorderStyle = BorderStyle.None, DetectUrls = false };
             split.Panel1.Controls.Add(lv);
             split.Panel2.Controls.Add(det);
+            noweWiadomosci = Btn("Nowe wiadomości lub statusy — pokaż");
+            noweWiadomosci.Dock = DockStyle.Bottom; noweWiadomosci.Visible = false;
+            noweWiadomosci.Click += delegate { var m = Wybrana(); if (m != null) PokazWatek(m, true); };
+            split.Panel2.Controls.Add(noweWiadomosci);
             pnlZal = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 4), Visible = false };
             split.Panel2.Controls.Add(pnlZal);
             tabMsg.Controls.Add(split);
@@ -488,7 +509,7 @@ namespace Ecxp
             form.Controls.Add(strip);
             form.Shown += delegate { split.SplitterDistance = (int)(split.Height * 0.5); };
 
-            lv.SelectedIndexChanged += delegate { var m = Wybrana(); if (m != null) PokazWatek(m); };
+            lv.SelectedIndexChanged += delegate { if (odswiezanieListy) return; var m = Wybrana(); if (m != null) PokazWatek(m); };
             lv.DoubleClick += delegate { var m = Wybrana(); if (m != null) MarkRead(new List<Msg> { m }); };
             bPisz.Click += delegate { Pisz(null); };
             bOdp.Click += delegate
@@ -534,8 +555,16 @@ namespace Ecxp
 
         // Czytelny widok rozmowy: nagłówek wątku, każda wiadomość jako blok (nadawca → adresat, rodzaj, czas),
         // treść większą czcionką z wcięciem, załączniki do kliknięcia nad treścią, dane techniczne drobno na końcu.
-        void PokazWatek(Msg sel)
+        void PokazWatek(Msg sel, bool zachowaj = false)
         {
+            string podpis = PodpisWatku(sel.Watek);
+            if (sel.Watek == watekPodgladu && podpis == podpisPodgladu) return;
+            bool utrzymaj = zachowaj && sel.Watek == watekPodgladu;
+            Point przewiniecie = new Point();
+            int start = det.SelectionStart, dlugosc = det.SelectionLength;
+            if (utrzymaj) SendPoint(det.Handle, 0x04DD, IntPtr.Zero, ref przewiniecie);
+            SendMessage(det.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
+            try {
             det.SuspendLayout();
             det.Clear();
             var w = msgs.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ToList();
@@ -582,7 +611,12 @@ namespace Ecxp
                 Dopisz("\n", fontS, Motyw.Slaby);
             }
             det.SelectionStart = poz; det.SelectionLength = 0;
-            det.ScrollToCaret();
+            if (utrzymaj)
+            {
+                det.Select(Math.Min(start, det.TextLength), Math.Min(dlugosc, Math.Max(0, det.TextLength - start)));
+                SendPoint(det.Handle, 0x04DE, IntPtr.Zero, ref przewiniecie);
+            }
+            else det.ScrollToCaret();
             det.ResumeLayout();
 
             pnlZal.SuspendLayout();
@@ -601,6 +635,9 @@ namespace Ecxp
             }
             pnlZal.Visible = zal.Count > 0;
             pnlZal.ResumeLayout();
+            podpisPodgladu = podpis; watekPodgladu = sel.Watek;
+            noweWiadomosci.Visible = false;
+            } finally { det.ResumeLayout(); SendMessage(det.Handle, 0x000B, new IntPtr(1), IntPtr.Zero); det.Invalidate(); }
         }
 
         static string Rozmiar(long b) { return b >= 1048576 ? (b / 1048576.0).ToString("0.0") + " MB" : b >= 1024 ? (b / 1024) + " kB" : b + " B"; }
@@ -1304,8 +1341,9 @@ namespace Ecxp
         void RefreshView()
         {
             var teraz = DateTime.Now;
-            txtStan.Text = Crlf(P.Czytaj(Stan));
-            czeka.Text = Crlf(CzekaNaCiebie());
+            string tekstStanu = Crlf(P.Czytaj(Stan)), tekstCzeka = Crlf(CzekaNaCiebie());
+            if (txtStan.Text != tekstStanu) txtStan.Text = tekstStanu;
+            if (czeka.Text != tekstCzeka) czeka.Text = tekstCzeka;
             tabStan.Text = !read.Contains(StanKey()) ? Jezyk.T("Stan modułów (zmieniony)") : Jezyk.T("Stan modułów");
 
             // lista modułów do filtra
@@ -1321,12 +1359,19 @@ namespace Ecxp
             }
 
             var wybrana = Wybrana();
-            string selPlik = wybrana != null ? wybrana.Plik : null;
+
             var watki = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
                 .Where(w => PasujeWatek(w, teraz) && w.Any(Pasuje))
                 .OrderByDescending(w => w.Any(m => m.Nowa)).ThenByDescending(w => w.Max(m => m.Czas)).ToList();
 
+            string podpis = P.Sha(P.Js().Serialize(watki) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + teraz.ToString("yyyyMMddHHmm"));
+            if (podpis != podpisListy)
+            {
+            var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Id));
+            string gora = lv.TopItem != null ? ((Msg)lv.TopItem.Tag).Id : null;
+            odswiezanieListy = true;
             lv.BeginUpdate();
+            try {
             lv.Items.Clear();
             lv.Groups.Clear();
             widoczne = new List<Msg>();
@@ -1357,15 +1402,18 @@ namespace Ecxp
                     else if (Biezaca(m)) it.BackColor = Akcent;
                     lv.Items.Add(it);
                     widoczne.Add(m);
-                    if (m.Plik == selPlik) it.Selected = true;
+                    if (zaznaczone.Contains(m.Id)) it.Selected = true;
                 }
             }
-            lv.EndUpdate();
-
+            var topItem = lv.Items.Cast<ListViewItem>().FirstOrDefault(x => ((Msg)x.Tag).Id == gora);
+            if (topItem != null) lv.TopItem = topItem;
+            podpisListy = podpis;
+            } finally { lv.EndUpdate(); odswiezanieListy = false; }
+            }
+            SprawdzPodglad();
             RefreshPolaczenia(teraz);
             RefreshAgenci();
             OdswiezBiezaca(teraz);
-            Jezyk.Zastosuj(form);
             int nowe = msgs.Count(m => m.Nowa);
             int wKolejce = msgs.Count(m => m.Katalog == "do-codex" || m.Katalog == "do-claude");
             int bezOdp = msgs.Count(m => m.WymagaOdp && !m.Odpowiedziano);
