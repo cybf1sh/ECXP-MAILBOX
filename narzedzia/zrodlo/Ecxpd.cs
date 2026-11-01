@@ -289,7 +289,8 @@ namespace Ecxp
                             Od = Agent(s, a), Do = P.S(a, "do").Trim(), Typ = P.S(a, "typ").Trim().ToLowerInvariant(), Projekt = P.S(a, "projekt").Trim(),
                             Modul = P.S(a, "modul").Length > 0 ? P.S(a, "modul") : "wspolne", Temat = P.S(a, "temat"), Tresc = P.S(a, "tresc"),
                             OdpNa = P.S(a, "odpowiedz_na").Trim(), Pilne = P.B(a, "pilne"), Commit = P.S(a, "commit").Trim(),
-                            Kontrole = P.L(a, "kontrole"), Pliki = P.L(a, "pliki"), Ograniczenia = P.S(a, "ograniczenia"), Czesci = Czesci(a)
+                            Kontrole = P.L(a, "kontrole"), Pliki = P.L(a, "pliki"), Ograniczenia = P.S(a, "ograniczenia"), Czesci = Czesci(a),
+                            BezKopii = s.Operator && P.B(a, "bez_kopii")      // tylko operator może pominąć kopię dla drugiej strony pary
                         };
                         int.TryParse("0", out dummy);
                         if (n.Typ.Length == 0) n.Typ = "informacja";
@@ -393,7 +394,9 @@ namespace Ecxp
                     {
                         TylkoOperator(s);
                         var kroki = P.L(a, "lancuch");
-                        var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0);
+                        var strony = Siec.Strony(P.L(a, "strony"));
+                        if (kroki.Count > 0 && strony.Count < 2) throw new EcxpException("Łańcuch ról wymaga obu stron pary – zaznacz Codex i Claude albo wyczyść pole łańcucha.");
+                        var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony);
                         if (kroki.Count > 0) r["lancuch"] = Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), kroki, Czesci(a));
                         return r;
                     }

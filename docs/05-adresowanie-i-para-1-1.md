@@ -95,6 +95,7 @@ flowchart LR
 
 - Kopia ma `kopia_dla = <id oryginału>` i ten sam `watek`.
 - Kopie powstają dla każdej pary, do której należy strona: projekt i moduł z tras albo z `projekt.json`.
+- Wybór agentów: operator może wysłać wiadomość albo zadanie tylko do jednej strony (`codex/<moduł>` lub `claude/<moduł>` z polem `bez_kopii: true`). Wtedy druga strona nie dostaje kopii. Pole działa wyłącznie dla operatora (konsola). W ECXP-MAILBOX ustawiają je pola wyboru „ChatGPT/Codex” i „Claude” w oknach Napisz i Nowe zadanie: oba zaznaczone = para, jeden = tylko ten agent.
 
 ### 3. Wejście operatora z okien czatu [plan]
 
@@ -134,9 +135,11 @@ Zasady:
 
 ## Nowe zadanie z parą [w budowie]
 
-Operacja `nowe_zadanie(projekt, modul, tytul, opis, role_codex, role_claude)`:
+Operacja `nowe_zadanie(projekt, modul, tytul, opis, role_codex, role_claude, strony)`:
 
-1. dopisuje moduł i parę `codex-<moduł>` / `claude-<moduł>` do `projekt.json`;
-2. przypisuje obie trasy z rolami;
+1. dopisuje moduł i parę do `projekt.json`. Gdy moduł ma już sesję danej strony, zadanie trafia do niej pod jej nazwą. Nowa nazwa `codex-<moduł>` / `claude-<moduł>` powstaje tylko wtedy, gdy takiej sesji nie ma;
+2. przypisuje trasy z rolami – dla wybranych stron;
 3. tworzy **pakiety startowe** `stan\start\<nazwa>.txt`. Każdy zawiera: nazwę sesji ze wspólnym znacznikiem `🔗ECXP`, adres partnera, role, polecenia startowe (`ecxp_przypisz`, `ecxp_odbierz`) i treść zadania;
 4. wysyła zadanie na `para:<moduł>` (lustro).
+
+`strony` to `["codex", "claude"]` (domyślnie, para 1:1) albo jedna z nich. Przy jednej stronie: tylko ona jest przypisywana i dostaje pakiet (z informacją, że pracuje sama i pisze do `wlasciciel`). Zadanie idzie na `codex/<moduł>` lub `claude/<moduł>` bez kopii dla drugiej strony. Łańcuch ról wymaga obu stron. Konsola zakłada sesję w aplikacji tylko dla wybranego agenta.

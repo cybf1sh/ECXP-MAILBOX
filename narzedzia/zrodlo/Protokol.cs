@@ -520,6 +520,7 @@ namespace Ecxp
         {
             public string Od = "", Do = "", Projekt = "", Modul = "wspolne", Typ = "informacja", Temat = "", Tresc = "", OdpNa = "", Commit = "", Ograniczenia = "";
             public bool Pilne;
+            public bool BezKopii;        // operator wybrał jednego agenta: druga strona pary nie dostaje kopii
             public List<string> Kontrole = new List<string>(), Pliki = new List<string>();
             public List<Dictionary<string, object>> Czesci = new List<Dictionary<string, object>>();
             public string Watek = "", LustroId = "", KopiaDla = "";

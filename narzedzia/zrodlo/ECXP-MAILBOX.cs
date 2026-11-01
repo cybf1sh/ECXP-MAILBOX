@@ -72,6 +72,7 @@ namespace Ecxp
         ListView lvAg;
         // bieżąca sesja (para) operatora: wyróżniona w oknie, pasek stanu zgłoszeń obu stron, filtr „tylko ta para”
         string biezProj = "", biezMod = "", biezTytul = ""; DateTime biezOd = DateTime.MinValue; bool tylkoBiez;
+        List<string> biezStrony = new List<string> { "codex", "claude" };   // strony, które dostały zadanie bieżącej sesji
         Panel pnlBiez; Label lblBiez; Button bBiezFiltr;
         static Color Akcent { get { return Motyw.Ostrz(Color.FromArgb(214, 236, 255)); } }
         Label lblAg;
@@ -89,8 +90,12 @@ namespace Ecxp
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
             widokUslug = ust.Contains("uslugi=karty") ? "karty" : "pasek";
-            var mb = Regex.Match(ust, @"biezaca=([^|\r\n]*)\|([^|\r\n]*)\|([^|\r\n]*)\|(\d+)");
-            if (mb.Success) { biezProj = mb.Groups[1].Value; biezMod = mb.Groups[2].Value; biezTytul = mb.Groups[3].Value; biezOd = new DateTime(long.Parse(mb.Groups[4].Value)); }
+            var mb = Regex.Match(ust, @"biezaca=([^|\r\n]*)\|([^|\r\n]*)\|([^|\r\n]*)\|(\d+)(?:\|([a-z,]+))?");
+            if (mb.Success)
+            {
+                biezProj = mb.Groups[1].Value; biezMod = mb.Groups[2].Value; biezTytul = mb.Groups[3].Value; biezOd = new DateTime(long.Parse(mb.Groups[4].Value));
+                if (mb.Groups[5].Success) biezStrony = Siec.Strony(mb.Groups[5].Value.Split(',').ToList());
+            }
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -1243,7 +1248,7 @@ namespace Ecxp
         void ZapiszUstawienia()
         {
             try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine +
-                (biezMod.Length > 0 ? "biezaca=" + biezProj + "|" + biezMod + "|" + biezTytul.Replace("|", "/") + "|" + biezOd.Ticks + Environment.NewLine : ""), new UTF8Encoding(false)); } catch { }
+                (biezMod.Length > 0 ? "biezaca=" + biezProj + "|" + biezMod + "|" + biezTytul.Replace("|", "/") + "|" + biezOd.Ticks + "|" + string.Join(",", biezStrony) + Environment.NewLine : ""), new UTF8Encoding(false)); } catch { }
         }
 
         // ---------- motyw ----------
@@ -1482,8 +1487,8 @@ namespace Ecxp
             foreach (var pa in Siec.Opis(projAkt)["pary"] as List<object> ?? new List<object>())
             {
                 var mod = P.S((Dictionary<string, object>)pa, "modul");
-                adresaci.Add("codex/" + mod + " — tylko strona ChatGPT/Codex modułu " + mod + " (Claude dostanie kopię – zasada 1:1)");
-                adresaci.Add("claude/" + mod + " — tylko strona Claude modułu " + mod + " (Codex dostanie kopię – zasada 1:1)");
+                adresaci.Add("codex/" + mod + " — tylko ChatGPT/Codex modułu " + mod + " (Claude nie dostaje kopii)");
+                adresaci.Add("claude/" + mod + " — tylko Claude modułu " + mod + " (Codex nie dostaje kopii)");
             }
             adresaci.Add(P.Koordynacja + " — Codex · koordynacja: odbiera co 10 min, odpowiada albo przekazuje sprawę właściwej sesji");
             foreach (var pr in projekty)
@@ -1526,7 +1531,7 @@ namespace Ecxp
                 try
                 {
                     var czesci = WyslijZalaczniki(f.zal.Pliki);
-                    var r = (Dictionary<string, object>)Stos("wyslij", P.D("czesci", czesci, "do", f.Adresat, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
+                    var r = (Dictionary<string, object>)Stos("wyslij", P.D("czesci", czesci, "do", f.AdresatDoWyslania, "bez_kopii", f.BezKopii, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
                         "temat", f.tbTemat.Text, "tresc", f.tbTresc.Text, "odpowiedz_na", f.OdpNa, "pilne", f.chPilne.Checked,
                         "ograniczenia", "Wiadomość operatora przez ECXP. Push, merge, USER_ACCEPTED, usuwanie, zmiany rezerwacji i ustawień bezpieczeństwa wymagają zgody operatora w czacie."));
                     foreach (var w in (r["wyslane"] as System.Collections.IEnumerable) ?? new object[0])
@@ -1615,9 +1620,10 @@ namespace Ecxp
 
         bool Biezaca(Msg m) { return biezMod.Length > 0 && m.Modul == biezMod && (m.Projekt.Length == 0 || m.Projekt == biezProj); }
 
-        void UstawBiezaca(string projekt, string modul, string tytul, DateTime od, bool filtr)
+        void UstawBiezaca(string projekt, string modul, string tytul, DateTime od, bool filtr, List<string> strony = null)
         {
             biezProj = projekt; biezMod = modul; biezTytul = tytul; biezOd = od; tylkoBiez = filtr && modul.Length > 0;
+            biezStrony = Siec.Strony(strony);
             ZapiszUstawienia();
             if (modul.Length > 0 && cbProjekt.SelectedIndex > 0 && (string)cbProjekt.SelectedItem != projekt)
             {
@@ -1642,6 +1648,7 @@ namespace Ecxp
             Func<string, Dictionary<string, object>> pak = n =>
             {
                 var plik = Path.Combine(P.Root, "stan", "start", n + ".txt");
+                if (!biezStrony.Contains(n.Substring(0, n.IndexOf('-')))) return null;     // ta strona nie dostała zadania
                 return P.D("nazwa", n, "tytul_sesji", biezTytul, "plik", plik, "tekst", File.Exists(plik) ? P.Czytaj(plik) : Jezyk.T("Brak pakietu dla ") + n);
             };
             PokazPakiety(Jezyk.T("Pakiety startowe: ") + biezMod, pak("codex-" + biezMod), pak("claude-" + biezMod));
@@ -1650,6 +1657,7 @@ namespace Ecxp
         // Stan zgłoszenia strony pary: kontakt z ECXP po utworzeniu pary (stos zapisuje go przy każdym narzędziu ecxp_*).
         string StanStrony(string nazwa, string strona, Dictionary<string, Wezel> wezly, DateTime teraz)
         {
+            if (!biezStrony.Contains(nazwa.Substring(0, nazwa.IndexOf('-')))) return "– " + strona + ": " + Jezyk.T("bez zadania");
             Wezel w;
             bool jest = wezly.TryGetValue(nazwa, out w) && w.Ostatnio > biezOd.AddSeconds(3);
             if (jest) return "✓ " + strona + ": " + Jezyk.T("zgłoszona") + " " + w.Ostatnio.ToString("HH:mm");
@@ -1667,7 +1675,10 @@ namespace Ecxp
             var wezly = new Dictionary<string, Wezel>();
             foreach (var w in P.Wezly()) wezly[w.Nazwa] = w;
             var moje = msgs.Where(Biezaca).ToList();
-            string sx = StanStrony("codex-" + biezMod, "Codex", wezly, teraz), sl = StanStrony("claude-" + biezMod, "Claude", wezly, teraz);
+            Dictionary<string, object> pa = null;
+            try { pa = Siec.Para(biezProj, biezMod); } catch { }
+            Func<string, string> nazwa = s => pa != null && P.S(pa, s).Length > 0 ? P.S(pa, s) : s + "-" + biezMod;   // sesja, która prowadzi moduł
+            string sx = StanStrony(nazwa("codex"), "Codex", wezly, teraz), sl = StanStrony(nazwa("claude"), "Claude", wezly, teraz);
             lblBiez.Text = "▶  " + Jezyk.T("Bieżąca sesja: ") + biezTytul + "   (" + biezProj + " / " + biezMod + ")      " + sx + "    " + sl +
                 "      " + Jezyk.T("rozmowy: ") + moje.Count + (moje.Any(m => m.Nowa) ? Jezyk.T(", nowe: ") + moje.Count(m => m.Nowa) : "");
             bool ostrz = sx.StartsWith("⚠") || sl.StartsWith("⚠");
@@ -1689,28 +1700,62 @@ namespace Ecxp
                 var cbP = f.Combo("Projekt:", projekty, cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : (projekty.Count > 0 ? projekty[0] : "evidlockv3"));
                 var tbM = f.Tekst("Moduł / zadanie (krótka nazwa):", "");
                 var tbT = f.Tekst("Nazwa sesji po obu stronach:", "");
+                var agenci = f.Wybory("Wyślij do agentów:", new[] { "ChatGPT/Codex", "Claude" }, true);
+                var chCx = agenci[0]; var chCl = agenci[1];
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
-                var tbO = f.Wielowiersz("Zadanie (trafi do obu stron pary):", "");
+                var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
                 var chSes = f.Wybor("Załóż sesje w aplikacjach automatycznie (Codex: wątek z nazwą; Claude: nowa sesja z pakietem)", true);
+                f.Uwaga("Agenci: oba zaznaczone – zadanie trafia do obu stron pary (zasada 1:1), jak dotąd. Jeden zaznaczony – zadanie dostaje tylko ten agent, druga strona nie dostaje kopii. " +
+                        "Zadanie trafia do sesji, która już prowadzi moduł; gdy jej nie ma albo zaznaczysz zakładanie sesji – ECXP zakłada nową sesję i wykonuje w niej zadanie.");
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
+                // przy każdym agencie: do której sesji trafi zadanie – istniejącej w module czy nowej
+                Action cele = delegate
+                {
+                    string pr = P.Slug(cbP.Text, 32, false), mo = P.Slug(tbM.Text, 24, false);
+                    Dictionary<string, object> pa = null;
+                    try { if (pr.Length > 0 && mo.Length > 0) pa = Siec.Para(pr, mo); } catch { }
+                    Func<string, string, string> opis = (kto, strona) =>
+                    {
+                        var n = pa != null ? P.S(pa, strona) : "";
+                        return kto + (mo.Length == 0 ? "" : n.Length > 0 ? "  →  " + n + " " + Jezyk.T("(istniejąca sesja)") : "  →  " + strona + "-" + mo + " " + Jezyk.T("(nowa sesja)"));
+                    };
+                    chCx.Text = opis("ChatGPT/Codex", "codex"); chCl.Text = opis("Claude", "claude");
+                };
+                tbM.TextChanged += delegate { cele(); };
+                cbP.TextChanged += delegate { cele(); };
+                Action agenciZmiana = delegate
+                {
+                    rCx.Enabled = chCx.Checked; rCl.Enabled = chCl.Checked;
+                    tbL.Enabled = chCx.Checked && chCl.Checked;                 // łańcuch ról przechodzi przez obie strony pary
+                    f.OkAktywny(chCx.Checked || chCl.Checked);
+                    f.PrzyciskOk(Jezyk.T(chCx.Checked && chCl.Checked ? "✉  Wyślij do pary (Codex + Claude)" : chCx.Checked ? "✉  Wyślij tylko do ChatGPT/Codex" : chCl.Checked ? "✉  Wyślij tylko do Claude" : "Zaznacz co najmniej jednego agenta"));
+                };
+                chCx.CheckedChanged += delegate { agenciZmiana(); };
+                chCl.CheckedChanged += delegate { agenciZmiana(); };
+                f.Shown += delegate { agenciZmiana(); cele(); };
                 f.PrzyciskOk("✉  Wyślij do pary (Codex + Claude)");
                 if (f.ShowDialog(form) != DialogResult.OK) return;
+                var strony = new List<string>();
+                if (chCx.Checked) strony.Add("codex");
+                if (chCl.Checked) strony.Add("claude");
+                if (strony.Count == 0) return;
                 try
                 {
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
-                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki),
-                        "lancuch", tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
+                        "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
+                        "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     var pk = (Dictionary<string, object>)r["pakiety"];
-                    UstawBiezaca(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), DateTime.Now, true);
-                    if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"],
+                    Func<string, Dictionary<string, object>> pakiet = s => pk.ContainsKey(s) ? (Dictionary<string, object>)pk[s] : null;
+                    UstawBiezaca(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), DateTime.Now, true, strony);
+                    if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"),
                         zalN.Pliki.Where(SesjeAplikacji.Obraz).ToList());
-                    else PokazPakiety("Para utworzona: " + P.S(r, "tytul_sesji"), (Dictionary<string, object>)pk["codex"], (Dictionary<string, object>)pk["claude"]);
+                    else PokazPakiety((strony.Count == 2 ? "Para utworzona: " : "Zadanie utworzone: ") + P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"));
                 }
                 catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
@@ -1719,10 +1764,12 @@ namespace Ecxp
         void ZalozSesje(string projekt, string modul, string tytul, Dictionary<string, object> pkCodex, Dictionary<string, object> pkClaude, List<string> obrazy)
         {
             var katalog = SesjeAplikacji.Katalog(projekt);
-            stInfo.Text = tytul + ": " + Jezyk.T("zakładam sesje – Codex w tle, Claude otwiera się w aplikacji…");
-            try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); }
-            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-            new Thread(() =>
+            stInfo.Text = tytul + ": " + Jezyk.T(pkCodex != null && pkClaude != null ? "zakładam sesje – Codex w tle, Claude otwiera się w aplikacji…" :
+                pkCodex != null ? "zakładam wątek Codex w tle…" : "sesja Claude otwiera się w aplikacji…");
+            if (pkClaude != null)
+                try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); }
+                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            if (pkCodex != null) new Thread(() =>
             {
                 string wynik;
                 try
@@ -1733,6 +1780,18 @@ namespace Ecxp
                 catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
+            if (pkClaude == null)
+            {
+                MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane tylko do ChatGPT/Codex.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude nie dostał zadania ani kopii."), tytul),
+                    "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (pkCodex == null)
+            {
+                MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii."), tytul),
+                    "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP). Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
                 "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -1779,10 +1838,15 @@ namespace Ecxp
         {
             using (var f = new Formularz(tytul, fontN, fontB))
             {
-                f.Uwaga("Otwórz nowy czat ChatGPT/Codex i nową sesję Claude, nadaj obu nazwę „" + P.S(cx, "tytul_sesji") + "” i wklej każdej jej pakiet. " +
-                        "Sesja zgłosi się do ECXP (ecxp_przypisz) i odbierze zadanie. Pakiety leżą też w " + Path.Combine(P.Root, "stan", "start") + ".");
-                f.Kopiuj("ChatGPT/Codex – " + P.S(cx, "nazwa"), P.S(cx, "tekst"));
-                f.Kopiuj("Claude – " + P.S(cl, "nazwa"), P.S(cl, "tekst"));
+                var jeden = cx ?? cl;
+                if (cx != null && cl != null)
+                    f.Uwaga("Otwórz nowy czat ChatGPT/Codex i nową sesję Claude, nadaj obu nazwę „" + P.S(cx, "tytul_sesji") + "” i wklej każdej jej pakiet. " +
+                            "Sesja zgłosi się do ECXP (ecxp_przypisz) i odbierze zadanie. Pakiety leżą też w " + Path.Combine(P.Root, "stan", "start") + ".");
+                else
+                    f.Uwaga("Otwórz " + (cx != null ? "nowy czat ChatGPT/Codex" : "nową sesję Claude") + ", nadaj nazwę „" + P.S(jeden, "tytul_sesji") + "” i wklej pakiet. " +
+                            "Sesja zgłosi się do ECXP (ecxp_przypisz) i odbierze zadanie. Pakiet leży też w " + Path.Combine(P.Root, "stan", "start") + ".");
+                if (cx != null) f.Kopiuj("ChatGPT/Codex – " + P.S(cx, "nazwa"), P.S(cx, "tekst"));
+                if (cl != null) f.Kopiuj("Claude – " + P.S(cl, "nazwa"), P.S(cl, "tekst"));
                 f.TylkoZamknij();
                 f.ShowDialog(form);
             }
@@ -2847,6 +2911,17 @@ namespace Ecxp
             return c;
         }
 
+        // Wiersz z kilkoma polami wyboru obok siebie (np. agenci: Codex, Claude).
+        public CheckBox[] Wybory(string e, string[] teksty, bool zaznaczone)
+        {
+            var p = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
+            var cs = teksty.Select(x => new CheckBox { Text = x, Checked = zaznaczone, AutoSize = true, Margin = new Padding(3, 6, 18, 3) }).ToArray();
+            p.Controls.AddRange(cs);
+            Wiersz(e, p, false);
+            return cs;
+        }
+        public void OkAktywny(bool tak) { ok.Enabled = tak; }
+
         public void Uwaga(string tekst)
         {
             int r = t.RowCount++;
@@ -2874,7 +2949,8 @@ namespace Ecxp
     {
         public ComboBox cbDo, cbProjekt, cbModul, cbTyp;
         public TextBox tbTemat, tbTresc;
-        public CheckBox chPilne;
+        public CheckBox chPilne, chCodex, chClaude;
+        readonly FlowLayoutPanel agenci;
         public Zalaczniki zal = new Zalaczniki();
         protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); Jezyk.Zastosuj(this); base.OnLoad(e); }
         public string OdpNa = "";
@@ -2894,6 +2970,11 @@ namespace Ecxp
             cbDo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown };
             cbDo.Items.AddRange(adresaci.ToArray()); cbDo.SelectedIndex = 0;
             hint = new Label { Dock = DockStyle.Fill, AutoSize = false, Height = 40, ForeColor = Color.DimGray };
+            // wybór agentów modułu: oba = para (zasada 1:1), jeden = tylko on, bez kopii dla drugiej strony
+            chCodex = new CheckBox { Text = "ChatGPT/Codex", Checked = true, AutoSize = true, Margin = new Padding(3, 6, 18, 3) };
+            chClaude = new CheckBox { Text = "Claude", Checked = true, AutoSize = true, Margin = new Padding(3, 6, 18, 3) };
+            agenci = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
+            agenci.Controls.Add(chCodex); agenci.Controls.Add(chClaude);
             cbProjekt = new ComboBox { Width = 220, DropDownStyle = ComboBoxStyle.DropDown };
             cbProjekt.Items.AddRange(projekty.ToArray());
             if (projekty.Count > 0) cbProjekt.SelectedIndex = 0;
@@ -2918,6 +2999,7 @@ namespace Ecxp
             CancelButton = bAn;
 
             Wiersz(t, "Do:", cbDo, SizeType.AutoSize);
+            Wiersz(t, "Agenci:", agenci, SizeType.AutoSize);
             Wiersz(t, "", hint, SizeType.AutoSize);
             Wiersz(t, "Projekt:", cbProjekt, SizeType.AutoSize);
             Wiersz(t, "Moduł:", cbModul, SizeType.AutoSize);
@@ -2929,7 +3011,10 @@ namespace Ecxp
             Wiersz(t, "", przyciski, SizeType.AutoSize);
             Controls.Add(t);
 
-            cbDo.TextChanged += delegate { Podpowiedz(); };
+            cbDo.TextChanged += delegate { UstawAgentow(); Podpowiedz(); };
+            chCodex.CheckedChanged += delegate { Podpowiedz(); };
+            chClaude.CheckedChanged += delegate { Podpowiedz(); };
+            UstawAgentow();
             Podpowiedz();
             bOk.Click += delegate { Wyslij(); };
             KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.Enter) { e.Handled = true; e.SuppressKeyPress = true; Wyslij(); } };
@@ -2944,12 +3029,45 @@ namespace Ecxp
             t.Controls.Add(c, 1, r);
         }
 
-        public void UstawAdresata(string s) { cbDo.Text = s; Podpowiedz(); }
+        public void UstawAdresata(string s) { cbDo.Text = s; UstawAgentow(); Podpowiedz(); }
 
         public string Adresat
         {
             get { var s = cbDo.Text; int i = s.IndexOf(" — "); return (i >= 0 ? s.Substring(0, i) : s).Trim().ToLowerInvariant(); }
         }
+
+        // Moduł pary, gdy adresat to para:<m>, codex/<m> albo claude/<m>; inaczej pusty (wybór agentów nie dotyczy).
+        string ModulPary
+        {
+            get
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(Adresat, @"^(?:para:|\*/|codex/|claude/)([a-z0-9-]+)$");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+        }
+
+        // Wybór adresu z listy ustawia pola agentów: para → oba, codex/… lub claude/… → tylko ten.
+        void UstawAgentow()
+        {
+            var a = Adresat;
+            agenci.Enabled = ModulPary.Length > 0;
+            if (!agenci.Enabled) return;
+            chCodex.Checked = !a.StartsWith("claude/");
+            chClaude.Checked = !a.StartsWith("codex/");
+        }
+
+        // Adres faktycznie wysłany: wybór agentów decyduje, czy idzie do pary, czy do jednej strony.
+        public string AdresatDoWyslania
+        {
+            get
+            {
+                var m = ModulPary;
+                if (m.Length == 0) return Adresat;
+                if (chCodex.Checked && chClaude.Checked) return "para:" + m;
+                return (chCodex.Checked ? "codex/" : "claude/") + m;
+            }
+        }
+        public bool BezKopii { get { return ModulPary.Length > 0 && chCodex.Checked != chClaude.Checked; } }
         public string Projekt { get { return P.Slug(cbProjekt.Text, 32, false); } }
         public string Modul { get { var m = P.Slug(cbModul.Text, 24, false); return m.Length > 0 ? m : "wspolne"; } }
         public string Typ { get { return TypyKod[Math.Max(0, cbTyp.SelectedIndex)]; } }
@@ -2957,8 +3075,11 @@ namespace Ecxp
         void Podpowiedz()
         {
             var a = Adresat;
-            if (a.StartsWith("para:")) hint.Text = "Zasada 1:1: obie strony pary (Codex i Claude) dostają to samo zadanie w jednej sprawie. Doręczone, gdy obie potwierdzą.";
-            else if (a.StartsWith("codex/") || a.StartsWith("claude/")) hint.Text = "Jedna strona pary; druga dostanie dosłowną kopię (zasada 1:1).";
+            if (ModulPary.Length > 0)
+                hint.Text = Jezyk.T(chCodex.Checked && chClaude.Checked ? "Zasada 1:1: obie strony pary (Codex i Claude) dostają to samo zadanie w jednej sprawie. Doręczone, gdy obie potwierdzą."
+                    : chCodex.Checked ? "Tylko ChatGPT/Codex modułu – Claude nie dostaje ani wiadomości, ani kopii."
+                    : chClaude.Checked ? "Tylko Claude modułu – ChatGPT/Codex nie dostaje ani wiadomości, ani kopii."
+                    : "Zaznacz co najmniej jednego agenta.");
             else if (a == P.Koordynacja) hint.Text = "Odbiór co 10 min. Odpowiada sam albo przekazuje sprawę czatowi lub sesji właściwego modułu i mówi Ci, komu. Najlepszy adres, gdy nie wiesz, kto prowadzi moduł.";
             else if (a.StartsWith("codex-")) hint.Text = "Czat Codexa modułu czyta kanał między etapami pracy. Brak potwierdzenia w 4 h → ponowienie, potem przekazanie do koordynacji i alarm u Ciebie.";
             else if (a.StartsWith("claude-")) hint.Text = "Sesja Claude odbiera przy najbliższej pracy (narzędzie ecxp_odbierz albo przypomnienie przy starcie). Brak potwierdzenia w 4 h → alarm u Ciebie.";
@@ -2969,6 +3090,7 @@ namespace Ecxp
         {
             if (Adresat == P.Wlasciciel || !(P.PoprawnyAdresat(Adresat) || System.Text.RegularExpressions.Regex.IsMatch(Adresat, @"^(para:|\*/|codex/|claude/)[a-z0-9-]+$|^rola:[a-z0-9-]+@([a-z0-9-]+|\*)$")))
             { MessageBox.Show(this, Jezyk.T("Wybierz adresata z listy albo wpisz nazwę w postaci codex-<czat> lub claude-<sesja>."), Jezyk.T("Napisz")); return; }
+            if (ModulPary.Length > 0 && !chCodex.Checked && !chClaude.Checked) { MessageBox.Show(this, Jezyk.T("Zaznacz co najmniej jednego agenta."), Jezyk.T("Napisz")); return; }
             if (tbTresc.Text.Trim().Length == 0) { MessageBox.Show(this, Jezyk.T("Wpisz treść wiadomości."), Jezyk.T("Napisz")); tbTresc.Focus(); return; }
             DialogResult = DialogResult.OK;
             Close();
@@ -3139,6 +3261,28 @@ namespace Ecxp
                 var kopie = ((System.Collections.IEnumerable)r2["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
                 ok(kopie.Count == 1 && P.S(kopie[0], "do") == "claude-elan", "zasada 1:1: wiadomość operatora do Codexa ma kopię u Claude");
 
+                // wybór agentów: operator może wysłać tylko do jednej strony, bez kopii dla drugiej
+                var rb = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "bez_kopii", true, "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Tylko dla Codexa, bez kopii."));
+                ok(((System.Collections.IEnumerable)rb["kopie_dla_pary"]).Cast<object>().Count() == 0 && !P.Wszystkie(false).Any(m => m.Do == "claude-elan" && m.Uwagi.Contains("bez kopii")),
+                    "wybór agenta: wiadomość tylko do Codexa – Claude nie dostał kopii");
+                var rs = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "solo", "tytul", "Solo test", "opis", "Zadanie tylko dla Claude.",
+                    "role_claude", new List<string> { "tester" }, "strony", new List<string> { "claude" }));
+                var zs = (Dictionary<string, object>)rs["zadanie"];
+                var adrS = ((System.Collections.IEnumerable)zs["adresaci"]).Cast<object>().Select(x => x.ToString()).ToList();
+                var pkS = (Dictionary<string, object>)rs["pakiety"];
+                ok(adrS.Count == 1 && adrS[0] == "claude-solo" && ((System.Collections.IEnumerable)zs["kopie_dla_pary"]).Cast<object>().Count() == 0
+                    && !P.Wszystkie(false).Any(m => m.Do == "codex-solo"), "nowe zadanie tylko do Claude: dostał je wyłącznie claude-solo, bez kopii i bez lustra");
+                ok(pkS.ContainsKey("claude") && !pkS.ContainsKey("codex") && !File.Exists(Path.Combine(P.Root, "stan", "start", "codex-solo.txt"))
+                    && P.Czytaj(Path.Combine(P.Root, "stan", "start", "claude-solo.txt")).Contains("tylko do Ciebie"), "pakiet startowy tylko dla wybranego agenta, z informacją, że pracuje sam");
+                ok(!Siec.Trasy().Any(x => x.Aktywna && x.Nazwa == "codex-solo"), "niewybrana strona nie została zarejestrowana na zapas");
+                bool lanJeden = false;
+                try { k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "solo2", "opis", "x", "strony", new List<string> { "codex" }, "lancuch", new List<string> { "programista", "tester" })); }
+                catch (EcxpException) { lanJeden = true; }
+                ok(lanJeden, "łańcuch ról przy jednym agencie odrzucony (łańcuch przechodzi przez obie strony)");
+                var ro = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "solo", "opis", "Drugie zadanie dla obu.", "strony", new List<string> { "codex", "claude" }));
+                var adrO = ((System.Collections.IEnumerable)((Dictionary<string, object>)ro["zadanie"])["adresaci"]).Cast<object>().Select(x => x.ToString()).OrderBy(x => x).ToList();
+                ok(adrO.Count == 2 && adrO[0] == "claude-solo" && adrO[1] == "codex-solo", "oba zaznaczone: zadanie do obu stron pary, jak dotąd");
+
                 bool niepelna = false;
                 try { k.Wywolaj("wyslij", P.D("do", "para:brak", "projekt", "testowy", "typ", "zadanie", "tresc", "x")); } catch (EcxpException) { niepelna = true; }
                 ok(niepelna, "niepełna para odrzucona (zasada 1:1 wymaga obu stron)");
@@ -3146,6 +3290,12 @@ namespace Ecxp
                 var r3 = (Dictionary<string, object>)k.Wywolaj("przypisz", P.D("nazwa", "claude-elan2", "projekt", "testowy", "modul", "elan", "role", new List<string> { "recenzent" }));
                 var przek = ((System.Collections.IEnumerable)r3["przekazane"]).Cast<object>().Count();
                 ok(P.S((Dictionary<string, object>)r3["para"], "claude") == "claude-elan2" && przek >= 2, "przejęcie adresu: nowa sesja Claude dostała " + przek + " niepotwierdzone wiadomości poprzedniej");
+
+                // nowe zadanie w module, który już ma sesję: trafia do istniejącej sesji (claude-elan2), nie wymusza nazwy claude-elan
+                var re = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "elan", "opis", "Zadanie do istniejącej sesji Claude.", "strony", new List<string> { "claude" }));
+                var adrE = ((System.Collections.IEnumerable)((Dictionary<string, object>)re["zadanie"])["adresaci"]).Cast<object>().Select(x => x.ToString()).ToList();
+                ok(adrE.Count == 1 && adrE[0] == "claude-elan2" && P.S((Dictionary<string, object>)re["para"], "claude") == "claude-elan2",
+                    "nowe zadanie trafia do sesji, która już prowadzi moduł (claude-elan2)");
 
                 var r4 = (Dictionary<string, object>)k.Wywolaj("rola", P.D("nazwa", "codex-elan", "projekt", "testowy", "modul", "elan", "role", new List<string> { "programista", "tester" }, "opis", "test"));
                 ok(((System.Collections.IEnumerable)r4["karty_rol"]).Cast<object>().Count() == 2, "nadanie ról: sesja dostała 2 karty ról");

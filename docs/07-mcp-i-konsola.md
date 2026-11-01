@@ -74,6 +74,7 @@ flowchart LR
 | pary 1:1 obok siebie, role, nowe zadanie z parą, załącznikami i pakietami startowymi, znaczniki 🔗ECXP | jest |
 | „Bieżąca sesja”: pasek pod nagłówkiem z nazwą pary i stanem zgłoszenia obu stron (✓ / ⏳ / ⚠, np. sesja Claude w chmurze), wyróżnienie ▶ jej rozmów i wiersza agentów, filtr „tylko ta sesja”; ustawiana przez Nowe zadanie, „▶ Ustaw jako bieżącą” albo dwuklik pary | jest |
 | Nowe zadanie → sesje w aplikacjach: Codex dostaje obrazy z załączników w pierwszej turze, a po niej wątek otwiera się w aplikacji Codex linkiem `codex://threads/<id>` (wątek założony z zewnątrz pojawia się na liście „Najnowsze” dopiero po otwarciu); pakiet Claude podaje ścieżki załączników i każe zgłosić brak narzędzi ECXP (sesja w chmurze) | jest |
+| Wybór agentów (pola „ChatGPT/Codex” i „Claude”) w Nowe zadanie i Napisz: oba = para 1:1 jak dotąd, jeden = tylko ten agent, bez kopii dla drugiego. Przy każdym agencie widać, czy zadanie trafi do istniejącej sesji modułu, czy do nowej. Pasek „Bieżąca sesja” pokazuje niewybraną stronę jako „bez zadania” | jest |
 | łańcuchy ról (programista → tester → recenzent → decyzja → integrator), wznowienie | jest ([09](09-decyzje-lancuchy-galezie-lustro-agenci.md)) |
 | agenci w tle (Claude Code CLI; Codex CLI, jeśli jest), uprawnienia, limit tur, alarm przy błędzie | jest |
 | podpisane decyzje operatora („Decyzja…”), kolumny wspólnej gałęzi i łańcucha w zakładce Agenci, instalator stanowiska | jest |
