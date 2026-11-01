@@ -1852,9 +1852,23 @@ namespace Ecxp
                 if (mlode > 0) why.Append(Jezyk.T("\n\n• ") + mlode + Jezyk.T(" przeczytanych jest młodszych niż wybrany wiek – wybierz „wszystkie przeczytane”."));
                 if (nowe > 0) why.Append(Jezyk.T("\n\n• ") + nowe + Jezyk.T(" nie oznaczyłeś jeszcze jako przeczytane."));
                 if (otwarte > 0) why.Append(Jezyk.T("\n\n• ") + otwarte + Jezyk.T(" to pytania lub zadania bez odpowiedzi – zostają do odpowiedzi."));
-                if (uAdresata > 0) why.Append(Jezyk.T("\n\n• ") + uAdresata + Jezyk.T(" czeka w kolejkach – zostają, dopóki adresat ich nie potwierdzi."));
+                if (uAdresata > 0)
+                {
+                    why.Append(Jezyk.T("\n\n• ") + uAdresata + Jezyk.T(" czeka w kolejkach – zostają, dopóki adresat ich nie potwierdzi."));
+                    foreach (var g in all.Where(m => m.Katalog != "przeczytane").GroupBy(m => m.Projekt + " / " + m.Modul))
+                        why.Append("\n     – " + g.Key + ": " + g.Count());
+                }
                 if (uAdresata > 0 || otwarte > 0) why.Append(Jezyk.T("\n\nStare wątki, których nikt już nie odbierze, zamkniesz przyciskiem „⊘ Zamknij wątek…” (zaznacz wiadomość z wątku)."));
-                MessageBox.Show(form, why.ToString(), Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (uAdresata + otwarte == 0) { MessageBox.Show(form, why.ToString(), Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                why.Append(Jezyk.T("\n\nPokazać je teraz na liście (wszystkie projekty)?"));
+                if (MessageBox.Show(form, why.ToString(), Jezyk.T("Wyczyść"), MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                {
+                    // kolejki i otwarte pytania mogą być w innych projektach niż wybrany – pokaż wszystkie, tylko czekające
+                    tylkoBiez = false; cbProjekt.SelectedIndex = 0; cbModul.SelectedIndex = 0; szukaj.Text = "";
+                    cbWidok.SelectedIndex = 2;
+                    tabs.SelectedTab = tabMsg;
+                    RefreshView();
+                }
                 return;
             }
             if (MessageBox.Show(form, Jezyk.T("Przenieść ") + cand.Count + Jezyk.T(" przeczytanych wiadomości do archiwum?\n\n") +
