@@ -1,5 +1,9 @@
 {
  "en": {
+  "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "ECXP nodes. Each receive, send and acknowledgement through ECXP tools records a heartbeat.",
+  "Dziennik zdarzeń: ": "Event journal: ",
+  "Czeka na Ciebie — rozwiń / zwiń": "Needs your attention — expand / collapse",
+
   "Brak przypisanej pary": "No assigned pair",
   "Wymaga uwagi": "Needs attention",
   "Widok": "View",
@@ -434,6 +438,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Task “{0}” sent only to Claude.\n\nClaude: the Claude app opened a new session with the package filled in. The session is created only after two clicks in the Claude window:\n  1) “Trust workspace” (folder question – only the first time for this folder),\n  2) the arrow button ↵ in the bottom-right corner of the message box (not Enter – it may hit the environment menu).\nKeep “This computer” (not the cloud – ECXP is not there).\n\nChatGPT/Codex got neither the task nor a copy."
  },
  "fr": {
+  "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Nœuds ECXP. Chaque réception, envoi et confirmation via ECXP enregistre un signe de vie.",
+  "Dziennik zdarzeń: ": "Journal des événements : ",
+  "Czeka na Ciebie — rozwiń / zwiń": "À votre attention — développer / réduire",
+
   "Brak przypisanej pary": "Aucune paire affectée",
   "Wymaga uwagi": "À traiter",
   "Widok": "Vue",
@@ -868,6 +876,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Tâche « {0} » envoyée uniquement à Claude.\n\nClaude : l’application Claude a ouvert une nouvelle session avec le paquet saisi. La session n’est créée qu’après deux clics dans la fenêtre Claude :\n  1) « Trust workspace » (question sur le dossier – uniquement la première fois pour ce dossier),\n  2) le bouton flèche ↵ en bas à droite du champ de message (pas Entrée – elle peut tomber sur le menu d’environnement).\nGardez « This computer » (pas le cloud – ECXP n’y est pas).\n\nChatGPT/Codex n’a reçu ni la tâche ni de copie."
  },
  "cs": {
+  "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Uzly ECXP. Každé přijetí, odeslání a potvrzení přes ECXP zaznamená signál aktivity.",
+  "Dziennik zdarzeń: ": "Protokol událostí: ",
+  "Czeka na Ciebie — rozwiń / zwiń": "Čeká na vás — rozbalit / sbalit",
+
   "Brak przypisanej pary": "Není přiřazena dvojice",
   "Wymaga uwagi": "Vyžaduje pozornost",
   "Widok": "Zobrazení",
@@ -1302,6 +1314,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Úkol „{0}” odeslán jen Claude.\n\nClaude: aplikace Claude otevřela novou relaci s vloženým balíčkem. Relace vznikne až po dvou kliknutích v okně Claude:\n  1) „Trust workspace” (dotaz na složku – jen poprvé pro tuto složku),\n  2) tlačítko se šipkou ↵ vpravo dole v poli zprávy (ne Enter – může trefit nabídku prostředí).\nPonechte „This computer” (ne cloud – tam ECXP není).\n\nChatGPT/Codex nedostal úkol ani kopii."
  },
  "de": {
+  "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "ECXP-Knoten. Empfangen, Senden und Bestätigen über ECXP erfasst ein Lebenszeichen.",
+  "Dziennik zdarzeń: ": "Ereignisprotokoll: ",
+  "Czeka na Ciebie — rozwiń / zwiń": "Wartet auf Sie — einblenden / ausblenden",
+
   "Brak przypisanej pary": "Kein Paar zugewiesen",
   "Wymaga uwagi": "Aufmerksamkeit erforderlich",
   "Widok": "Ansicht",
