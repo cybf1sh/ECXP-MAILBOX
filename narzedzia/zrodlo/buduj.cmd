@@ -6,7 +6,7 @@ rem   ..\ecxp-mcp.exe     - adapter MCP dla agentow ChatGPT/Codex i Claude (klie
 rem   ..\ECXP-Setup.exe   - instalator stanowiska (PL/EN/FR/CS/DE), zawiera powyzsze programy
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
-set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:System.Security.dll /r:"%FW%\System.Web.Extensions.dll"
+set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:System.Security.dll /r:System.Management.dll /r:"%FW%\System.Web.Extensions.dll"
 set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html /resource:jezyki.json,jezyki.json
 set RDZEN=Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs
 cd /d "%~dp0"

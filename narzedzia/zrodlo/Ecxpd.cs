@@ -423,6 +423,8 @@ namespace Ecxp
                 case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
                 case "usluga": TylkoOperator(s); return Agenci.Usluga(P.S(a, "strona"), P.S(a, "akcja"));
                 case "uslugi": return P.D("claude", Agenci.UslugaStan("claude"), "codex", Agenci.UslugaStan("codex"));
+                case "uslugi_zakoncz": TylkoOperator(s); return Agenci.Zakoncz(P.B(a, "przy_zamknieciu"));
+                case "uslugi_po_starcie": TylkoOperator(s); return Agenci.WznowPoZamknieciu();
                 case "agenci":
                     return P.D("agenci", Agenci.Lista().Cast<object>().ToList(), "claude_cli", Agenci.Program("claude"), "codex_cli", Agenci.Program("codex"));
                 case "straz":

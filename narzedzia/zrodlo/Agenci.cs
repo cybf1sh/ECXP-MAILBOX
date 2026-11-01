@@ -112,6 +112,82 @@ namespace Ecxp
             return st;
         }
 
+        // Całkowite zakończenie usług Claude i Codex: obie strony zatrzymane, trwające tury przerwane, zamknięte też
+        // procesy agentów w tle pozostałe po poprzednim uruchomieniu stosu. Okna czatu operatora (interaktywne sesje
+        // Claude Code i Codex) nie są ruszane – rozpoznajemy wyłącznie procesy uruchomione przez ECXP.
+        // przyZamknieciu: konsola się zamyka – usługi, które działały, wznowi następny start konsoli (WznowPoZamknieciu).
+        public static Dictionary<string, object> Zakoncz(bool przyZamknieciu)
+        {
+            int ile = PrzerwijTury("claude") + PrzerwijTury("codex");
+            int sieroty = 0;
+            try { sieroty = ZamknijOsierocone(); } catch (Exception ex) { Log("zakończenie usług – procesy osierocone: " + ex.Message); }
+            var u = Uslugi();
+            foreach (var s in new[] { "claude", "codex" })
+            {
+                bool dzialala = !P.B(u, s + "_zatrzymana");
+                u[s + "_zatrzymana"] = true;
+                u[s + "_zmiana"] = P.Teraz();
+                if (przyZamknieciu) { if (dzialala) u[s + "_wznow_przy_starcie"] = true; }
+                else u.Remove(s + "_wznow_przy_starcie");
+            }
+            Pliki.Zapisz(UslugiPlik, u);
+            P.Zdarzenie("uslugi_zakonczone", P.D("przerwane_tury", ile, "osierocone", sieroty, "przy_zamknieciu", przyZamknieciu));
+            Log("usługi Claude i Codex zakończone" + (przyZamknieciu ? " (zamknięcie konsoli)" : "") + ": przerwane tury " + ile + ", procesy osierocone " + sieroty);
+            return P.D("przerwane_tury", ile, "osierocone", sieroty, "claude", UslugaStan("claude"), "codex", UslugaStan("codex"));
+        }
+
+        public static Dictionary<string, object> WznowPoZamknieciu()
+        {
+            var u = Uslugi();
+            var wzn = new List<object>();
+            foreach (var s in new[] { "claude", "codex" })
+                if (P.B(u, s + "_wznow_przy_starcie"))
+                {
+                    u[s + "_zatrzymana"] = false; u.Remove(s + "_wznow_przy_starcie");
+                    u[s + "_reset"] = P.Teraz(); u[s + "_zmiana"] = P.Teraz();
+                    wzn.Add(s);
+                }
+            if (wzn.Count > 0) { Pliki.Zapisz(UslugiPlik, u); Log("usługi wznowione po starcie konsoli: " + string.Join(", ", wzn)); }
+            return P.D("wznowione", wzn);
+        }
+
+        // Procesy agentów w tle, których stos nie śledzi (np. tura sprzed restartu stosu):
+        // Claude – linia poleceń z plikami z katalogu stan\agenci (--mcp-config / --append-system-prompt-file);
+        // Codex – "exec --skip-git-repo-check" w katalogu pracy jednego z agentów Codex.
+        static int ZamknijOsierocone()
+        {
+            var dir = Dir.TrimEnd('\\');
+            var katalogi = Lista().Where(x => P.S(x, "strona") == "codex").Select(x => P.S(x, "katalog").TrimEnd('\\')).Where(x => x.Length > 0).ToList();
+            var ja = Process.GetCurrentProcess().Id;
+            var znalezione = new Dictionary<int, int>();   // pid -> pid rodzica
+            using (var q = new System.Management.ManagementObjectSearcher("SELECT ProcessId, ParentProcessId, CommandLine FROM Win32_Process"))
+                foreach (System.Management.ManagementObject o in q.Get())
+                {
+                    var cl = o["CommandLine"] as string;
+                    if (string.IsNullOrEmpty(cl)) continue;
+                    int pid = Convert.ToInt32(o["ProcessId"]), rodzic = Convert.ToInt32(o["ParentProcessId"]);
+                    if (pid == ja) continue;
+                    bool agent = cl.IndexOf(dir, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                 (cl.Contains("--mcp-config") || cl.Contains("--append-system-prompt-file"));
+                    if (!agent && cl.Contains("exec --skip-git-repo-check"))
+                        agent = katalogi.Any(k => cl.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+                    if (agent) znalezione[pid] = rodzic;
+                }
+            int n = 0;
+            foreach (var kv in znalezione)
+            {
+                if (znalezione.ContainsKey(kv.Value)) continue;   // dziecko już zamykanego procesu – zniknie z drzewem
+                try
+                {
+                    var k = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + kv.Key + " /T /F") { UseShellExecute = false, CreateNoWindow = true });
+                    k.WaitForExit(10000);
+                    n++;
+                }
+                catch { }
+            }
+            return n;
+        }
+
         static int PrzerwijTury(string strona)
         {
             List<KeyValuePair<string, Process>> l;

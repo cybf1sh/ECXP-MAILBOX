@@ -136,6 +136,16 @@ namespace Ecxp
                 klient = Klient.Polacz(P.Wlasciciel, "konsola", true);
                 klient.Dane += d => { try { form.BeginInvoke((Action)(() => DaneStosu(d))); } catch { } };
                 klient.Rozlaczono += () => { try { form.BeginInvoke((Action)StanStosu); } catch { } };
+                if (!poStarcie)
+                {
+                    poStarcie = true;
+                    try
+                    {
+                        var r = (Dictionary<string, object>)klient.Wywolaj("uslugi_po_starcie", null);
+                        if (P.Lista(r, "wznowione").Count > 0 && stInfo != null) stInfo.Text = Jezyk.T("Usługi agentów wznowione po starcie konsoli.");
+                    }
+                    catch { }
+                }
             }
             catch (Exception ex)
             {
@@ -832,7 +842,8 @@ namespace Ecxp
         string widokUslug = "pasek";
         readonly Dictionary<string, WidokUslugi> pasek = new Dictionary<string, WidokUslugi>(), karty = new Dictionary<string, WidokUslugi>();
         readonly Dictionary<string, Dictionary<string, object>> uslugi = new Dictionary<string, Dictionary<string, object>>();
-        bool stosBezUslug;
+        bool stosBezUslug, poStarcie;
+        readonly List<System.Diagnostics.Process> ukryte = new List<System.Diagnostics.Process>();
         DateTime ostatnieUslugi = DateTime.MinValue;
 
         class WidokUslugi
@@ -1020,13 +1031,24 @@ namespace Ecxp
                 Podepnij(w, n);
                 pasek[n] = w;
             }
+            var bKoniecP = Btn("⏻  Zakończ usługi");
+            bKoniecP.Margin = new Padding(16, 3, 2, 3);
+            bKoniecP.ForeColor = Color.FromArgb(160, 0, 0);
+            bKoniecP.Click += delegate { ZakonczUslugi(); };
+            podpowiedzCli.SetToolTip(bKoniecP, Jezyk.T("Zatrzymuje obie usługi i całkowicie zamyka wszystkie procesy agentów: aplikacje Claude i Codex, Claude Code, CLI, adaptery ECXP i agentów w tle, z procesami potomnymi."));
+            pnlPasek.Controls.Add(bKoniecP);
             head.Controls.Add(pnlPasek);
             lblCliClaude = pasek["claude"].Stan;
 
             // wariant B: dwie karty usług pod nagłówkiem
-            pnlKarty = new TableLayoutPanel { Dock = DockStyle.Top, Height = 112, ColumnCount = 2, RowCount = 1, Padding = new Padding(8, 6, 8, 6) };
+            pnlKarty = new TableLayoutPanel { Dock = DockStyle.Top, Height = 112, ColumnCount = 3, RowCount = 1, Padding = new Padding(8, 6, 8, 6) };
             pnlKarty.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             pnlKarty.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            pnlKarty.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var bKoniecK = new Button { Text = "⏻\n" + "Zakończ usługi", Font = fontN, Size = new Size(104, 86), Margin = new Padding(4), ForeColor = Color.FromArgb(160, 0, 0) };
+            bKoniecK.Click += delegate { ZakonczUslugi(); };
+            podpowiedzCli.SetToolTip(bKoniecK, Jezyk.T("Zatrzymuje obie usługi i całkowicie zamyka wszystkie procesy agentów: aplikacje Claude i Codex, Claude Code, CLI, adaptery ECXP i agentów w tle, z procesami potomnymi."));
+            pnlKarty.Controls.Add(bKoniecK, 2, 0);
             foreach (var n in new[] { "claude", "codex" })
             {
                 var w = new WidokUslugi();
@@ -1137,6 +1159,58 @@ namespace Ecxp
             pr.Exited += delegate { try { form.BeginInvoke((Action)(() => { ostatnieCli = DateTime.MinValue; })); } catch { } };
             File.AppendAllText(log, "==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + args + Environment.NewLine, new UTF8Encoding(false));
             pr.Start(); pr.BeginOutputReadLine(); pr.BeginErrorReadLine();
+            lock (ukryte) { ukryte.RemoveAll(x => { try { return x.HasExited; } catch { return true; } }); ukryte.Add(pr); }
+        }
+
+        int ZamknijUkryte()
+        {
+            List<System.Diagnostics.Process> l; lock (ukryte) { l = ukryte.ToList(); ukryte.Clear(); }
+            int n = 0;
+            foreach (var p in l)
+                try
+                {
+                    if (p.HasExited) continue;
+                    var k = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + p.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true });
+                    k.WaitForExit(10000); n++;
+                }
+                catch { }
+            return n;
+        }
+
+        // ⏻ Zakończ usługi: usługi Claude i Codex zatrzymane, a wszystkie procesy agentów zamknięte całkowicie –
+        // aplikacje Claude i Codex, Claude Code, CLI, adaptery ecxp-mcp, agenci w tle ECXP, z drzewami potomnymi.
+        void ZakonczUslugi()
+        {
+            var lista = ProcesyAgentow.Wybierz();
+            if (MessageBox.Show(form, string.Format(Jezyk.T("Zakończyć usługi Claude i Codex?\n\nZostaną całkowicie zamknięte wszystkie procesy agentów: aplikacje Claude i Codex, Claude Code, CLI, adaptery ECXP i agenci w tle – razem z procesami potomnymi. Otwarte sesje czatu zostaną przerwane.\n\nDo zamknięcia: {0}.\n\nUsługi pozostaną zatrzymane do następnego Start."), ProcesyAgentow.Podsumowanie(lista)),
+                Jezyk.T("Zakończ usługi"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            object tury = 0;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("uslugi_zakoncz", P.D("przy_zamknieciu", false));
+                foreach (var n in new[] { "claude", "codex" }) uslugi[n] = (Dictionary<string, object>)r[n];
+                tury = r["przerwane_tury"];
+            }
+            catch { }
+            ZamknijUkryte();
+            int zamkniete = ProcesyAgentow.Zamknij(lista);
+            stInfo.Text = string.Format(Jezyk.T("Usługi Claude i Codex zakończone: przerwane tury {0}, zamknięte procesy agentów {1}."), tury, zamkniete);
+            ostatnieCli = DateTime.MinValue;
+            PokazCli();
+        }
+
+        // Zakończ konsolę: najpierw całkowicie wszystkie procesy agentów, potem program.
+        // Usługi, które działały, wystartują przy następnym uruchomieniu konsoli.
+        void ZakonczProgram()
+        {
+            var lista = ProcesyAgentow.Wybierz();
+            if (MessageBox.Show(form, string.Format(Jezyk.T("Zakończyć ECXP-MAILBOX?\n\nZostaną całkowicie zamknięte wszystkie procesy agentów: aplikacje Claude i Codex, Claude Code, CLI, adaptery ECXP i agenci w tle – razem z procesami potomnymi. Otwarte sesje czatu zostaną przerwane.\n\nDo zamknięcia: {0}.\n\nPrzy następnym uruchomieniu konsoli usługi, które teraz działają, wystartują ponownie."), ProcesyAgentow.Podsumowanie(lista)),
+                "ECXP-MAILBOX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try { if (klient != null && klient.Polaczony) Stos("uslugi_zakoncz", P.D("przy_zamknieciu", true)); } catch { }
+            ZamknijUkryte();
+            timer.Stop(); fsw.EnableRaisingEvents = false; if (klient != null) klient.Dispose(); tray.Visible = false;
+            ProcesyAgentow.Zamknij(lista);
+            ExitThread();
         }
 
         void ZapiszUstawienia()
@@ -1771,6 +1845,8 @@ namespace Ecxp
                 }
             }
             mCli.DropDownItems.Add(new ToolStripSeparator());
+            mCli.DropDownItems.Add(Poz("⏻  " + Jezyk.T("Zakończ usługi Claude i Codex…"), delegate { ShowWindow(); ZakonczUslugi(); }));
+            mCli.DropDownItems.Add(new ToolStripSeparator());
             mCli.DropDownItems.Add(Poz(Jezyk.T("Sprawdź status teraz"), delegate { ostatnieCli = DateTime.Now; SprawdzCliTlo(); OdswiezUslugi(); }));
             mCli.DropDownItems.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako pasek (A)"), null, delegate { UstawWidokUslug("pasek"); }) { Checked = widokUslug == "pasek" });
             mCli.DropDownItems.Add(new ToolStripMenuItem(Jezyk.T("Usługi jako karty (B)"), null, delegate { UstawWidokUslug("karty"); }) { Checked = widokUslug == "karty" });
@@ -1795,7 +1871,8 @@ namespace Ecxp
             menu.Items.Add(Poz(Jezyk.T("Zainstaluj / napraw rejestrację ECXP"), delegate { MessageBox.Show(form, Instalator.Wykonaj(false), Jezyk.T("Instalacja ECXP")); }));
             menu.Items.Add(Poz(Jezyk.T("Otwórz folder skrzynki"), delegate { OpenPath(P.Root); }));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Poz(Jezyk.T("Zakończ"), delegate { timer.Stop(); fsw.EnableRaisingEvents = false; if (klient != null) klient.Dispose(); tray.Visible = false; ExitThread(); }));
+            menu.Items.Add(Poz("⏻  " + Jezyk.T("Zakończ usługi Claude i Codex…"), delegate { ShowWindow(); ZakonczUslugi(); }));
+            menu.Items.Add(Poz(Jezyk.T("Zakończ"), delegate { ZakonczProgram(); }));
         }
 
         void ShowWindow()
@@ -1883,6 +1960,12 @@ namespace Ecxp
                 var raport = Instalator.Wykonaj(args[0] == "/odinstaluj");
                 try { File.WriteAllText(Path.Combine(P.Root, "stan", "instalacja.txt"), raport, new UTF8Encoding(false)); } catch { }
                 if (!args.Contains("/cicho")) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
+                return 0;
+            }
+            if (args.Length >= 2 && args[0] == "/procesy-agentow")
+            {
+                var l = ProcesyAgentow.Wybierz();
+                File.WriteAllLines(args[1], l.Select(p => p.Grupa + "\t" + p.Pid + "\t" + p.Rodzic + "\t" + p.Nazwa + "\t" + (p.Linia.Length > 160 ? p.Linia.Substring(0, 160) : p.Linia)), new UTF8Encoding(false));
                 return 0;
             }
             if (args.Length >= 1 && args[0] == "/spis-galezi") { Motyw.Ciemny = args.Contains("/ciemny"); ZbudujSpis(); return 0; }
@@ -2165,6 +2248,90 @@ namespace Ecxp
     }
 
     // ---------- instalacja na stanowisku (uniwersalna: ścieżki z katalogu instalacji i profilu użytkownika) ----------
+    // Całkowite zamknięcie agentów (jak „Zakończ zadanie” w Menedżerze zadań, z całym drzewem):
+    // aplikacja Claude (Claude Desktop) i Claude Code, aplikacja i CLI Codex, CLI uruchomione przez node,
+    // adaptery ecxp-mcp, agenci w tle ECXP – razem ze wszystkimi procesami potomnymi.
+    // Nie zamyka: tej konsoli, stosu ecxpd (usługa ECXP) ani procesów systemowych.
+    static class ProcesyAgentow
+    {
+        public class Proc { public int Pid, Rodzic; public string Nazwa = "", Linia = "", Grupa = ""; }
+
+        static string Grupa(string nazwa, string linia, string agenci)
+        {
+            var n = nazwa.ToLowerInvariant();
+            var l = linia ?? "";
+            if (n == "ecxp-mcp.exe") return "ECXP";
+            if (l.IndexOf(agenci, StringComparison.OrdinalIgnoreCase) >= 0 && (l.Contains("--mcp-config") || l.Contains("--append-system-prompt-file"))) return "ECXP";
+            if (n == "claude.exe" || n == "cowork-svc.exe") return "Claude";
+            if (n == "codex.exe") return "Codex";
+            if (n == "node.exe" || n == "cmd.exe")
+            {
+                if (l.IndexOf("@anthropic-ai", StringComparison.OrdinalIgnoreCase) >= 0 || l.IndexOf("claude-code", StringComparison.OrdinalIgnoreCase) >= 0
+                    || Regex.IsMatch(l, @"[\\/""\s]claude(\.cmd)?[""\s]", RegexOptions.IgnoreCase)) return "Claude";
+                if (l.IndexOf("@openai" + "\\codex", StringComparison.OrdinalIgnoreCase) >= 0 || l.IndexOf("@openai/codex", StringComparison.OrdinalIgnoreCase) >= 0
+                    || Regex.IsMatch(l, @"[\\/""\s]codex(\.cmd)?[""\s]", RegexOptions.IgnoreCase)) return "Codex";
+            }
+            return "";
+        }
+
+        // Lista do zamknięcia: procesy agentów i całe ich drzewa potomne, bez chronionych (konsola, stos ecxpd).
+        public static List<Proc> Wybierz()
+        {
+            var wsz = new Dictionary<int, Proc>();
+            using (var q = new System.Management.ManagementObjectSearcher("SELECT ProcessId, ParentProcessId, Name, CommandLine FROM Win32_Process"))
+                foreach (System.Management.ManagementObject o in q.Get())
+                {
+                    var p = new Proc { Pid = Convert.ToInt32(o["ProcessId"]), Rodzic = Convert.ToInt32(o["ParentProcessId"]), Nazwa = (o["Name"] as string) ?? "", Linia = (o["CommandLine"] as string) ?? "" };
+                    wsz[p.Pid] = p;
+                }
+            var agenci = Path.Combine(P.Root, "stan", "agenci");
+            int ja = System.Diagnostics.Process.GetCurrentProcess().Id;
+            var chronione = new HashSet<int>(wsz.Values.Where(p => p.Pid == ja || p.Pid <= 4 ||
+                p.Nazwa.Equals("ecxpd.exe", StringComparison.OrdinalIgnoreCase) || p.Nazwa.Equals("ECXP-MAILBOX.exe", StringComparison.OrdinalIgnoreCase)).Select(p => p.Pid));
+            var dzieci = wsz.Values.GroupBy(p => p.Rodzic).ToDictionary(g => g.Key, g => g.ToList());
+            var wynik = new Dictionary<int, Proc>();
+            foreach (var p in wsz.Values)
+            {
+                var g = Grupa(p.Nazwa, p.Linia, agenci);
+                if (g.Length == 0 || chronione.Contains(p.Pid)) continue;
+                p.Grupa = g; wynik[p.Pid] = p;
+            }
+            // drzewa potomne (np. powłoki i narzędzia uruchomione przez Claude Code), z pominięciem chronionych i ich potomków
+            var kolejka = new Queue<Proc>(wynik.Values.ToList());
+            while (kolejka.Count > 0)
+            {
+                var p = kolejka.Dequeue();
+                List<Proc> d;
+                if (!dzieci.TryGetValue(p.Pid, out d)) continue;
+                foreach (var c in d)
+                {
+                    if (c.Pid == p.Pid || chronione.Contains(c.Pid) || wynik.ContainsKey(c.Pid)) continue;
+                    c.Grupa = p.Grupa; wynik[c.Pid] = c; kolejka.Enqueue(c);
+                }
+            }
+            return wynik.Values.OrderBy(p => p.Grupa).ThenBy(p => p.Nazwa).ToList();
+        }
+
+        public static string Podsumowanie(List<Proc> l)
+        {
+            if (l.Count == 0) return Jezyk.T("brak działających procesów agentów");
+            return string.Join(", ", l.GroupBy(p => p.Grupa).Select(g => g.Key + ": " + g.Count()));
+        }
+
+        // Zamyka każdy proces osobno (bez /T), żeby nie trafić w chronione procesy w tym samym drzewie.
+        public static int Zamknij(List<Proc> l)
+        {
+            int n = 0;
+            for (int runda = 0; runda < 2; runda++)
+            {
+                foreach (var p in l)
+                    try { var pr = System.Diagnostics.Process.GetProcessById(p.Pid); if (pr.HasExited) continue; pr.Kill(); n++; } catch { }
+                if (runda == 0) { Thread.Sleep(800); l = Wybierz(); }   // procesy pomocnicze uruchomione w trakcie zamykania
+            }
+            return n;
+        }
+    }
+
     static class Instalator
     {
         static string Uruchom(string plik, string args)
@@ -2471,7 +2638,13 @@ namespace Ecxp
             P.Root = Path.GetFullPath(root);
             using (var k = Klient.Polacz(P.Wlasciciel, "konsola", true))
             {
-                if (krok == "1")
+                if (krok == "zakoncz" || krok == "po-starcie")
+                {
+                    // sprawdzenie zakończenia usług na instalacji przykładowej (bez zamykania aplikacji Claude i Codex)
+                    var r = k.Wywolaj(krok == "zakoncz" ? "uslugi_zakoncz" : "uslugi_po_starcie", P.D("przy_zamknieciu", true));
+                    File.WriteAllText(Path.Combine(P.Root, "stan", "test-" + krok + ".json"), P.Js().Serialize(r), new UTF8Encoding(false));
+                }
+                else if (krok == "1")
                     k.Wywolaj("nowe_zadanie", P.D("projekt", "demo-app", "modul", en ? "reports" : "raporty", "tytul", en ? "PDF report export" : "Eksport raportu PDF",
                         "opis", en ? "Add PDF export for reports. The file needs a SHA-256 hash in the footer, and the export a regression test."
                                    : "Dodajcie eksport raportu do PDF. Plik ma mieć sumę SHA-256 w stopce, a eksport – test regresji.",
