@@ -221,7 +221,7 @@ namespace EcxpSetup
 
             krok(L.S("k_jezyk"), "…");
             var ust = Path.Combine(narz, "ustawienia-wlasciciel.txt");
-            var linie = File.Exists(ust) ? File.ReadAllLines(ust).Where(x => !x.StartsWith("jezyk=")).ToList() : new List<string> { "motyw=jasny", "uslugi=karty" };
+            var linie = File.Exists(ust) ? File.ReadAllLines(ust).Where(x => !x.StartsWith("jezyk=")).ToList() : new List<string> { "motyw=jasny", "uslugi=pasek" };
             linie.Add("jezyk=" + L.Kod);
             File.WriteAllLines(ust, linie, new UTF8Encoding(false));
             krok(L.S("k_jezyk"), L.Nazwy[L.I]);

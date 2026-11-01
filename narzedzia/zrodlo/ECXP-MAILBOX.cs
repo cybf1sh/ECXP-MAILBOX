@@ -84,7 +84,7 @@ namespace Ecxp
             Motyw.Ciemny = ust.Contains("motyw=ciemny");
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
-            widokUslug = ust.Contains("uslugi=pasek") ? "pasek" : "karty";
+            widokUslug = ust.Contains("uslugi=karty") ? "karty" : "pasek";
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
 
@@ -829,7 +829,7 @@ namespace Ecxp
         Panel naglowek;
         FlowLayoutPanel pnlPasek;
         TableLayoutPanel pnlKarty;
-        string widokUslug = "karty";
+        string widokUslug = "pasek";
         readonly Dictionary<string, WidokUslugi> pasek = new Dictionary<string, WidokUslugi>(), karty = new Dictionary<string, WidokUslugi>();
         readonly Dictionary<string, Dictionary<string, object>> uslugi = new Dictionary<string, Dictionary<string, object>>();
         bool stosBezUslug;
