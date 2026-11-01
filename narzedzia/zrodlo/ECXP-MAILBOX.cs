@@ -261,7 +261,8 @@ namespace Ecxp
             if (m.Blad != null) return Motyw.K(Color.FromArgb(170, 0, 0));
             switch (P.Rodzaj(m))
             {
-                case "Pytanie": case "Zadanie": case "Blokada": return Motyw.K(Color.FromArgb(200, 0, 0));
+                case "Blokada": return Motyw.K(Color.FromArgb(160, 95, 0));
+                case "Pytanie": case "Zadanie": return Motyw.Tekst;
                 case "Gotowe": case "Meldunek": return Motyw.K(Color.FromArgb(0, 128, 0));
                 case "Recenzja": return Motyw.K(Color.FromArgb(128, 0, 170));
                 default: return Motyw.K(Color.FromArgb(0, 80, 200));
@@ -342,27 +343,32 @@ namespace Ecxp
                 StartPosition = FormStartPosition.CenterScreen, Font = fontN, Icon = iconOk, KeyPreview = true };
 
             // --- nagłówek: logo ECXP, projekt, nowe zadanie ---
-            var head = naglowek = new Panel { Dock = DockStyle.Top, Height = 100, BackColor = Color.White };
-            var logo = logoBox = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(10, 6), Size = new Size(172, 52) };
+            var head = naglowek = new Panel { Dock = DockStyle.Top, Height = 64, BackColor = Color.White };
+            var headerRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(8) };
+            var logo = logoBox = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(128, 40) };
             UstawLogo();
-            var lblProj = new Label { Text = "Projekt:", AutoSize = true, Location = new Point(200, 22) };
-            cbProjekt = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(262, 18), Width = 180 };
+            var lblProj = new Label { Text = "Projekt:", AutoSize = true, Margin = new Padding(10, 12, 4, 4) };
+            cbProjekt = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Margin = new Padding(4, 8, 12, 4) };
             cbProjekt.Items.Add("Wszystkie projekty");
             foreach (var pr in P.Projekty()) cbProjekt.Items.Add(P.S(pr, "nazwa"));
             cbProjekt.SelectedIndex = cbProjekt.Items.Count > 1 ? 1 : 0;
             var bNoweH = Btn("＋  Nowe zadanie / moduł…");
-            bNoweH.Font = fontB; bNoweH.BackColor = Zolty; bNoweH.FlatStyle = FlatStyle.Flat; bNoweH.Location = new Point(460, 14);
-            bMotyw = Btn(Motyw.Ciemny ? Jezyk.T("☀  Motyw jasny") : Jezyk.T("☾  Motyw ciemny"));
-            bMotyw.Location = new Point(700, 14);
-            bMotyw.Click += delegate { PrzelaczMotyw(); };
-            cbJezyk = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(870, 18), Width = 120 };
+            bMotyw = Btn("Motyw");
+            cbJezyk = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (var j in Jezyk.Dostepne) cbJezyk.Items.Add(j[1]);
             cbJezyk.SelectedIndex = Math.Max(0, Array.FindIndex(Jezyk.Dostepne, j => j[0] == Jezyk.Kod));
             cbJezyk.SelectedIndexChanged += delegate { ZmienJezyk(Jezyk.Dostepne[cbJezyk.SelectedIndex][0]); };
-            var bOProgramie = Btn("ⓘ  O programie");
-            bOProgramie.Location = new Point(1000, 14);
-            bOProgramie.Click += delegate { OProgramie(); };
-            head.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bMotyw, cbJezyk, bOProgramie });
+            var ustawienia = Btn("Ustawienia…");
+            ustawienia.Click += delegate {
+                var menu = new ContextMenuStrip();
+                menu.Items.Add(Jezyk.T(Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny"), null, delegate { PrzelaczMotyw(); });
+                foreach (var j in Jezyk.Dostepne) { string kod = j[0]; menu.Items.Add(new ToolStripMenuItem(j[1], null, delegate { ZmienJezyk(kod); }) { Checked = Jezyk.Kod == kod }); }
+                menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
+                menu.Closed += delegate { menu.Dispose(); };
+                menu.Show(ustawienia, new Point(0, ustawienia.Height));
+            };
+            headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, ustawienia });
+            head.Controls.Add(headerRow);
 
             pnlBiez = new Panel { Dock = DockStyle.Top, Height = 46, Visible = false, Padding = new Padding(8, 4, 8, 4) };
             var flBiez = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
@@ -483,7 +489,7 @@ namespace Ecxp
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42 };
             var bRead = Btn("Przeczytane");
             var bAll = Btn("Wszystkie przeczytane");
-            var bClean = Btn("Wyczyść");
+            var bClean = Btn("Archiwizuj przeczytane…");
             var cbAge = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, Font = fontN, Margin = new Padding(3, 8, 3, 3) };
             cbAge.Items.AddRange(new object[] { "wszystkie przeczytane", "starsze niż 1 dzień", "starsze niż 3 dni", "starsze niż 7 dni" });
             cbAge.SelectedIndex = 0;
@@ -1085,7 +1091,7 @@ namespace Ecxp
         void BudujUslugi(Panel head)
         {
             // wariant A: pasek w nagłówku
-            pnlPasek = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Location = new Point(192, 58), Padding = new Padding(0), BackColor = Color.Transparent };
+            pnlPasek = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Bottom, Padding = new Padding(8, 0, 8, 0), BackColor = Color.Transparent };
             foreach (var n in new[] { "claude", "codex" })
             {
                 var w = new WidokUslugi();
@@ -1178,7 +1184,7 @@ namespace Ecxp
             widokUslug = widok;
             pnlPasek.Visible = widok == "pasek";
             pnlKarty.Visible = widok == "karty";
-            naglowek.Height = widok == "pasek" ? 100 : 64;
+            naglowek.Height = widok == "pasek" ? 150 : 70;
             if (zapisz) ZapiszUstawienia();
             PokazCli();
         }
@@ -1381,7 +1387,7 @@ namespace Ecxp
                 var stanW = w.Any(m => m.Blad != null) ? Jezyk.T("⚠ uszkodzona wiadomość")
                     : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? Jezyk.T("⚠ brak potwierdzenia – eskalacja")
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
-                    : Jezyk.T("✓ zamknięta");
+                    : Jezyk.T("✓ bez oczekujących");
                 var g = new ListViewGroup(w[0].Watek, (w.Any(Biezaca) ? "▶  " : "") + P.Baza(w[0].Temat) + "   ·   " + string.Join(", ", w.Select(m => m.Modul).Where(x => x.Length > 0).Distinct()) +
                     "   ·   " + w.Count + Jezyk.T(" wiad.   ·   ") + stanW + (w.Any(m => m.Nowa) ? Jezyk.T("   ·   NOWE") : ""));
                 lv.Groups.Add(g);

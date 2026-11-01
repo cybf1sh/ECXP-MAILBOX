@@ -1,5 +1,9 @@
 {
  "en": {
+  "Ustawienia…": "Settings…",
+  "✓ bez oczekujących": "✓ nothing pending",
+  "Archiwizuj przeczytane…": "Archive read messages…",
+
   "Nowe wiadomości lub statusy — pokaż": "New messages or statuses — show",
   "ECXP-MAILBOX działa": "ECXP-MAILBOX is running",
   "Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku.": "Console connected to the ECXP stack. No new messages. The ECXP icon is next to the clock.",
@@ -413,6 +417,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Task “{0}” sent only to Claude.\n\nClaude: the Claude app opened a new session with the package filled in. The session is created only after two clicks in the Claude window:\n  1) “Trust workspace” (folder question – only the first time for this folder),\n  2) the arrow button ↵ in the bottom-right corner of the message box (not Enter – it may hit the environment menu).\nKeep “This computer” (not the cloud – ECXP is not there).\n\nChatGPT/Codex got neither the task nor a copy."
  },
  "fr": {
+  "Ustawienia…": "Paramètres…",
+  "✓ bez oczekujących": "✓ rien en attente",
+  "Archiwizuj przeczytane…": "Archiver les messages lus…",
+
   "Nowe wiadomości lub statusy — pokaż": "Nouveaux messages ou statuts — afficher",
   "ECXP-MAILBOX działa": "ECXP-MAILBOX est actif",
   "Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku.": "Console connectée à la pile ECXP. Aucun nouveau message. L’icône ECXP est près de l’horloge.",
@@ -826,6 +834,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Tâche « {0} » envoyée uniquement à Claude.\n\nClaude : l’application Claude a ouvert une nouvelle session avec le paquet saisi. La session n’est créée qu’après deux clics dans la fenêtre Claude :\n  1) « Trust workspace » (question sur le dossier – uniquement la première fois pour ce dossier),\n  2) le bouton flèche ↵ en bas à droite du champ de message (pas Entrée – elle peut tomber sur le menu d’environnement).\nGardez « This computer » (pas le cloud – ECXP n’y est pas).\n\nChatGPT/Codex n’a reçu ni la tâche ni de copie."
  },
  "cs": {
+  "Ustawienia…": "Nastavení…",
+  "✓ bez oczekujących": "✓ nic nečeká",
+  "Archiwizuj przeczytane…": "Archivovat přečtené…",
+
   "Nowe wiadomości lub statusy — pokaż": "Nové zprávy nebo stavy — zobrazit",
   "ECXP-MAILBOX działa": "ECXP-MAILBOX běží",
   "Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku.": "Konzole je připojena k zásobníku ECXP. Žádné nové zprávy. Ikona ECXP je u hodin.",
@@ -1239,6 +1251,10 @@
   "Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii.": "Úkol „{0}” odeslán jen Claude.\n\nClaude: aplikace Claude otevřela novou relaci s vloženým balíčkem. Relace vznikne až po dvou kliknutích v okně Claude:\n  1) „Trust workspace” (dotaz na složku – jen poprvé pro tuto složku),\n  2) tlačítko se šipkou ↵ vpravo dole v poli zprávy (ne Enter – může trefit nabídku prostředí).\nPonechte „This computer” (ne cloud – tam ECXP není).\n\nChatGPT/Codex nedostal úkol ani kopii."
  },
  "de": {
+  "Ustawienia…": "Einstellungen…",
+  "✓ bez oczekujących": "✓ nichts ausstehend",
+  "Archiwizuj przeczytane…": "Gelesene archivieren…",
+
   "Nowe wiadomości lub statusy — pokaż": "Neue Nachrichten oder Statusänderungen — anzeigen",
   "ECXP-MAILBOX działa": "ECXP-MAILBOX läuft",
   "Konsola połączona ze stosem ECXP. Brak nowych wiadomości. Ikona ECXP jest przy zegarku.": "Konsole mit dem ECXP-Stack verbunden. Keine neuen Nachrichten. Das ECXP-Symbol ist neben der Uhr.",
