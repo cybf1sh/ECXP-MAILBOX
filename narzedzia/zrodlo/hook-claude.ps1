@@ -4,6 +4,8 @@
 # przypomnienie, żeby sesja je odebrała. Sesje spoza ECXP: skrypt nic nie zapisuje i nic nie wypisuje. Nie blokuje wpisu.
 # Katalog skrzynki: zmienna ECXP_SKRZYNKA albo katalog nadrzędny wobec tego skryptu (<skrzynka>\narzedzia\hook-claude.ps1).
 $ErrorActionPreference = 'SilentlyContinue'
+# tura budzenia uruchomiona przez stos (Doreczanie.cs) – to nie wpis operatora: bez lustra i bez przypomnienia
+if ($env:ECXP_DORECZANIE) { exit 0 }
 try {
     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)

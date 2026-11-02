@@ -71,11 +71,11 @@ namespace EcxpSetup
             { "postep_n", new[] { "Instalacja…", "Installing…", "Installation…", "Instalace…", "Installation…" } },
             { "gotowe_n", new[] { "ECXP jest zainstalowany", "ECXP is installed", "ECXP est installé", "ECXP je nainstalován", "ECXP ist installiert" } },
             { "gotowe_t", new[] {
-                "Konsola ECXP-MAILBOX sama uruchamia stos ECXP. Ikona ECXP pojawi się przy zegarku. Jeśli Codex był otwarty, uruchom go ponownie, żeby wczytał serwer MCP ecxp.",
-                "The ECXP-MAILBOX console starts the ECXP stack by itself. The ECXP icon appears next to the clock. If Codex was open, restart it so that it loads the ecxp MCP server.",
-                "La console ECXP-MAILBOX démarre elle-même la pile ECXP. L’icône ECXP apparaît près de l’horloge. Si Codex était ouvert, redémarrez-le pour qu’il charge le serveur MCP ecxp.",
-                "Konzole ECXP-MAILBOX sama spouští zásobník ECXP. Ikona ECXP se objeví u hodin. Pokud byl Codex otevřený, spusťte ho znovu, aby načetl server MCP ecxp.",
-                "Die Konsole ECXP-MAILBOX startet den ECXP-Stack selbst. Das ECXP-Symbol erscheint neben der Uhr. Falls Codex geöffnet war, starten Sie es neu, damit es den MCP-Server ecxp lädt." } },
+                "Konsola ECXP-MAILBOX sama uruchamia stos ECXP. Ikona ECXP pojawi się przy zegarku. Jeśli Codex był otwarty, uruchom go ponownie, żeby wczytał serwer MCP ecxp.\r\n\r\nPo uruchomieniu konsoli pojawi się okno „Pobieranie danych” – przycisk „Pobierz dane” wyszuka na tym komputerze projekty, sesje ChatGPT/Codex i Claude oraz agentów (pasek postępu, na końcu podsumowanie).",
+                "The ECXP-MAILBOX console starts the ECXP stack by itself. The ECXP icon appears next to the clock. If Codex was open, restart it so that it loads the ecxp MCP server.\r\n\r\nWhen the console starts, the “Data retrieval” window appears – the “Retrieve data” button finds projects, ChatGPT/Codex and Claude sessions and agents on this computer (progress bar, summary at the end).",
+                "La console ECXP-MAILBOX démarre elle-même la pile ECXP. L’icône ECXP apparaît près de l’horloge. Si Codex était ouvert, redémarrez-le pour qu’il charge le serveur MCP ecxp.\r\n\r\nAu démarrage de la console, la fenêtre « Récupération des données » s’ouvre – le bouton « Récupérer les données » recherche sur cet ordinateur les projets, les sessions ChatGPT/Codex et Claude et les agents (barre de progression, résumé à la fin).",
+                "Konzole ECXP-MAILBOX sama spouští zásobník ECXP. Ikona ECXP se objeví u hodin. Pokud byl Codex otevřený, spusťte ho znovu, aby načetl server MCP ecxp.\r\n\r\nPo spuštění konzole se objeví okno „Načtení dat“ – tlačítko „Načíst data“ vyhledá na tomto počítači projekty, relace ChatGPT/Codex a Claude a agenty (ukazatel průběhu, na konci shrnutí).",
+                "Die Konsole ECXP-MAILBOX startet den ECXP-Stack selbst. Das ECXP-Symbol erscheint neben der Uhr. Falls Codex geöffnet war, starten Sie es neu, damit es den MCP-Server ecxp lädt.\r\n\r\nNach dem Start der Konsole erscheint das Fenster „Datenabruf“ – die Schaltfläche „Daten abrufen“ sucht auf diesem Computer Projekte, ChatGPT/Codex- und Claude-Sitzungen sowie Agenten (Fortschrittsbalken, Zusammenfassung am Ende)." } },
             { "blad_n", new[] { "Instalacja nie powiodła się", "Setup failed", "L’installation a échoué", "Instalace selhala", "Installation fehlgeschlagen" } },
             { "k_zatrzymaj", new[] { "Zatrzymywanie działającej konsoli i stosu", "Stopping the running console and stack", "Arrêt de la console et de la pile en cours", "Zastavování běžící konzole a zásobníku", "Laufende Konsole und Stack werden beendet" } },
             { "k_pliki", new[] { "Kopiowanie programów", "Copying programs", "Copie des programmes", "Kopírování programů", "Programme werden kopiert" } },
@@ -197,6 +197,9 @@ namespace EcxpSetup
         }
 
         // krok: (nazwa kroku, wynik) – kreator pokazuje je na liście
+        // Instalacja z kreatora (nie /cicho): po pierwszym starcie konsola pokaże okno „Pobieranie danych”.
+        public static bool PoInstalacji;
+
         public static string Wykonaj(string katalog, bool rejestruj, bool autostart, bool pulpit, bool uruchom, Action<string, string> krok)
         {
             katalog = Path.GetFullPath(katalog);
@@ -260,7 +263,9 @@ namespace EcxpSetup
             }
             krok(L.S("k_apl"), L.S("ok"));
 
-            if (uruchom) { krok(L.S("k_start"), "…"); Process.Start(new ProcessStartInfo(konsola) { UseShellExecute = true, WorkingDirectory = narz }); krok(L.S("k_start"), L.S("ok")); }
+            if (PoInstalacji)
+                try { Directory.CreateDirectory(Path.Combine(katalog, "stan")); File.WriteAllText(Path.Combine(katalog, "stan", "po-instalacji.txt"), "pokaz " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"), new UTF8Encoding(false)); } catch { }
+            if (uruchom) { krok(L.S("k_start"), "…"); Process.Start(new ProcessStartInfo(konsola) { UseShellExecute = true, WorkingDirectory = narz, Arguments = PoInstalacji ? "/po-instalacji" : "" }); krok(L.S("k_start"), L.S("ok")); }
             return raport;
         }
 
@@ -449,6 +454,7 @@ namespace EcxpSetup
         {
             string katalog = tbKatalog.Text.Trim();
             bool rej = chRej.Checked, auto = chAuto.Checked, pulpit = chPulpit.Checked, start = chStart.Checked;
+            Instalacja.PoInstalacji = true;
             var wiersze = new Dictionary<string, ListViewItem>();
             Action<string, string> krok = (n, w) => BeginInvoke((Action)(() =>
             {

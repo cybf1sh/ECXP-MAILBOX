@@ -88,10 +88,12 @@ namespace Ecxp
                 Doreczanie.Log = Log; Doreczanie.Blokada = stos;
                 Doreczanie.Alarm = (id, kto, temat, opis) => { Wypchnij(P.D("zdarzenie", "alarm", "id", id, "do", kto, "temat", temat, "opis", opis, "rodzaj", "niedoreczona")); Wypchnij(P.D("zdarzenie", "zmiana")); };
                 new Thread(Doreczanie.Petla) { IsBackground = true, Name = "ecxp-doreczanie" }.Start();
+                Widok.Log = Log; Widok.Blokada = stos;
+                new Thread(Widok.Petla) { IsBackground = true, Name = "ecxp-widok" }.Start();
                 var fsw = new FileSystemWatcher(P.Root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite, InternalBufferSize = 65536 };
-                FileSystemEventHandler h = (s, e) => { if (Istotne(e.FullPath)) zmiana = 1; };
+                FileSystemEventHandler h = (s, e) => { if (Istotne(e.FullPath)) { zmiana = 1; if (DlaWidoku(e.FullPath)) Widok.Zmiana = 1; } };
                 fsw.Created += h; fsw.Changed += h; fsw.Deleted += h;
-                fsw.Renamed += (s, e) => { if (Istotne(e.FullPath)) zmiana = 1; };
+                fsw.Renamed += (s, e) => { if (Istotne(e.FullPath)) { zmiana = 1; if (DlaWidoku(e.FullPath)) Widok.Zmiana = 1; } };
                 fsw.EnableRaisingEvents = true;
                 while (true)
                 {
@@ -101,10 +103,17 @@ namespace Ecxp
             }
         }
 
+        // Widok (Odebrane / Wysłane) zależy tylko od wiadomości i dziennika – zapisy w stan\ go nie odświeżają (co 60 s i tak jest pełny przegląd).
+        static bool DlaWidoku(string p)
+        {
+            var l = (p ?? "").ToLowerInvariant();
+            return l.Contains("\\do-") || l.Contains("\\przeczytane\\") || l.Contains("\\archiwum\\") || l.EndsWith("\\dziennik\\dziennik.jsonl");
+        }
+
         static bool Istotne(string p)
         {
             var l = (p ?? "").ToLowerInvariant();
-            return !l.EndsWith(".tmp") && !l.Contains("\\narzedzia\\") && !l.EndsWith("ecxpd.log") && !l.Contains("\\.blokada");
+            return !l.EndsWith(".tmp") && !l.Contains("\\narzedzia\\") && !l.EndsWith("ecxpd.log") && !l.Contains("\\.blokada") && !Widok.JestWidokiem(p) && !l.Contains("\\stan\\logi\\");
         }
 
         static NamedPipeServerStream NowyPotok()
@@ -270,7 +279,7 @@ namespace Ecxp
             lock (stos)
             {
                 object w = WykonajW(s, op, a);
-                if (op != "odbierz" && op != "stan" && op != "watek" && op != "trasy" && op != "kontekst_pobierz" && op != "ping" && op != "sprawdz_decyzje" && op != "lancuchy" && op != "galezie" && op != "agenci")
+                if (op != "odbierz" && op != "stan" && op != "watek" && op != "trasy" && op != "kontekst_pobierz" && op != "ping" && op != "sprawdz_decyzje" && op != "lancuchy" && op != "galezie" && op != "agenci" && op != "sesja")
                 {
                     if (op == "przypisz" || op == "rola" || op == "nowe_zadanie") Znaczniki();
                     Wypchnij(P.D("zdarzenie", "zmiana", "op", op));
@@ -393,6 +402,8 @@ namespace Ecxp
                         return P.D("przeniesione", ok, "bledy", err);
                     }
                 case "obudz": TylkoOperator(s); return Doreczanie.ObudzTeraz(P.S(a, "nazwa"));
+                case "sesja": TylkoOperator(s); return Doreczanie.Opisz(P.S(a, "nazwa"));
+                case "zarejestruj_sesje": TylkoOperator(s); return Siec.ZarejestrujZnalezione(P.Lista(a, "sesje"));
                 case "wycofaj": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"));
                 case "nowe_zadanie":
                     {
@@ -400,7 +411,8 @@ namespace Ecxp
                         var kroki = P.L(a, "lancuch");
                         var strony = Siec.Strony(P.L(a, "strony"));
                         if (kroki.Count > 0 && strony.Count < 2) throw new EcxpException("Łańcuch ról wymaga obu stron pary – zaznacz Codex i Claude albo wyczyść pole łańcucha.");
-                        var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony);
+                        var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony,
+                            a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null);
                         if (kroki.Count > 0) r["lancuch"] = Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), kroki, Czesci(a));
                         return r;
                     }

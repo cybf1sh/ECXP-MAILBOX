@@ -95,8 +95,20 @@ sequenceDiagram
 ├─ stan\karty\  stan\role\  stan\start\      karty węzłów, definicje ról, pakiety startowe
 ├─ kontekst\obiekty\<2>\<sha256>             obiekty kontekstu (tylko do odczytu)
 ├─ projekty\<projekt>\projekt.json           konfiguracja projektu (moduły, pary)
+├─ Odebrane\  Wysłane\                       widok dla człowieka: plik .txt na wiadomość (tworzy stos, tylko do odczytu)
+├─ stan\widok.json                           indeks widoku (wiadomość → plik w Odebrane / Wysłane)
+├─ stan\doreczanie.json                      próby budzenia adresatów i wysłane alarmy NIEDORECZONA
+├─ stan\logi\mailbox-RRRR-MM-DD.jsonl        błędy i ostrzeżenia konsoli (tylko przy problemach)
 └─ narzedzia\                                programy i źródła
 ```
+
+Foldery `Odebrane` i `Wysłane` to widok, a nie kolejki protokołu. Stos (`Widok.cs`) zapisuje w nich jeden plik `.txt` na wiadomość, z nazwą `RRRR-MM-DD GG-MM · Rodzaj · TEMAT · od/do … · końcówka id.txt`, więc Eksplorator układa je według daty. W pliku są: nagłówek, treść, załączniki, kontrole, aktualny stan doręczenia u każdego adresata i miejsce oryginału.
+
+- **Wysłane:** wiadomości operatora, także wpisy z czatu przekazane drugiej stronie pary.
+- **Odebrane:** wszystkie pozostałe wiadomości (od agentów i strażnika).
+- Wiadomość do pary to jeden plik, a kopie dla pary nie mają osobnych plików.
+- Widok obejmuje archiwum. Plik jest przepisywany tylko po zmianie wiadomości albo jej stanu, a nic nie jest kasowane: plik po zmianie nazwy trafia do `poprzednie\`.
+- Zmiana albo usunięcie pliku widoku niczego nie wysyła. Konsola ma w prawym menu „📂 Pokaż w folderze”.
 
 ## Dlaczego jeden proces piszący
 - **Spójność.** Kolejność zdarzeń w dzienniku i liczniki seq nie zależą od wyścigów między procesami.

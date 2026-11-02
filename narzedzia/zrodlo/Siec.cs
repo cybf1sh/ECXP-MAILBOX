@@ -144,6 +144,75 @@ namespace Ecxp
             });
         }
 
+        // Sesje znalezione na stanowisku (okno „Pobieranie danych”, np. po instalacji): pakiet startowy w zapisie rozmowy Codexa albo Claude.
+        // Trasa powstaje tylko, gdy moduł nie ma jeszcze aktywnej sesji tej strony; ta sama nazwa bez identyfikatora sesji dostaje go.
+        // Nigdy nie zastępuje innej aktywnej sesji (bez przejmowania wiadomości) i niczego nie kasuje.
+        public static Dictionary<string, object> ZarejestrujZnalezione(List<Dictionary<string, object>> lista)
+        {
+            return P.ZBlokada(delegate
+            {
+                var wyniki = new List<object>();
+                int nowe = 0, uzupelnione = 0, bez = 0, pominiete = 0;
+                foreach (var z in lista ?? new List<Dictionary<string, object>>())
+                {
+                    string nazwa = P.S(z, "nazwa").Trim().ToLowerInvariant(), projekt = P.Slug(P.S(z, "projekt"), 32, false), modul = P.Slug(P.S(z, "modul"), 24, false);
+                    string sesja = P.S(z, "sesja").Trim(), opis = P.S(z, "opis").Trim();
+                    Func<string, string, object> wynik = (stan, txt) => P.D("nazwa", nazwa, "projekt", projekt, "modul", modul, "stan", stan, "opis", txt);
+                    if (!P.PoprawnyNadawca(nazwa) || projekt.Length == 0 || modul.Length == 0) { pominiete++; wyniki.Add(wynik("pominieta", "niepełne dane w pakiecie")); continue; }
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(sesja, "^[0-9a-f-]{36}$")) sesja = "";
+                    var strona = Strona(nazwa);
+                    var t = Trasy();
+                    var ta = t.FirstOrDefault(x => x.Aktywna && x.Nazwa == nazwa && x.Projekt == projekt && x.Modul == modul);
+                    var inna = t.FirstOrDefault(x => x.Aktywna && x.Projekt == projekt && x.Modul == modul && x.Strona == strona && x.Nazwa != nazwa);
+                    if (inna != null) { pominiete++; wyniki.Add(wynik("pominieta", "moduł ma już aktywną sesję " + inna.Nazwa + " – bez zmian")); continue; }
+                    if (ta != null && (ta.Sesja.Length > 0 || sesja.Length == 0)) { bez++; wyniki.Add(wynik("znana", "już zarejestrowana")); ZapiszHookSesje(strona, sesja, nazwa); continue; }
+                    var role = ta != null && ta.Role.Count > 0 ? ta.Role : (strona == "codex" ? new List<string> { "programista" } : new List<string> { "recenzent", "tester" });
+                    Przypisz(nazwa, projekt, modul, sesja, role, opis.Length > 0 ? opis : "znaleziona na stanowisku (pobieranie danych)", P.Wlasciciel);
+                    DopiszPare(projekt, modul, strona, nazwa);
+                    ZapiszHookSesje(strona, sesja, nazwa);
+                    if (ta != null) { uzupelnione++; wyniki.Add(wynik("uzupelniona", "dopisany identyfikator sesji")); }
+                    else { nowe++; wyniki.Add(wynik("nowa", "zarejestrowana jako sesja pary")); }
+                }
+                P.Zdarzenie("pobranie_danych", P.D("nowe", nowe, "uzupelnione", uzupelnione, "znane", bez, "pominiete", pominiete));
+                return P.D("nowe", nowe, "uzupelnione", uzupelnione, "znane", bez, "pominiete", pominiete, "wyniki", wyniki);
+            });
+        }
+
+        // projekt.json: moduł i strona pary (tylko, gdy ta strona jest jeszcze pusta).
+        static void DopiszPare(string projekt, string modul, string strona, string nazwa)
+        {
+            var dir = Path.Combine(P.Root, "projekty", projekt);
+            Directory.CreateDirectory(dir);
+            var pp = Path.Combine(dir, "projekt.json");
+            var pr = new Dictionary<string, object>();
+            try { pr = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(pp)) ?? pr; } catch { }
+            if (P.S(pr, "nazwa").Length == 0) pr["nazwa"] = projekt;
+            var moduly = P.L(pr, "moduly"); if (!moduly.Contains(modul)) moduly.Add(modul); pr["moduly"] = moduly;
+            object pv; var pary = pr.TryGetValue("pary", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
+            object sv; var para = pary.TryGetValue(modul, out sv) && sv is Dictionary<string, object> ? (Dictionary<string, object>)sv : new Dictionary<string, object>();
+            if (P.S(para, strona).Length == 0) para[strona] = nazwa;
+            pary[modul] = para; pr["pary"] = pary;
+            var tmp = pp + ".tmp";
+            File.WriteAllText(tmp, P.Js().Serialize(pr), new UTF8Encoding(false));
+            if (File.Exists(pp)) File.Replace(tmp, pp, null); else File.Move(tmp, pp);
+        }
+
+        // Mapa sesja Claude → nazwa ECXP (jak zapisuje ją hook-claude.ps1); tylko gdy nie ma jeszcze rozpoznanej nazwy.
+        static void ZapiszHookSesje(string strona, string sesja, string nazwa)
+        {
+            if (strona != "claude" || sesja.Length == 0) return;
+            try
+            {
+                var dir = Path.Combine(P.Root, "stan", "hook-sesje");
+                Directory.CreateDirectory(dir);
+                var p = Path.Combine(dir, sesja + ".txt");
+                var obecna = File.Exists(p) ? P.Czytaj(p).Trim() : "";
+                if (obecna.StartsWith("claude-")) return;
+                File.WriteAllText(p, nazwa, new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
         // Nowa sesja przejmuje adres: niepotwierdzone wiadomości poprzedniej przechodzą do niej, nic nie ginie.
         static List<string> Przejmij(string stary, string nowy, string projekt, string modul)
         {
@@ -279,6 +348,7 @@ namespace Ecxp
                 if (mAdr.Success)
                 {
                     var modAdr = mAdr.Groups[1].Value;
+                    n.Modul = P.Slug(n.Modul ?? "", 24, false);               // to samo, co zapisze P.Wyslij – porównujemy po normalizacji
                     if (n.Modul.Length == 0 || n.Modul == "wspolne") n.Modul = modAdr;
                     else if (n.Modul != modAdr)
                         throw new EcxpException("Adres '" + n.Do + "' to sesje modułu '" + modAdr + "', a wiadomość ma moduł '" + n.Modul +
@@ -367,7 +437,11 @@ namespace Ecxp
         }
 
         // ---------- nowe zadanie / moduł: para o tych samych nazwach po obu stronach (albo tylko wybrana strona) ----------
-        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true, List<string> strony = null)
+        // Ikony projektu i modułu (wybór w „Nowe zadanie / moduł”), zapisywane w projekt.json: "ikona" i "ikony_modulow".
+        public static readonly string[] Ikony = { "🖥", "🛡", "📄", "🗄", "🤖", "💡" };
+
+        public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true, List<string> strony = null,
+            string ikonaProjektu = null, string ikonaModulu = null)
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
@@ -396,6 +470,14 @@ namespace Ecxp
                 object sv; var stara = pary.TryGetValue(modul, out sv) && sv is Dictionary<string, object> ? (Dictionary<string, object>)sv : new Dictionary<string, object>();
                 pary[modul] = P.D("codex", strony.Contains("codex") ? codex : P.S(stara, "codex"), "claude", strony.Contains("claude") ? claude : P.S(stara, "claude"), "tytul", tytulSesji);
                 pr["pary"] = pary;
+                // ikony: null = bez zmian, "" = usuń, inna wartość tylko z listy Ikony
+                if (ikonaProjektu != null) { if (Ikony.Contains(ikonaProjektu)) pr["ikona"] = ikonaProjektu; else if (ikonaProjektu.Length == 0) pr.Remove("ikona"); }
+                if (ikonaModulu != null)
+                {
+                    object iv; var ik = pr.TryGetValue("ikony_modulow", out iv) && iv is Dictionary<string, object> ? (Dictionary<string, object>)iv : new Dictionary<string, object>();
+                    if (Ikony.Contains(ikonaModulu)) ik[modul] = ikonaModulu; else if (ikonaModulu.Length == 0) ik.Remove(modul);
+                    if (ik.Count > 0) pr["ikony_modulow"] = ik; else pr.Remove("ikony_modulow");
+                }
                 var tmp = pp + ".tmp";
                 File.WriteAllText(tmp, P.Js().Serialize(pr), new UTF8Encoding(false));
                 if (File.Exists(pp)) File.Replace(tmp, pp, null); else File.Move(tmp, pp);

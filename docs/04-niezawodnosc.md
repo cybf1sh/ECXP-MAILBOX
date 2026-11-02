@@ -109,17 +109,22 @@ flowchart TD
 
 Strażnik pilnuje potwierdzeń, a usługa doręczania w stosie (`Doreczanie.cs`) pilnuje, żeby wiadomość w ogóle dotarła. Sama obecność wiadomości w kolejce adresata to za mało, bo sesja, która nic nie robi, jej nie odbierze.
 
-- Co minutę stos sprawdza wiadomości bez zdarzenia `dostarczona`. Po 2 minutach budzi adresata w jego własnej sesji:
-  - **Codex:** tura w wątku tej sesji (`codex app-server`: `thread/resume` i `turn/start`). Piaskownica jest tylko do odczytu, a zatwierdzane są wyłącznie narzędzia serwera MCP `ecxp`. Wątek stos rozpoznaje w zapisie rozmów (pakiet startowy albo `ecxp_przypisz`).
-  - **Claude:** tura w sesji Claude Code (`claude -p --resume <sesja>`) z narzędziami ECXP i odczytem plików. Sesję wskazuje hook (`stan\hook-sesje`) albo trasa.
-- Tura budzenia ma jedno zadanie: odebrać wiadomości i potwierdzić każdą. Właściwą pracę sesja wykonuje dalej u siebie.
+- Co minutę stos sprawdza wiadomości bez zdarzenia `dostarczona`.
+- **Codex:** po 2 minutach stos budzi adresata w jego własnej sesji, czyli robi turę w wątku tej sesji (`codex app-server`: `thread/resume` i `turn/start`).
+  - Piaskownica jest tylko do odczytu, a zatwierdzane są wyłącznie narzędzia serwera MCP `ecxp`.
+  - Wątek stos rozpoznaje w zapisie rozmów. Liczy się pierwsza wiadomość operatora z pakietem startowym albo jednoznaczne własne wywołania `ecxp_przypisz`. Wątek, który tylko wyświetla cudze pakiety (np. koordynacja), nie jest brany za sesję pary.
+  - Jeśli wątek jest otwarty w aplikacji Codex („active writer”), budzenie jest niemożliwe i od razu przychodzi alarm.
+- **Claude:** stos nie budzi sesji sam. Sesja otwarta w aplikacji Claude nie zobaczyłaby tury uruchomionej w tle (osobny proces, odgałęzienie rozmowy), a stos nie potrafi rozpoznać, czy sesja jest otwarta.
+  - Po 5 minutach przychodzi alarm z instrukcją, a hook przypomina sesji o czekających wiadomościach przy każdym wpisie.
+  - Turę w tle (`claude -p --resume <sesja>`) uruchamia tylko operator: „⏰ Obudź adresata” albo test połączeń.
+  - Taka tura ma twarde ograniczenia: `--setting-sources user`, `--permission-mode default`, tylko serwer `ecxp`, `--disallowedTools` dla poleceń, edycji i sieci. Pytań i zadań nie potwierdza, tylko odbiera, żeby sesja zobaczyła je przy najbliższej pracy. Hook nie traktuje tej tury jako wpisu operatora (zmienna `ECXP_DORECZANIE`).
 - Sesji, która właśnie pracuje (zapis rozmowy zmieniony w ostatnich 2 min), stos nie budzi. Odbierze sama, bo hook `UserPromptSubmit` przypomina jej przy każdym wpisie o czekających wiadomościach.
 - Kolejne próby są co 10 min, najwyżej 3. Alarm `NIEDORECZONA` trafia od razu do operatora (wiadomość od `ecxp-straznik` i alarm w konsoli, jeden na adresata), gdy:
   - adresat nie ma znanej sesji na tym komputerze;
   - albo trzy próby nie pomogły.
 - Pomijani są: operator, koordynacja Codexa (automatyzacja co 10 min), agenci w tle (mają własną pętlę) i kopie wpisów z czatu.
 - Wiadomości sprzed pierwszego włączenia usługi nie budzą sesji. Operator widzi je w „Wysłanych” jako „nieprzeczytana przez adresata”.
-- Stan prób jest w `stan\doreczanie.json`. `"wylaczone": true` wyłącza budzenie, a alarmy po 30 min zostają.
+- Stan prób jest w `stan\doreczanie.json`. `"wylaczone": true` wyłącza budzenie i alarmy krótsze niż 30 minut. Alarm po 30 minutach zostaje.
 
 Przy wysyłce stos dodatkowo:
 

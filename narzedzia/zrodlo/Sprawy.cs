@@ -72,6 +72,21 @@ namespace Ecxp
             if ((rodzaj == "user_accepted" || rodzaj == "push" || rodzaj == "scalenie") && !ReSha40.IsMatch(commit))
                 throw new EcxpException("Decyzja " + rodzaj + " wymaga pełnego hasha commitu (40 znaków).");
             if ((opis ?? "").Trim().Length == 0) throw new EcxpException("Opisz decyzję – co dokładnie wolno zrobić.");
+            // adres i moduł sprawdzane PRZED podpisem: decyzja nie może zostać zapisana bez wiadomości do adresata
+            if ((adres ?? "").Trim().Length > 0)
+            {
+                var mA = System.Text.RegularExpressions.Regex.Match(adres.Trim().ToLowerInvariant(), @"^(?:para:|\*/|codex/|claude/)([a-z0-9-]+)$");
+                var modS = P.Slug(modul ?? "", 24, false);
+                if (mA.Success && modS.Length > 0 && modS != "wspolne" && modS != mA.Groups[1].Value)
+                    throw new EcxpException("Adres '" + adres + "' to sesje modułu '" + mA.Groups[1].Value + "', a decyzja ma moduł '" + modS + "'. Popraw adres albo moduł.");
+                Siec.Rozwiaz(P.Slug(projekt ?? "", 32, false), adres);   // rzuca, gdy para niepełna albo adres nieznany
+            }
+            if ((lancuch ?? "").Length > 0)
+            {
+                var l = Lancuchy.Wszystkie().FirstOrDefault(x => P.S(x, "id") == lancuch);
+                if (l == null || P.S(l, "stan") != "czeka_na_decyzje")
+                    throw new EcxpException("Łańcuch '" + lancuch + "' nie czeka na decyzję (stan: " + (l == null ? "brak" : P.S(l, "stan")) + ") – decyzja nie została podpisana.");
+            }
             return P.ZBlokada(delegate
             {
                 var id = "D-" + DateTime.Now.ToString("yyyyMMddHHmmss") + "-" + P.Losowe(3);

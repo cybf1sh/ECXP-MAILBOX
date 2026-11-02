@@ -377,6 +377,45 @@ namespace Ecxp
         // nazwa sesji wątku Codexa: ustalona raz (plik → nazwa albo "" = wątek spoza par); dla wątków bez wpisu operatora – długość pliku przy ostatnim sprawdzeniu
         static readonly Dictionary<string, string> glowy = new Dictionary<string, string>();
         static readonly Dictionary<string, long> bezWpisu = new Dictionary<string, long>();
+        // własne wywołania ecxp_przypisz w wątku (ja=codex-…) i wszystkie nazwy z pakietów wspomniane w wątku – drugie źródło nazwy
+        static readonly Dictionary<string, HashSet<string>> przypiszy = new Dictionary<string, HashSet<string>>();
+        static readonly Dictionary<string, HashSet<string>> wspomniane = new Dictionary<string, HashSet<string>>();
+        static readonly HashSet<string> przeskanowane = new HashSet<string>();
+        static readonly Regex ReWywolanie = new Regex(@"ecxp_przypisz[\s\S]{0,400}?\bja\\*""?\s*[:=]\s*\\*""(codex-[a-z0-9-]+)");
+
+        // Wywołania narzędzia przez asystenta (nie wyniki narzędzi i nie tekst wiadomości): function_call albo custom_tool_call.
+        static void SkanujWywolania(string f, string tekst)
+        {
+            HashSet<string> pz, ws;
+            lock (glowy)
+            {
+                if (!przypiszy.TryGetValue(f, out pz)) przypiszy[f] = pz = new HashSet<string>();
+                if (!wspomniane.TryGetValue(f, out ws)) wspomniane[f] = ws = new HashSet<string>();
+            }
+            foreach (var l in tekst.Split('\n'))
+            {
+                if (l.IndexOf("Twoja nazwa w ECXP:", StringComparison.Ordinal) >= 0)
+                    foreach (Match m in RePakiet.Matches(l)) if (m.Groups[1].Value.StartsWith("codex-")) lock (glowy) ws.Add(m.Groups[1].Value);
+                if (l.IndexOf("ecxp_przypisz", StringComparison.Ordinal) < 0) continue;
+                if (l.IndexOf("\"type\":\"custom_tool_call\"", StringComparison.Ordinal) < 0 && l.IndexOf("\"type\":\"function_call\"", StringComparison.Ordinal) < 0) continue;
+                foreach (Match m in ReWywolanie.Matches(l)) lock (glowy) pz.Add(m.Groups[1].Value);
+            }
+        }
+
+        // Nazwa wynikająca z własnych wywołań ecxp_przypisz – tylko gdy jednoznaczna i wątek nie pokazuje pakietów innych sesji.
+        static string NazwaZPrzypisz(string f)
+        {
+            lock (glowy)
+            {
+                HashSet<string> pz, ws;
+                if (!przypiszy.TryGetValue(f, out pz) || pz.Count != 1) return "";
+                var n = pz.First();
+                if (wspomniane.TryGetValue(f, out ws) && ws.Any(x => x != n)) return "";
+                return n;
+            }
+        }
+
+        public static bool ZPakietu(string f, string nazwa) { lock (glowy) { string z; return glowy.TryGetValue(f, out z) && z == nazwa; } }
         static readonly Dictionary<string, string> wyzwalacz = new Dictionary<string, string>();
         static readonly DateTime startStosu = DateTime.Now;
 
@@ -387,7 +426,7 @@ namespace Ecxp
                 try
                 {
                     var kl = nazwy.ToArray().Where(kv => kv.Value == nazwa).Select(kv => kv.Key).ToList();
-                    return kl.Where(File.Exists).OrderByDescending(File.GetLastWriteTime).FirstOrDefault();
+                    return kl.Where(File.Exists).OrderByDescending(x => ZPakietu(x, nazwa)).ThenByDescending(File.GetLastWriteTime).FirstOrDefault();
                 }
                 catch (InvalidOperationException) { Thread.Sleep(50); }   // słownik zmieniany równolegle przez pętlę lustra
             return null;
@@ -429,6 +468,7 @@ namespace Ecxp
             tekst = (tekst ?? "").Trim();
             if (!P.PoprawnyNadawca(nazwa) || tekst.Length == 0 || RePakiet.IsMatch(tekst)) return 0;
             if (ReSystemowe.IsMatch(tekst)) return 0;   // powiadomienia i przypomnienia systemowe to nie wpisy operatora
+            if (tekst.StartsWith("[ECXP – doręczenie]")) return 0;   // polecenie tury budzenia ze stosu, nie wpis operatora
             if (tekst.Length > 20000) tekst = tekst.Substring(0, 20000) + "\n[…ucięte]";
             int ile = 0;
             foreach (var t in Siec.Przynaleznosc(nazwa))
@@ -466,6 +506,8 @@ namespace Ecxp
                     o = fi.CreationTime > startStosu ? 0 : fi.Length;
                     offsety[f] = o; zmiana = true;
                 }
+                bool nowyWStosie; lock (glowy) nowyWStosie = przeskanowane.Add(f);
+                if (nowyWStosie && o > 0) SkanujWywolania(f, Czytaj(f, 0, o));   // historia sprzed startu stosu – raz
                 if (!nazwy.ContainsKey(f)) { var nw = NazwaWatku(f); if (!string.IsNullOrEmpty(nw)) nazwy[f] = nw; }
                 if (fi.Length <= o) continue;
                 var tekst = Czytaj(f, o, fi.Length);
@@ -473,6 +515,7 @@ namespace Ecxp
                 if (koniec < 0) continue;
                 var porcja = tekst.Substring(0, koniec + 1);
                 offsety[f] = o + new UTF8Encoding(false).GetByteCount(porcja); zmiana = true;
+                SkanujWywolania(f, porcja);
                 foreach (var linia in porcja.Split('\n'))
                 {
                     if (linia.Trim().Length == 0) continue;
@@ -504,6 +547,14 @@ namespace Ecxp
         // (pomijane są bloki systemowe: kontekst środowiska, AGENTS.md). Wątek, który tylko wyświetla cudze pakiety
         // (np. koordynacja), nie staje się przez to stroną pary. null = brak jeszcze wpisu operatora, "" = wątek spoza par.
         public static string NazwaWatku(string f)
+        {
+            var n = NazwaWatkuZPakietu(f);
+            if (!string.IsNullOrEmpty(n)) return n;
+            var zp = NazwaZPrzypisz(f);
+            return zp.Length > 0 ? zp : n;
+        }
+
+        static string NazwaWatkuZPakietu(string f)
         {
             lock (glowy)
             {

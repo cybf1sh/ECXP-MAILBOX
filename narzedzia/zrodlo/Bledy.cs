@@ -34,6 +34,8 @@ namespace Ecxp
 
         /// <summary>Wywoływane po każdym nowym wpisie (z dowolnego wątku).</summary>
         public static event Action Zmiana;
+        /// <summary>Zmiana licznika nieobejrzanych wpisów (np. po obejrzeniu) – tylko dla przycisku; przeglądarka go nie słucha.</summary>
+        public static event Action Licznik;
 
         // ---------- przechwytywanie ----------
 
@@ -43,8 +45,13 @@ namespace Ecxp
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (s, e) =>
             {
-                bool nowy = Zapisz(Krytyczny, "Nieobsłużony błąd w oknie konsoli: " + e.Exception.Message, e.Exception, null, "okno (wątek interfejsu)");
-                if (!nowy) return;
+                int zapis = Zapisz(Krytyczny, "Nieobsłużony błąd w oknie konsoli: " + e.Exception.Message, e.Exception, null, "okno (wątek interfejsu)");
+                if (zapis == 0) return;                 // ten sam błąd przed chwilą – okno już było pokazane
+                if (zapis < 0)
+                {
+                    try { MessageBox.Show(Jezyk.T("Wystąpił nieoczekiwany błąd:") + "\n\n" + e.Exception, "ECXP-MAILBOX", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+                    return;
+                }
                 try
                 {
                     if (MessageBox.Show(Jezyk.T("Wystąpił nieoczekiwany błąd:") + "\n\n" + e.Exception.Message + "\n\n" +
@@ -106,8 +113,8 @@ namespace Ecxp
             Zapisz(poziom, opis, null, kontekst, metoda + ", wiersz " + wiersz);
         }
 
-        // Zwraca true, gdy wpis zapisano (false: powtórka w ciągu 10 min albo zapis niemożliwy).
-        static bool Zapisz(string poziom, string opis, Exception ex, object kontekst, string zrodlo)
+        // 1 = wpis zapisany, 0 = powtórka w ciągu 10 min (pominięta), -1 = zapis niemożliwy.
+        static int Zapisz(string poziom, string opis, Exception ex, object kontekst, string zrodlo)
         {
             try
             {
@@ -121,7 +128,7 @@ namespace Ecxp
                     if (ostatnio.TryGetValue(klucz, out t) && (DateTime.Now - t).TotalMinutes < 10)
                     {
                         int n; pominiete.TryGetValue(klucz, out n); pominiete[klucz] = n + 1;
-                        return false;
+                        return 0;
                     }
                     ostatnio[klucz] = DateTime.Now;
                     if (pominiete.TryGetValue(klucz, out pomin)) pominiete.Remove(klucz);
@@ -161,9 +168,9 @@ namespace Ecxp
                     if (nieobejrzane >= 0) nieobejrzane++;
                 }
                 var z = Zmiana; if (z != null) z();
-                return true;
+                return 1;
             }
-            catch { return false; }   // moduł błędów nigdy sam nie może zatrzymać konsoli
+            catch { return -1; }   // moduł błędów nigdy sam nie może zatrzymać konsoli
         }
 
         static List<object> Wewnetrzne(Exception ex)
@@ -263,11 +270,13 @@ namespace Ecxp
             }
         }
 
+        // Operator obejrzał logi: licznik na zero. Nie wywołuje Zmiana (słucha jej przeglądarka – inaczej pętla odświeżania).
         static void Obejrzano()
         {
+            bool bylo; lock (blok) { bylo = nieobejrzane != 0; nieobejrzane = 0; }
+            if (!bylo && File.Exists(PlikObejrzane)) return;
             try { Directory.CreateDirectory(Katalog); File.WriteAllText(PlikObejrzane, DateTime.Now.ToString("o"), new UTF8Encoding(false)); } catch { }
-            lock (blok) { nieobejrzane = 0; }
-            var z = Zmiana; if (z != null) z();
+            var l = Licznik; if (l != null) l();
         }
 
         // ---------- przeglądarka ----------
@@ -348,7 +357,7 @@ namespace Ecxp
             bOdswiez.Click += delegate { wczytaj(); Obejrzano(); };
             bKopiuj.Click += delegate { if (szcz.TextLength > 0) try { Clipboard.SetText(szcz.Text); stan.Text = Jezyk.T("Szczegóły skopiowane do schowka."); } catch { } };
             bFolder.Click += delegate { try { Directory.CreateDirectory(Katalog); Process.Start("explorer.exe", "\"" + Katalog + "\""); } catch (Exception ex) { Wyjatek(ex); } };
-            Action odswiezGdyNowy = () => { try { if (!f.IsDisposed) f.BeginInvoke((Action)(() => { wczytaj(); Obejrzano(); })); } catch { } };
+            Action odswiezGdyNowy = () => { try { if (!f.IsDisposed) f.BeginInvoke((Action)(() => { if (!f.IsDisposed) { wczytaj(); Obejrzano(); } })); } catch { } };
             Zmiana += odswiezGdyNowy;
             f.FormClosed += delegate { Zmiana -= odswiezGdyNowy; okno = null; };
             Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
