@@ -10,10 +10,10 @@ set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:S
 set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html /resource:jezyki.json,jezyki.json
 set RDZEN=Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs
 cd /d "%~dp0"
-"%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs %RDZEN% || exit /b 1
-"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe ECXP-MAILBOX.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs Doreczanie.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe ECXP-MAILBOX.cs Bledy.cs %RDZEN% || exit /b 1
 ..\ECXP-MAILBOX.exe /ico ..\ECXP-MAILBOX.ico || exit /b 1
-"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe /win32icon:..\ECXP-MAILBOX.ico ECXP-MAILBOX.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe /win32icon:..\ECXP-MAILBOX.ico ECXP-MAILBOX.cs Bledy.cs %RDZEN% || exit /b 1
 "%CSC%" %OPT% /target:exe /out:..\ecxp-mcp.exe Mcp.cs %RDZEN% || exit /b 1
 copy /y hook-claude.ps1 ..\hook-claude.ps1 >nul || exit /b 1
 rem instalator stanowiska: jeden plik z programami jako zasobami

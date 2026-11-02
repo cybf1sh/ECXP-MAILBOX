@@ -377,6 +377,19 @@ namespace Ecxp
         static readonly Dictionary<string, string> wyzwalacz = new Dictionary<string, string>();
         static readonly DateTime startStosu = DateTime.Now;
 
+        // Plik rozmowy Codexa rozpoznany jako sesja o tej nazwie ECXP (najnowszy) – dla usługi doręczania.
+        public static string PlikRozmowy(string nazwa)
+        {
+            for (int proba = 0; proba < 3; proba++)
+                try
+                {
+                    var kl = nazwy.ToArray().Where(kv => kv.Value == nazwa).Select(kv => kv.Key).ToList();
+                    return kl.Where(File.Exists).OrderByDescending(File.GetLastWriteTime).FirstOrDefault();
+                }
+                catch (InvalidOperationException) { Thread.Sleep(50); }   // słownik zmieniany równolegle przez pętlę lustra
+            return null;
+        }
+
         public static void Petla()
         {
             var po = Path.Combine(P.Root, "stan", "lustro-codex.json");

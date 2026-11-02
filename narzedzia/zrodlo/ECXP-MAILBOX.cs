@@ -115,6 +115,21 @@ namespace Ecxp
         static readonly Color Zolty = Color.FromArgb(255, 222, 0);
         static Color Zielony { get { return Motyw.K(Color.FromArgb(0, 128, 0)); } }
         static Color Czerwony { get { return Motyw.K(Color.FromArgb(200, 0, 0)); } }
+        // podział listy: 0 = wszystkie, 1 = odebrane (od agentów), 2 = wysłane (przez operatora)
+        int kierunek;
+        RadioButton rbWsz, rbOdeb, rbWysl;
+        // wiadomości wysłane z „Potwierdź odebranie”: id → opis; konsola powiadamia o dostarczeniu albo niepowodzeniu
+        readonly Dictionary<string, string> sledzone = new Dictionary<string, string>();
+        string PlikSledzonych { get { return Path.Combine(Path.GetDirectoryName(ReadFile), "sledzone-wlasciciel.txt"); } }
+        bool dialogNiedoreczonej;
+        Button bLogi;
+        // wiersz listy rozmów: tytuł, znacznik (NOWA / przeczytana / stan wysłanej), data i godzina, kierunek
+        class Wiersz : ListViewItem
+        {
+            public Wiersz(string t) : base(t) { }
+            public string Tytul = "", Data = "", Linia = "", Znak = "";
+            public Color ZnakTlo, ZnakTekst;
+        }
 
         public App()
         {
@@ -133,7 +148,7 @@ namespace Ecxp
                 if (mb.Groups[5].Success) biezStrony = Siec.Strony(mb.Groups[5].Value.Split(',').ToList());
             }
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
-            foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l);
+            foreach (var l in P.Czytaj(ReadFile).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) read.Add(l); WczytajSledzone();
 
             iconOk = Icon.FromHandle(IconBitmap(false, 32).GetHicon());
             iconNew = Icon.FromHandle(IconBitmap(true, 32).GetHicon());
@@ -196,7 +211,7 @@ namespace Ecxp
                 }
             }
             catch (Exception ex)
-            {
+            { Bledy.Wyjatek(ex);
                 klient = null;
                 if (stStos != null) { stStos.Text = Jezyk.T("⚠ ECXP: stos niedostępny – ") + ex.Message; stStos.ForeColor = Czerwony; }
                 return;
@@ -213,9 +228,22 @@ namespace Ecxp
 
         object Stos(string op, Dictionary<string, object> a)
         {
-            if (klient == null || !klient.Polaczony) Polacz();
-            if (klient == null) throw new EcxpException("Brak połączenia ze stosem ECXP (ecxpd).");
-            return klient.Wywolaj(op, a);
+            var t0 = DateTime.Now;
+            try
+            {
+                if (klient == null || !klient.Polaczony) Polacz();
+                if (klient == null) throw new EcxpException("Brak połączenia ze stosem ECXP (ecxpd).");
+                var r = klient.Wywolaj(op, a);
+                Bledy.Slad("stos: " + op + " – ok (" + (int)(DateTime.Now - t0).TotalMilliseconds + " ms)");
+                return r;
+            }
+            catch (Exception ex)
+            {
+                Bledy.Slad("stos: " + op + " – BŁĄD: " + ex.Message);
+                Bledy.ZapiszBlad("Operacja stosu ECXP „" + op + "” nie powiodła się: " + ex.Message, ex,
+                    P.D("operacja", op, "argumenty", a, "polaczony", klient != null && klient.Polaczony, "czas_ms", (int)(DateTime.Now - t0).TotalMilliseconds));
+                throw;
+            }
         }
 
         void DaneStosu(Dictionary<string, object> d)
@@ -224,6 +252,8 @@ namespace Ecxp
             {
                 var t = NazwaW(P.S(d, "do")) + " · " + P.S(d, "temat") + ": " + P.S(d, "opis");
                 alarmy.Add(t);
+                Bledy.ZapiszOstrzezenie("Alarm stosu ECXP: " + t, d);
+                Niedoreczona(P.S(d, "id"), P.S(d, "opis"));
                 if (alarmyPokazane.Add(P.S(d, "id"))) ShowPop(Jezyk.T("ECXP: problem z doręczeniem"), t, new List<Msg>(), false);
             }
             brudne = 1;
@@ -249,7 +279,7 @@ namespace Ecxp
                 File.WriteAllLines(tmp, read.ToArray(), new UTF8Encoding(false));
                 if (File.Exists(ReadFile)) File.Replace(tmp, ReadFile, null); else File.Move(tmp, ReadFile);
             }
-            catch { }
+            catch (Exception ex) { Bledy.ZapiszBlad("Nie zapisano listy przeczytanych wiadomości: " + ex.Message, ex, P.D("plik", ReadFile)); }
         }
 
         List<Msg> Wczytaj()
@@ -261,7 +291,9 @@ namespace Ecxp
             {
                 Stan s; if (stany.TryGetValue(m.Id, out s)) m.Dor = s;
                 m.Nowa = !read.Contains(m.Plik) && m.Od != P.Wlasciciel;
+                if (m.Blad != null) Bledy.Raz("uszkodzona|" + m.Sciezka, Bledy.Ostrzezenie, "Nie da się odczytać wiadomości " + m.Plik + ": " + m.Blad, P.D("plik", m.Sciezka, "kolejka", m.Katalog));
             }
+            if (spojnosc.StartsWith("NARUSZONY")) Bledy.Raz("dziennik|" + spojnosc, Bledy.Blad, "Dziennik zdarzeń ECXP jest niespójny: " + spojnosc, P.D("dziennik", Path.Combine(P.Root, "dziennik", "dziennik.jsonl")));
             return list;
         }
 
@@ -431,25 +463,29 @@ namespace Ecxp
             var bZamknij = Btn("⊘  Zamknij wątek…");
             bZamknij.Click += delegate { ZamknijWatki(); };
             new ToolTip().SetToolTip(bZamknij, "Zamyka wątki zaznaczonych wiadomości – także niedoręczone i bez odpowiedzi.\nWiadomości trafiają do archiwum (nic nie jest kasowane), strażnik przestaje o nie upominać.");
-            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij });
+            bLogi = Btn("🧾  Logi");
+            bLogi.Click += delegate { Bledy.Pokaz(form, fontN); };
+            new ToolTip().SetToolTip(bLogi, "Błędy i ostrzeżenia konsoli ze szczegółami. Zapis tylko przy problemach.");
+            Bledy.Zmiana += () => { try { form.BeginInvoke((Action)OdswiezLogi); } catch { } };
+            top.Controls.AddRange(new Control[] { bPisz, bOdp, bDecyzjaR, bZamknij, bLogi });
 
             var split = rozmowySplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, Size = new Size(1000, 500), SplitterDistance = 300, Panel1MinSize = 180, Panel2MinSize = 300 };
             lv = new SpokojnaLista { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
-                SmallImageList = new ImageList { ImageSize = new Size(1, 68) } };
+                SmallImageList = new ImageList { ImageSize = new Size(1, 78) } };
             lv.ShowGroups = false; lv.ShowItemToolTips = true; lv.HeaderStyle = ColumnHeaderStyle.None; lv.OwnerDraw = true;
             lv.DrawItem += delegate { };
-            lv.DrawSubItem += (sender, e) => {
-                if (e.ColumnIndex != 0) return;
-                bool selected = e.Item.Selected;
-                Color back = selected ? Akcent : e.Item.BackColor;
-                using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, e.Bounds);
-                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.Font, new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 6, Math.Max(1, e.Bounds.Width - 18), e.Bounds.Height - 10), e.Item.ForeColor, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
-                using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-                if (selected && lv.Focused) e.DrawFocusRectangle(e.Bounds);
-            };
+            lv.DrawSubItem += (sender, e) => { if (e.ColumnIndex == 0) RysujWiersz(e); };
             lv.Columns.Add("Rozmowa", 330); lv.Columns.Add("Moduł", 110); lv.Columns.Add("Stan", 220);
             det = new RichTextBox { ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, BorderStyle = BorderStyle.None, DetectUrls = false };
             split.Panel1.Controls.Add(lv);
+            var pasekKier = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(4, 3, 4, 3) };
+            rbWsz = Kier("Wszystkie", 0); rbOdeb = Kier("📥 Odebrane", 1); rbWysl = Kier("📤 Wysłane", 2);
+            rbWsz.Checked = true;
+            new ToolTip().SetToolTip(rbOdeb, "Rozmowy z wiadomościami od agentów do Ciebie i między agentami.");
+            new ToolTip().SetToolTip(rbWysl, "Rozmowy z wiadomościami, które wysłałeś – ze stanem odczytu u adresata.");
+            pasekKier.Controls.AddRange(new Control[] { rbWsz, rbOdeb, rbWysl });
+            split.Panel1.Controls.Add(pasekKier);
+            split.Panel1.Controls.Add(Naglowek("TYTUŁ"));
             split.Panel2.Controls.Add(det);
             noweWiadomosci = Btn("Nowe wiadomości lub statusy — pokaż");
             noweWiadomosci.Dock = DockStyle.Bottom; noweWiadomosci.Visible = false;
@@ -466,12 +502,14 @@ namespace Ecxp
             modulySplit.Panel1.Controls.Add(nav); modulySplit.Panel2.Controls.Add(split);
             rozmowaTytul = new Label { Dock = DockStyle.Top, Height = 58, Padding = new Padding(12, 8, 8, 4), Font = fontB, Text = "Wybierz rozmowę", AutoEllipsis = true };
             split.Panel2.Controls.Add(rozmowaTytul);
+            split.Panel2.Controls.Add(Naglowek("WIADOMOŚĆ"));
             BudujSzybkaOdpowiedz(split.Panel2);
             tabMsg.Controls.Add(modulySplit); tabMsg.Controls.Add(top);
             var filtrPanel = Btn("Filtry"); top.Controls.Add(filtrPanel);
             filtrPanel.Click += delegate { modulySplit.Panel1Collapsed = !modulySplit.Panel1Collapsed; };
             lv.Resize += delegate { if (lv.Columns.Count > 0) { lv.Columns[0].Width = Math.Max(120, lv.ClientSize.Width - 5); for (int i = 1; i < lv.Columns.Count; i++) lv.Columns[i].Width = 0; } };
-            lv.MouseClick += (sender, e) => { var hit = lv.HitTest(e.Location); if (hit.Item != null) OtworzWiadomosc((Msg)hit.Item.Tag); };
+            lv.MouseClick += (sender, e) => { if (e.Button != MouseButtons.Left) return; var hit = lv.HitTest(e.Location); if (hit.Item != null) OtworzWiadomosc((Msg)hit.Item.Tag); };
+            BudujMenuListy();
             lv.KeyDown += (sender, e) => { if (e.KeyCode == Keys.Enter && Wybrana() != null) { e.Handled = true; OtworzWiadomosc(Wybrana()); } };
             form.Resize += delegate { UkladRozmow(); };
 
@@ -659,7 +697,8 @@ namespace Ecxp
                 wciecie = 0;
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
                 Dopisz(NazwaW(m.Od) + "  →  " + (m.Lustro.Count > 1 ? Jezyk.T("para: ") + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : NazwaW(m.Do)), fontB, Motyw.Tekst);
-                Dopisz("     " + Jezyk.T(P.Rodzaj(m)) + (m.Pilne ? Jezyk.T(" · PILNE") : "") + (m.KopiaDla.Length > 0 ? Jezyk.T(" · kopia dla pary (1:1)") : "") + "   ·   " + m.Czas.ToString("dd.MM HH:mm") + "\n", fontS, Kolor(m));
+                Dopisz("     " + Jezyk.T(P.Rodzaj(m)) + (m.Pilne ? Jezyk.T(" · PILNE") : "") + (m.KopiaDla.Length > 0 ? Jezyk.T(" · kopia dla pary (1:1)") : "") + "   ·   " + m.Czas.ToString("dd.MM.yyyy HH:mm") + "   ·   ", fontS, Kolor(m));
+                { string zn; Color zt, zk; Znacznik(m, w, out zn, out zt, out zk); Dopisz((Wyslana(m) ? Jezyk.T("wysłana · ") : Jezyk.T("odebrana · ")) + zn + "\n", fontB, KolorZnacznika(m, w)); }
                 wciecie = 24;
                 if (m.Blad != null) Dopisz(Jezyk.T("Nie da się odczytać wiadomości: ") + m.Blad + "\n", fontN, Czerwony);
                 if (m.Uwagi.Trim().Length > 0) Dopisz(TTresc(m.Uwagi.Trim()) + "\n", fontTresc, Motyw.Tekst);
@@ -780,7 +819,7 @@ namespace Ecxp
         void SpisGalezi()
         {
             try { System.Diagnostics.Process.Start(ZbudujSpis()); }
-            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie udało się zbudować spisu: ") + ex.Message, Jezyk.T("Spis gałęzi")); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie udało się zbudować spisu: ") + ex.Message, Jezyk.T("Spis gałęzi")); }
         }
 
         public static string ZbudujSpis()
@@ -872,7 +911,7 @@ namespace Ecxp
                     stInfo.Text = Jezyk.T("Decyzja ") + P.S(r, "id") + Jezyk.T(" podpisana i wysłana.");
                     Skanuj();
                 }
-                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie wydano decyzji: ") + ex.Message, Jezyk.T("Decyzja"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie wydano decyzji: ") + ex.Message, Jezyk.T("Decyzja"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -907,7 +946,7 @@ namespace Ecxp
                     stInfo.Text = Jezyk.T("Agent ") + tbN.Text + Jezyk.T(" działa w tle – odbierze wiadomości, gdy przyjdą.");
                     Skanuj();
                 }
-                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie uruchomiono: ") + ex.Message, Jezyk.T("Agent w tle"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie uruchomiono: ") + ex.Message, Jezyk.T("Agent w tle"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -928,7 +967,7 @@ namespace Ecxp
                     Stos("lancuch_wznow", P.D("id", P.S(lr, "id")));
                 Skanuj();
             }
-            catch (Exception ex) { MessageBox.Show(form, ex.Message, Jezyk.T("Wznów"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, Jezyk.T("Wznów"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         // ---------- O programie / About ----------
@@ -1165,7 +1204,7 @@ namespace Ecxp
                 if (akcja == "restart") { ostatnieCli = DateTime.MinValue; czujDo = DateTime.Now.AddMinutes(1); }
                 PokazCli();
             }
-            catch (Exception ex) { MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         void BudujUslugi(Panel head)
@@ -1296,7 +1335,7 @@ namespace Ecxp
                 }
                 czujDo = DateTime.Now.AddMinutes(5);
             }
-            catch (Exception ex) { MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, nazwa, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         void UkrytyProces(string n, string prog, string args)
@@ -1446,11 +1485,16 @@ namespace Ecxp
 
             var wybrana = Wybrana();
 
-            var watki = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
-                .Where(w => PasujeWatek(w, teraz) && w.Any(Pasuje))
-                .OrderByDescending(w => w.Any(m => m.Nowa)).ThenByDescending(w => w.Max(m => m.Czas)).ToList();
+            var pasujace = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
+                .Where(w => PasujeWatek(w, teraz) && w.Any(Pasuje)).ToList();
+            int ileOdeb = pasujace.Count(w => w.Any(m => !Wyslana(m))), ileWysl = pasujace.Count(w => w.Any(Wyslana)), ileNowych = pasujace.Count(w => w.Any(m => m.Nowa));
+            UstawKier(rbWsz, Jezyk.T("Wszystkie") + " (" + pasujace.Count + ")");
+            UstawKier(rbOdeb, Jezyk.T("📥 Odebrane") + " (" + ileOdeb + (ileNowych > 0 ? ", " + Jezyk.T("nowe: ") + ileNowych : "") + ")");
+            UstawKier(rbWysl, Jezyk.T("📤 Wysłane") + " (" + ileWysl + ")");
+            var watki = pasujace.Where(w => kierunek == 0 || w.Any(m => Wyslana(m) == (kierunek == 2)))
+                .OrderByDescending(w => kierunek != 2 && w.Any(m => m.Nowa)).ThenByDescending(w => Reprezentant(w).Czas).ToList();
 
-            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + teraz.ToString("yyyyMMddHHmm"));
+            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Ciemny + biezProj + biezMod + kierunek + teraz.ToString("yyyyMMddHHmm"));
             if (podpis != podpisListy)
             {
             var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Watek));
@@ -1468,8 +1512,12 @@ namespace Ecxp
                     : w.Any(m => m.Dor != null && (m.Dor.Eskalacja || m.Dor.Zaginiona)) ? Jezyk.T("⚠ brak potwierdzenia – eskalacja")
                     : czekaj > TimeSpan.Zero ? Jezyk.T("⏳ czeka od ") + P.Wiek(czekaj)
                     : Jezyk.T("✓ bez oczekujących");
-                var representative = w.LastOrDefault(x => x.Od != P.Wlasciciel && x.KopiaDla.Length == 0) ?? w.Last();
-                var it = new ListViewItem(P.Baza(w[0].Temat) + "\n" + representative.Modul + " · " + stanW) { Tag = representative, ForeColor = Motyw.Tekst, BackColor = Motyw.Pole };
+                var representative = Reprezentant(w);
+                var it = new Wiersz(P.Baza(w[0].Temat) + "\n" + representative.Modul + " · " + stanW) { Tag = representative, ForeColor = Motyw.Tekst, BackColor = Motyw.Pole };
+                it.Tytul = P.Baza(w[0].Temat);
+                it.Data = representative.Czas.ToString("dd.MM.yyyy HH:mm");
+                it.Linia = (Wyslana(representative) ? "📤 " + Jezyk.T("do ") + Adresaci(representative, w) : "📥 " + Jezyk.T("od ") + NazwaW(representative.Od)) + "  ·  " + representative.Modul + "  ·  " + stanW;
+                Znacznik(representative, w, out it.Znak, out it.ZnakTlo, out it.ZnakTekst);
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
                 it.SubItems.Add(stanW);
                 it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
@@ -1587,11 +1635,127 @@ namespace Ecxp
                 if (m.Katalog == "do-wlasciciela" && m.Blad == null && File.Exists(m.Sciezka))
                 {
                     try { Stos("potwierdz", P.D("id", m.Id, "wynik", "obsluzona", "uwagi", "przeczytane przez operatora")); }
-                    catch (Exception ex) { stInfo.Text = Jezyk.T("Nie udało się potwierdzić ") + m.Plik + ": " + ex.Message; }
+                    catch (Exception ex) { Bledy.Wyjatek(ex); stInfo.Text = Jezyk.T("Nie udało się potwierdzić ") + m.Plik + ": " + ex.Message; }
                 }
             }
             SaveRead();
             Skanuj();
+            if (watekPodgladu.Length > 0 && items.Any(x => x.Watek == watekPodgladu))
+            {
+                var s = msgs.FirstOrDefault(x => x.Id == wybranaWiadomosc) ?? msgs.FirstOrDefault(x => x.Watek == watekPodgladu);
+                if (s != null) { podpisPodgladu = ""; PokazWatek(s, true); }
+            }
+        }
+
+        static bool Wyslana(Msg m) { return m.Od == P.Wlasciciel; }
+
+        // Wiadomość, która reprezentuje rozmowę na liście: w „Odebranych” najnowsza od agenta, w „Wysłanych” najnowsza od operatora.
+        Msg Reprezentant(List<Msg> w)
+        {
+            if (kierunek == 2) return w.LastOrDefault(x => Wyslana(x) && x.KopiaDla.Length == 0) ?? w.LastOrDefault(Wyslana) ?? w.Last();
+            return w.LastOrDefault(x => !Wyslana(x) && x.KopiaDla.Length == 0) ?? (kierunek == 1 ? w.LastOrDefault(x => !Wyslana(x)) : null) ?? w.Last();
+        }
+
+        // Wszystkie kopie tej samej wiadomości (para 1:1 dostaje kopię dla każdej strony).
+        static List<Msg> Kopie(Msg m, List<Msg> w)
+        {
+            var l = w.Where(x => x.Id == m.Id || (m.LustroId.Length > 0 && x.LustroId == m.LustroId)).ToList();
+            return l.Count > 0 ? l : new List<Msg> { m };
+        }
+
+        string Adresaci(Msg m, List<Msg> w)
+        {
+            return string.Join(" + ", Kopie(m, w).Select(x => NazwaW(x.Do)).Distinct());
+        }
+
+        // Czy adresat odczytał wiadomość: odebrał ją (ecxp_odbierz) albo potwierdził. Stary format: przeniesiona do przeczytanych.
+        static bool OdczytanaPrzezAdresata(Msg x)
+        {
+            if (x.Dor != null) return x.Dor.Dostarczona.HasValue || x.Dor.Potwierdzona.HasValue;
+            return x.Katalog == "przeczytane";
+        }
+
+        // Znacznik wiadomości: odebrana – NOWA albo przeczytana (przez Ciebie); wysłana – czy adresat ją przeczytał.
+        void Znacznik(Msg m, List<Msg> w, out string tekst, out Color tlo, out Color kolor)
+        {
+            kolor = Color.Black;
+            if (!Wyslana(m))
+            {
+                int nowe = kierunek == 0 || kierunek == 1 ? w.Count(x => x.Nowa) : (m.Nowa ? 1 : 0);
+                if (m.Nowa || nowe > 0) { tekst = nowe > 1 ? Jezyk.T("NOWE: ") + nowe : Jezyk.T("NOWA"); tlo = Zolty; return; }
+                tekst = Jezyk.T("✓ przeczytana"); tlo = Motyw.Ostrz(Color.FromArgb(232, 232, 232)); kolor = Motyw.Slaby; return;
+            }
+            var kopie = Kopie(m, w);
+            int odczyt = kopie.Count(OdczytanaPrzezAdresata);
+            if (odczyt == kopie.Count) { tekst = kopie.Count > 1 ? Jezyk.T("✓ przeczytana przez obie strony") : Jezyk.T("✓ przeczytana przez adresata"); tlo = Motyw.Ostrz(Color.FromArgb(214, 240, 214)); return; }
+            if (odczyt > 0) { tekst = string.Format(Jezyk.T("◐ przeczytana {0}/{1}"), odczyt, kopie.Count); tlo = Motyw.Ostrz(Color.FromArgb(214, 236, 255)); return; }
+            tekst = Jezyk.T("● nieprzeczytana przez adresata"); tlo = Motyw.Ostrz(Color.FromArgb(255, 226, 196));
+        }
+
+        Color KolorZnacznika(Msg m, List<Msg> w)
+        {
+            if (!Wyslana(m)) return m.Nowa ? Motyw.K(Color.FromArgb(190, 110, 0)) : Motyw.Slaby;
+            var kopie = Kopie(m, w);
+            int odczyt = kopie.Count(OdczytanaPrzezAdresata);
+            return odczyt == kopie.Count ? Zielony : odczyt > 0 ? Motyw.K(Color.FromArgb(0, 80, 200)) : Motyw.K(Color.FromArgb(190, 90, 0));
+        }
+
+        RadioButton Kier(string tekst, int k)
+        {
+            var r = new RadioButton { Text = tekst, Appearance = Appearance.Button, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2), Padding = new Padding(6, 2, 6, 2), Font = fontN };
+            r.FlatAppearance.CheckedBackColor = Akcent;
+            r.CheckedChanged += delegate { if (r.Checked && kierunek != k) { kierunek = k; podpisListy = ""; RefreshView(); } };
+            return r;
+        }
+
+        static void UstawKier(RadioButton r, string t) { if (r != null && r.Text != t) r.Text = t; }
+
+        Label Naglowek(string t)
+        {
+            return new Label { Text = t, Dock = DockStyle.Top, Height = 28, Font = fontB, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0), BackColor = Akcent };
+        }
+
+        void OdswiezLogi()
+        {
+            if (bLogi == null) return;
+            int n = Bledy.Nieobejrzane;
+            var t = Jezyk.T("🧾  Logi") + (n > 0 ? " (" + n + ")" : "");
+            if (bLogi.Text != t) bLogi.Text = t;
+            bLogi.BackColor = n > 0 ? Motyw.Ostrz(Color.FromArgb(255, 214, 214)) : SystemColors.Control;
+            bLogi.UseVisualStyleBackColor = n == 0;
+        }
+
+        // Wiersz listy: tytuł; znacznik i data z godziną; kierunek (od / do), moduł i stan.
+        void RysujWiersz(DrawListViewSubItemEventArgs e)
+        {
+            bool selected = e.Item.Selected;
+            Color back = selected ? Akcent : e.Item.BackColor;
+            using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, e.Bounds);
+            var r = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 6, Math.Max(1, e.Bounds.Width - 18), e.Bounds.Height - 10);
+            var w = e.Item as Wiersz;
+            const TextFormatFlags jedna = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+            if (w == null)
+                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.Font, r, e.Item.ForeColor, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+            else
+            {
+                int y = r.Y;
+                TextRenderer.DrawText(e.Graphics, w.Tytul, e.Item.Font, new Rectangle(r.X, y, r.Width, e.Item.Font.Height + 2), e.Item.ForeColor, jedna);
+                y += e.Item.Font.Height + 5;
+                int x = r.X;
+                if (w.Znak.Length > 0)
+                {
+                    var sz = TextRenderer.MeasureText(e.Graphics, w.Znak, fontS, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                    var rz = new Rectangle(x, y, Math.Min(sz.Width + 12, r.Width), sz.Height + 4);
+                    using (var b = new SolidBrush(w.ZnakTlo)) e.Graphics.FillRectangle(b, rz);
+                    TextRenderer.DrawText(e.Graphics, w.Znak, fontS, rz, w.ZnakTekst, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | jedna);
+                    x = rz.Right + 8;
+                }
+                TextRenderer.DrawText(e.Graphics, w.Data, fontS, new Rectangle(x, y + 2, Math.Max(1, r.Right - x), fontS.Height + 2), Motyw.Slaby, jedna);
+                y += fontS.Height + 8;
+                TextRenderer.DrawText(e.Graphics, w.Linia, fontS, new Rectangle(r.X, y, r.Width, fontS.Height + 2), e.Item.ForeColor == Czerwony ? Czerwony : Motyw.Slaby, jedna);
+            }
+            using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            if (selected && lv.Focused) e.DrawFocusRectangle(e.Bounds);
         }
 
         string OpisPary(string projekt, string modul)
@@ -1608,7 +1772,7 @@ namespace Ecxp
             if (szybkiPanel != null) szybkiPanel.Visible = form.ClientSize.Height >= 620;
             rozmowySplit.Orientation = Orientation.Vertical;
             if (rozmowySplit.Orientation == Orientation.Vertical && rozmowySplit.Width > 500)
-                rozmowySplit.SplitterDistance = Math.Max(180, Math.Min(300, rozmowySplit.Width - 320));
+                rozmowySplit.SplitterDistance = Math.Max(180, Math.Min(400, rozmowySplit.Width - 420));
             else if (rozmowySplit.Height > 500) rozmowySplit.SplitterDistance = 180;
         }
 
@@ -1698,17 +1862,24 @@ namespace Ecxp
 
 
         // ---------- pisanie ----------
-        void Pisz(Msg odp)
+        void Pisz(Msg odp) { Pisz(odp, null); }
+
+        void Pisz(Msg odp, Msg ponownie)
         {
             // Adresaci, projekty i moduły pochodzą z konfiguracji projektów (projekty\*\projekt.json), kart węzłów i historii – nic nie jest wpisane na sztywno.
             var projekty = P.Projekty();
             var adresaci = new List<string>();
             var projAkt = cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : "";
+            var kontakt = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.Max(x => x.Ostatnio));
+            Func<string, string> ostatnio = n => { DateTime t; return n.Length > 0 && kontakt.TryGetValue(n, out t) ? t.ToString("dd.MM HH:mm") : "—"; };
             foreach (var pa in Siec.Opis(projAkt)["pary"] as List<object> ?? new List<object>())
             {
                 var d = (Dictionary<string, object>)pa;
                 var mod = P.S(d, "modul");
-                adresaci.Add("para:" + mod + " — PARA 1:1 " + mod + ": " + (P.S(d, "codex").Length > 0 ? P.S(d, "codex") : "brak Codexa") + " + " + (P.S(d, "claude").Length > 0 ? P.S(d, "claude") : "brak Claude") + " [" + P.S(d, "projekt") + "]");
+                string cx = P.S(d, "codex"), cl = P.S(d, "claude");
+                DateTime tc, tl; bool zywa = (kontakt.TryGetValue(cx, out tc) && (DateTime.Now - tc).TotalHours < 24) || (kontakt.TryGetValue(cl, out tl) && (DateTime.Now - tl).TotalHours < 24);
+                adresaci.Add("para:" + mod + " — PARA 1:1 " + mod + ": " + (cx.Length > 0 ? cx : "brak Codexa") + " + " + (cl.Length > 0 ? cl : "brak Claude") + " [" + P.S(d, "projekt") + "]" +
+                    "  · " + Jezyk.T("ostatni kontakt: ") + ostatnio(cx) + " / " + ostatnio(cl) + (zywa ? "" : Jezyk.T("  ⚠ nieaktywna ponad dobę")));
             }
             foreach (var pa in Siec.Opis(projAkt)["pary"] as List<object> ?? new List<object>())
             {
@@ -1753,9 +1924,161 @@ namespace Ecxp
                     f.Text = "Odpowiedz – " + NazwaW(komu) + " · " + P.Baza(odp.Temat);
                     f.cbTyp.SelectedIndex = 3;   // odpowiedź
                 }
+                if (ponownie != null) WypelnijPonownie(f, ponownie, adresaci);
                 if (f.ShowDialog(form) != DialogResult.OK) return;
-                WyslijFormularz(f);
+                if (WyslijFormularz(f) && ponownie != null) ZastapPoprzednia(ponownie);
             }
+        }
+
+        // ---------- wyślij ponownie, obudź, potwierdzenie odebrania ----------
+
+        void BudujMenuListy()
+        {
+            var menu = new ContextMenuStrip();
+            var miPon = new ToolStripMenuItem("↪  Wyślij ponownie…");
+            var miObudz = new ToolStripMenuItem("⏰  Obudź adresata");
+            var miOdp = new ToolStripMenuItem("↩  Odpowiedz…");
+            var miOkno = new ToolStripMenuItem("Otwórz w oknie");
+            var miZam = new ToolStripMenuItem("⊘  Zamknij wątek…");
+            miPon.Click += delegate { WyslijPonownie(Wybrana()); };
+            miObudz.Click += delegate { Obudz(Wybrana()); };
+            miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
+            miOkno.Click += delegate { var m = Wybrana(); if (m != null) OtworzWiadomosc(m); };
+            miZam.Click += delegate { ZamknijWatki(); };
+            menu.Items.AddRange(new ToolStripItem[] { miPon, miObudz, new ToolStripSeparator(), miOdp, miOkno, new ToolStripSeparator(), miZam });
+            menu.Opening += (s, e) =>
+            {
+                var m = Wybrana();
+                if (m == null) { e.Cancel = true; return; }
+                miObudz.Enabled = Oczekujace(m).Count > 0;
+                Jezyk.Zastosuj(menu);
+            };
+            lv.ContextMenuStrip = menu;
+        }
+
+        // Kopie wiadomości (z rozmowy), których adresat jeszcze nie odebrał.
+        List<Msg> Oczekujace(Msg m)
+        {
+            var w = msgs.Where(x => x.Watek == m.Watek).ToList();
+            var baza = Wyslana(m) ? m : (w.LastOrDefault(x => Wyslana(x) && x.KopiaDla.Length == 0) ?? m);
+            return Kopie(baza, w).Where(x => (x.Katalog == "do-codex" || x.Katalog == "do-claude") && !OdczytanaPrzezAdresata(x)).ToList();
+        }
+
+        void WyslijPonownie(Msg m)
+        {
+            if (m == null) return;
+            var w = msgs.Where(x => x.Watek == m.Watek).ToList();
+            var baza = Wyslana(m) ? m : (w.LastOrDefault(x => Wyslana(x) && x.KopiaDla.Length == 0) ?? m);
+            Pisz(null, baza);
+        }
+
+        void WypelnijPonownie(PiszForm f, Msg m, List<string> adresaci)
+        {
+            var adres = m.Lustro.Count > 1 && m.Modul.Length > 0 ? "para:" + m.Modul : m.Do;
+            f.UstawAdresata(adresaci.FirstOrDefault(a => a.StartsWith(adres + " ")) ?? adres);
+            if (m.Projekt.Length > 0) f.cbProjekt.Text = m.Projekt;
+            f.cbModul.Text = m.Modul.Length > 0 ? m.Modul : "wspolne";
+            f.UstawTyp(m.Typ);
+            f.tbTemat.Text = P.Baza(m.Temat);
+            f.tbTresc.Text = (Wyslana(m) ? "" : string.Format(Jezyk.T("(Przekazuję wiadomość od {0} z {1})"), NazwaW(m.Od), m.Czas.ToString("dd.MM.yyyy HH:mm")) + "\r\n\r\n") +
+                m.Uwagi.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            f.chPilne.Checked = m.Pilne;
+            var pliki = new List<string>();
+            foreach (var c in m.Czesci.Where(c => P.S(c, "rodzaj") == "plik"))
+            {
+                var sha = P.S(c, "sha256");
+                var kand = new[] { P.S(c, "sciezka"), sha.Length >= 12 ? Path.Combine(P.Root, "kontekst", "zalaczniki", sha.Substring(0, 12), P.S(c, "nazwa")) : "" };
+                var p = kand.FirstOrDefault(x => x.Length > 0 && File.Exists(x));
+                if (p != null) pliki.Add(p);
+            }
+            if (pliki.Count > 0) f.zal.UstawPliki(pliki);
+            f.chPotw.Checked = true;
+            f.Text = Jezyk.T("Wyślij ponownie – popraw i wyślij") + " · " + P.Baza(m.Temat);
+        }
+
+        // Poprzednia wersja, której adresat nie odebrał, trafia do archiwum – nie dotrze już obok nowej.
+        void ZastapPoprzednia(Msg m)
+        {
+            var stare = Oczekujace(m);
+            if (stare.Count == 0) return;
+            try
+            {
+                Stos("wycofaj", P.D("pliki", stare.Select(x => x.Plik).ToList(), "powod", "zastąpiona nową wersją (Wyślij ponownie w ECXP-MAILBOX)"));
+                foreach (var x in stare) sledzone.Remove(x.Id);
+                ZapiszSledzone();
+                Skanuj();
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); stInfo.Text = Jezyk.T("Nowa wersja wysłana, ale poprzedniej nie zamknięto: ") + ex.Message; }
+        }
+
+        void Obudz(Msg m)
+        {
+            if (m == null) return;
+            var czekaja = Oczekujace(m).Select(x => x.Do).Distinct().ToList();
+            if (czekaja.Count == 0) { MessageBox.Show(form, Jezyk.T("Adresaci odebrali już tę wiadomość."), Jezyk.T("Obudź adresata")); return; }
+            var wyniki = new List<string>();
+            foreach (var kto in czekaja)
+                try
+                {
+                    var r = (Dictionary<string, object>)Stos("obudz", P.D("nazwa", kto));
+                    wyniki.Add(NazwaW(kto) + ": " + (P.S(r, "stan") == "trwa" ? Jezyk.T("budzenie już trwa") : Jezyk.T("budzę – ")) + P.S(r, "sposob"));
+                }
+                catch (Exception ex) { wyniki.Add(NazwaW(kto) + ": " + ex.Message); }
+            MessageBox.Show(form, string.Join("\n\n", wyniki) + "\n\n" + Jezyk.T("Sesja dostanie polecenie odebrania i potwierdzenia wiadomości. Stan zobaczysz przy wiadomości w „Wysłanych”."),
+                Jezyk.T("Obudź adresata"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        void WczytajSledzone()
+        {
+            foreach (var l in P.Czytaj(PlikSledzonych).Split('\n'))
+            {
+                var c = l.TrimEnd('\r').Split(new[] { '\t' }, 2);
+                if (c.Length == 2 && c[0].Length > 0) sledzone[c[0]] = c[1];
+            }
+        }
+
+        void ZapiszSledzone()
+        {
+            try
+            {
+                var tmp = PlikSledzonych + ".tmp";
+                File.WriteAllLines(tmp, sledzone.Select(kv => kv.Key + "\t" + kv.Value).ToArray(), new UTF8Encoding(false));
+                if (File.Exists(PlikSledzonych)) File.Replace(tmp, PlikSledzonych, null); else File.Move(tmp, PlikSledzonych);
+            }
+            catch (Exception ex) { Bledy.ZapiszBlad("Nie zapisano listy śledzonych wiadomości: " + ex.Message, ex); }
+        }
+
+        // Po każdym skanie: powiadomienie o dostarczeniu śledzonych wiadomości.
+        void SprawdzSledzone()
+        {
+            if (sledzone.Count == 0) return;
+            bool zmiana = false;
+            foreach (var id in sledzone.Keys.ToList())
+            {
+                var m = msgs.FirstOrDefault(x => x.Id == id);
+                if (m == null) { sledzone.Remove(id); zmiana = true; continue; }       // zamknięta albo zarchiwizowana
+                if (!OdczytanaPrzezAdresata(m)) continue;
+                sledzone.Remove(id); zmiana = true;
+                ShowPop(Jezyk.T("✓ Dostarczono: ") + NazwaW(m.Do), Jezyk.T("Adresat odebrał wiadomość „") + P.Baza(m.Temat) + "” (" +
+                    (m.Dor != null && m.Dor.Dostarczona.HasValue ? m.Dor.Dostarczona.Value.ToString("dd.MM.yyyy HH:mm") : m.Czas.ToString("dd.MM.yyyy HH:mm")) + ").", new List<Msg> { m }, false);
+            }
+            if (zmiana) ZapiszSledzone();
+        }
+
+        // Stos zgłosił, że wiadomości nie da się doręczyć: propozycja ponownego wysłania (z poprawkami).
+        void Niedoreczona(string id, string opis)
+        {
+            var m = msgs.FirstOrDefault(x => x.Id == id);
+            if (m == null || dialogNiedoreczonej) return;
+            if (!Wyslana(m) && !sledzone.ContainsKey(id)) return;
+            dialogNiedoreczonej = true;
+            try
+            {
+                if (MessageBox.Show(form, opis + "\n\n" + Jezyk.T("Wysłać ponownie? Możesz poprawić treść, dodać zadania i zmienić adresata (np. na aktywną sesję). Poprzednia wersja trafi do archiwum."),
+                        Jezyk.T("Nie doręczono"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                    WyslijPonownie(m);
+            }
+            finally { dialogNiedoreczonej = false; }
         }
 
         bool WyslijFormularz(PiszForm f)
@@ -1767,7 +2090,11 @@ namespace Ecxp
                         "temat", f.tbTemat.Text, "tresc", f.tbTresc.Text, "odpowiedz_na", f.OdpNa, "pilne", f.chPilne.Checked,
                         "ograniczenia", "Wiadomość operatora przez ECXP. Push, merge, USER_ACCEPTED, usuwanie, zmiany rezerwacji i ustawień bezpieczeństwa wymagają zgody operatora w czacie."));
                     foreach (var w in (r["wyslane"] as System.Collections.IEnumerable) ?? new object[0])
+                    {
                         read.Add(Path.GetFileName(P.S((Dictionary<string, object>)w, "plik")));
+                        if (f.chPotw.Checked) sledzone[P.S((Dictionary<string, object>)w, "id")] = P.S((Dictionary<string, object>)w, "do") + "\t" + P.Baza(f.tbTemat.Text);
+                    }
+                    if (f.chPotw.Checked) ZapiszSledzone();
                     foreach (var w in (r["kopie_dla_pary"] as System.Collections.IEnumerable) ?? new object[0])
                         read.Add(P.S((Dictionary<string, object>)w, "id") + ".json");
                     SaveRead();
@@ -1777,11 +2104,14 @@ namespace Ecxp
                     stInfo.Text = Jezyk.T("Wysłano do ") + string.Join(" + ", ((System.Collections.IEnumerable)r["adresaci"]).Cast<object>()) + (ileK > 0 ? Jezyk.T(" (kopia dla pary: ") + ileK + ")" : "") +
                         (termin > 0 ? ", termin potwierdzenia " + termin + " min" : "");
                     ShowPop(Jezyk.T("Wysłano: ") + NazwaW(f.Adresat), Jezyk.T("Temat ") + P.Baza(f.tbTemat.Text.Length > 0 ? f.tbTemat.Text : (string)r["id"]) +
-                        (termin > 0 ? ". Jeśli adresat nie potwierdzi w " + termin + " min, kanał ponowi i zaalarmuje." : "."), new List<Msg>(), false);
+                        (f.chPotw.Checked ? Jezyk.T(". Powiadomię Cię, gdy adresat odbierze wiadomość albo gdy doręczenie się nie uda. Wiadomość jest w „Wysłanych”.") : "."), new List<Msg>(), false);
+                    var ostrz = P.L(r, "ostrzezenia");
+                    if (ostrz.Count > 0)
+                        MessageBox.Show(form, string.Join("\n\n", ostrz), Jezyk.T("Wysłano – uwaga o adresacie"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return true;
                 }
                 catch (Exception ex)
-                {
+                { Bledy.Wyjatek(ex);
                     MessageBox.Show(form, Jezyk.T("Nie wysłano: ") + ex.Message, Jezyk.T("Napisz"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return false;
                 }
@@ -1990,7 +2320,7 @@ namespace Ecxp
                         zalN.Pliki.Where(SesjeAplikacji.Obraz).ToList());
                     else PokazPakiety((strony.Count == 2 ? "Para utworzona: " : "Zadanie utworzone: ") + P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"));
                 }
-                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -2001,7 +2331,7 @@ namespace Ecxp
                 pkCodex != null ? "zakładam wątek Codex w tle…" : "sesja Claude otwiera się w aplikacji…");
             if (pkClaude != null)
                 try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); }
-                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             if (pkCodex != null) new Thread(() =>
             {
                 string wynik;
@@ -2010,7 +2340,7 @@ namespace Ecxp
                     var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), obrazy, 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } }, true);
                     wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” założony i zgłoszony do ECXP (") + w + ").";
                 }
-                catch (Exception ex) { wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
+                catch (Exception ex) { Bledy.Wyjatek(ex); wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
             if (pkClaude == null)
@@ -2049,7 +2379,7 @@ namespace Ecxp
                     Skanuj();
                     stInfo.Text = Jezyk.T("Przypisano ") + cbN.Text + Jezyk.T(" do ") + cbP.Text + "/" + tbM.Text;
                 }
-                catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie przypisano: ") + ex.Message, Jezyk.T("Role"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie przypisano: ") + ex.Message, Jezyk.T("Role"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -2130,7 +2460,7 @@ namespace Ecxp
                 Skanuj();
                 stInfo.Text = Jezyk.T("Zamknięto wątki – przeniesiono do archiwum: ") + P.S(r, "przeniesione");
             }
-            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie zamknięto: ") + ex.Message, Jezyk.T("Zamknij wątek"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie zamknięto: ") + ex.Message, Jezyk.T("Zamknij wątek"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         void Clean(int days)
@@ -2179,7 +2509,7 @@ namespace Ecxp
                 ok = Convert.ToInt32(r["przeniesione"]); err = Convert.ToInt32(r["bledy"]);
                 foreach (var m in cand) read.Remove(m.Plik);
             }
-            catch (Exception ex) { MessageBox.Show(form, Jezyk.T("Nie przeniesiono: ") + ex.Message, Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie przeniesiono: ") + ex.Message, Jezyk.T("Wyczyść"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             var kept = new HashSet<string>(P.Wszystkie(false).Select(m => m.Plik));
             read.RemoveWhere(r => r.StartsWith("STAN|") ? r != StanKey() : !kept.Contains(r));
             SaveRead();
@@ -2349,6 +2679,7 @@ namespace Ecxp
             if (alarmy.Count > 20) alarmy = alarmy.Skip(alarmy.Count - 20).ToList();
 
             msgs = Wczytaj();
+            SprawdzSledzone();
             var fresh = msgs.Where(m => m.Nowa && !seen.Contains(m.Plik)).ToList();
             foreach (var m in msgs) seen.Add(m.Plik);
             var k = StanKey();
@@ -2435,6 +2766,7 @@ namespace Ecxp
             using (var mutex = new Mutex(true, @"Local\ECXP-MAILBOX-" + P.Sha(P.Root.ToLowerInvariant()).Substring(0, 12), out created))
             {
                 if (!created) return 0;
+                Bledy.Zainstaluj();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new App());
@@ -3051,7 +3383,7 @@ namespace Ecxp
                 File.WriteAllText(sp, Ladnie(P.Js().Serialize(st)), new UTF8Encoding(false));
                 log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hook lustra czatu.") : Jezyk.T("• Claude: hook lustra czatu (UserPromptSubmit) w ") + sp + ".");
             }
-            catch (Exception ex) { log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
 
             // 3. Codex: serwer MCP ecxp w config.toml
             var cp = Path.Combine(dom, ".codex", "config.toml");
@@ -3087,7 +3419,7 @@ namespace Ecxp
                         s.GetType().InvokeMember(kv[0], System.Reflection.BindingFlags.SetProperty, null, s, new object[] { kv[1] });
                     s.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, s, null);
                 }
-                catch (Exception ex) { log.AppendLine(Jezyk.T("• Skrót ") + lnk + ": " + ex.Message); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Skrót ") + lnk + ": " + ex.Message); }
             }
             log.AppendLine(Jezyk.T(usun ? "• Usunięto skróty." : "• Skróty: pulpit i autostart."));
             log.AppendLine(Jezyk.T("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak."));
@@ -3188,7 +3520,7 @@ namespace Ecxp
     {
         public ComboBox cbDo, cbProjekt, cbModul, cbTyp;
         public TextBox tbTemat, tbTresc;
-        public CheckBox chPilne, chCodex, chClaude;
+        public CheckBox chPilne, chCodex, chClaude, chPotw;
         readonly FlowLayoutPanel agenci;
         public Zalaczniki zal = new Zalaczniki();
         protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); Jezyk.Zastosuj(this); base.OnLoad(e); }
@@ -3222,8 +3554,10 @@ namespace Ecxp
             cbTyp = new ComboBox { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
             cbTyp.Items.AddRange(TypyPl); cbTyp.SelectedIndex = 0;
             chPilne = new CheckBox { Text = "Pilne (potwierdzenie w 15 min)", AutoSize = true, Margin = new Padding(16, 6, 3, 3) };
-            var rodz = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-            rodz.Controls.Add(cbTyp); rodz.Controls.Add(chPilne);
+            chPotw = new CheckBox { Text = "Potwierdź odebranie", Checked = true, AutoSize = true, Margin = new Padding(16, 6, 3, 3) };
+            new ToolTip().SetToolTip(chPotw, "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).");
+            var rodz = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+            rodz.Controls.Add(cbTyp); rodz.Controls.Add(chPilne); rodz.Controls.Add(chPotw);
             tbTemat = new TextBox { Dock = DockStyle.Fill };
             tbTresc = new TextBox { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true, Font = new Font("Segoe UI", 10.5f) };
             var uwaga = new Label
@@ -3250,7 +3584,7 @@ namespace Ecxp
             Wiersz(t, "", przyciski, SizeType.AutoSize);
             Controls.Add(t);
 
-            cbDo.TextChanged += delegate { UstawAgentow(); Podpowiedz(); };
+            cbDo.TextChanged += delegate { UstawAgentow(); Podpowiedz(); if (ModulPary.Length > 0 && cbModul.Text != ModulPary) cbModul.Text = ModulPary; };
             chCodex.CheckedChanged += delegate { Podpowiedz(); };
             chClaude.CheckedChanged += delegate { Podpowiedz(); };
             UstawAgentow();
@@ -3310,6 +3644,7 @@ namespace Ecxp
         public string Projekt { get { return P.Slug(cbProjekt.Text, 32, false); } }
         public string Modul { get { var m = P.Slug(cbModul.Text, 24, false); return m.Length > 0 ? m : "wspolne"; } }
         public string Typ { get { return TypyKod[Math.Max(0, cbTyp.SelectedIndex)]; } }
+        public void UstawTyp(string kod) { var i = Array.IndexOf(TypyKod, kod); if (i >= 0) cbTyp.SelectedIndex = i; }
 
         void Podpowiedz()
         {
@@ -3331,6 +3666,9 @@ namespace Ecxp
             { MessageBox.Show(this, Jezyk.T("Wybierz adresata z listy albo wpisz nazwę w postaci codex-<czat> lub claude-<sesja>."), Jezyk.T("Napisz")); return; }
             if (ModulPary.Length > 0 && !chCodex.Checked && !chClaude.Checked) { MessageBox.Show(this, Jezyk.T("Zaznacz co najmniej jednego agenta."), Jezyk.T("Napisz")); return; }
             if (tbTresc.Text.Trim().Length == 0) { MessageBox.Show(this, Jezyk.T("Wpisz treść wiadomości."), Jezyk.T("Napisz")); tbTresc.Focus(); return; }
+            if (ModulPary.Length > 0 && Modul != ModulPary &&
+                MessageBox.Show(this, string.Format(Jezyk.T("Adres „{0}” to para modułu „{1}”, a wiadomość ma moduł „{2}”.\n\nWiadomość trafi do sesji modułu „{1}”. Wysłać mimo to?"), Adresat, ModulPary, Modul),
+                    Jezyk.T("Napisz"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             DialogResult = DialogResult.OK;
             Close();
         }

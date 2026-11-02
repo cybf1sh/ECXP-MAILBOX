@@ -85,6 +85,9 @@ namespace Ecxp
                 Log("start, potok " + nazwaPotoku + ", katalog " + P.Root);
                 for (int i = 0; i < 4; i++) new Thread(Akceptuj) { IsBackground = true, Name = "ecxp-akceptuj" }.Start();
                 new Thread(Straznik) { IsBackground = true, Name = "ecxp-straznik" }.Start();
+                Doreczanie.Log = Log; Doreczanie.Blokada = stos;
+                Doreczanie.Alarm = (id, kto, temat, opis) => { Wypchnij(P.D("zdarzenie", "alarm", "id", id, "do", kto, "temat", temat, "opis", opis, "rodzaj", "niedoreczona")); Wypchnij(P.D("zdarzenie", "zmiana")); };
+                new Thread(Doreczanie.Petla) { IsBackground = true, Name = "ecxp-doreczanie" }.Start();
                 var fsw = new FileSystemWatcher(P.Root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite, InternalBufferSize = 65536 };
                 FileSystemEventHandler h = (s, e) => { if (Istotne(e.FullPath)) zmiana = 1; };
                 fsw.Created += h; fsw.Changed += h; fsw.Deleted += h;
@@ -389,6 +392,7 @@ namespace Ecxp
                         }
                         return P.D("przeniesione", ok, "bledy", err);
                     }
+                case "obudz": TylkoOperator(s); return Doreczanie.ObudzTeraz(P.S(a, "nazwa"));
                 case "wycofaj": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"));
                 case "nowe_zadanie":
                     {

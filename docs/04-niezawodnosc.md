@@ -105,6 +105,35 @@ flowchart TD
     CX -- tak --> KO["zadanie BRAK-POTWIERDZENIA<br/>do codex-koordynacja"]
 ```
 
+## Doręczanie [jest]
+
+Strażnik pilnuje potwierdzeń, a usługa doręczania w stosie (`Doreczanie.cs`) pilnuje, żeby wiadomość w ogóle dotarła. Sama obecność wiadomości w kolejce adresata to za mało, bo sesja, która nic nie robi, jej nie odbierze.
+
+- Co minutę stos sprawdza wiadomości bez zdarzenia `dostarczona`. Po 2 minutach budzi adresata w jego własnej sesji:
+  - **Codex:** tura w wątku tej sesji (`codex app-server`: `thread/resume` i `turn/start`). Piaskownica jest tylko do odczytu, a zatwierdzane są wyłącznie narzędzia serwera MCP `ecxp`. Wątek stos rozpoznaje w zapisie rozmów (pakiet startowy albo `ecxp_przypisz`).
+  - **Claude:** tura w sesji Claude Code (`claude -p --resume <sesja>`) z narzędziami ECXP i odczytem plików. Sesję wskazuje hook (`stan\hook-sesje`) albo trasa.
+- Tura budzenia ma jedno zadanie: odebrać wiadomości i potwierdzić każdą. Właściwą pracę sesja wykonuje dalej u siebie.
+- Sesji, która właśnie pracuje (zapis rozmowy zmieniony w ostatnich 2 min), stos nie budzi. Odbierze sama, bo hook `UserPromptSubmit` przypomina jej przy każdym wpisie o czekających wiadomościach.
+- Kolejne próby są co 10 min, najwyżej 3. Alarm `NIEDORECZONA` trafia od razu do operatora (wiadomość od `ecxp-straznik` i alarm w konsoli, jeden na adresata), gdy:
+  - adresat nie ma znanej sesji na tym komputerze;
+  - albo trzy próby nie pomogły.
+- Pomijani są: operator, koordynacja Codexa (automatyzacja co 10 min), agenci w tle (mają własną pętlę) i kopie wpisów z czatu.
+- Wiadomości sprzed pierwszego włączenia usługi nie budzą sesji. Operator widzi je w „Wysłanych” jako „nieprzeczytana przez adresata”.
+- Stan prób jest w `stan\doreczanie.json`. `"wylaczone": true` wyłącza budzenie, a alarmy po 30 min zostają.
+
+Przy wysyłce stos dodatkowo:
+
+- odrzuca adres modułu niezgodny z modułem wiadomości (np. `para:ecxp` przy module `ecxp-mailbox`), bo taka wiadomość trafiłaby do innej pary;
+- uzupełnia pusty moduł z adresu;
+- zwraca `ostrzezenia`, gdy adresat nie odzywa się od doby albo nigdy się nie odezwał.
+
+Konsola pokazuje te ostrzeżenia po wysłaniu.
+
+Po stronie operatora:
+- „Potwierdź odebranie” w oknie Napisz (domyślnie włączone): konsola powiadamia o dostarczeniu, a przy alarmie proponuje „Wyślij ponownie”.
+- „↪ Wyślij ponownie…” (prawy przycisk na wiadomości): otwiera kopię do poprawy, dopisania zadań albo zmiany adresata. Poprzednia, nieodebrana wersja trafia do archiwum.
+- „⏰ Obudź adresata”: budzenie na żądanie, bez czekania na kolejną próbę (operacja stosu `obudz`, tylko operator).
+
 ## Integralność przy odbiorze [jest]
 
 `ecxp_odbierz` zwraca dla każdej wiadomości pole `integralnosc`:

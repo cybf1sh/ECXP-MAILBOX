@@ -1,10 +1,12 @@
-﻿# ECXP – hook UserPromptSubmit dla Claude Code (lustro 1:1).
+﻿# ECXP – hook UserPromptSubmit dla Claude Code (lustro 1:1 i doręczanie).
 # Wpis operatora w czacie sesji Claude należącej do pary ECXP trafia do stosu (stan\wejscia\), a stos przekazuje go
-# dosłownie drugiej stronie pary. Sesje spoza ECXP: skrypt nic nie zapisuje. Nie blokuje wpisu i nic nie wypisuje.
+# dosłownie drugiej stronie pary. Gdy na tę sesję czekają nieodebrane wiadomości ECXP, hook dopisuje do kontekstu
+# przypomnienie, żeby sesja je odebrała. Sesje spoza ECXP: skrypt nic nie zapisuje i nic nie wypisuje. Nie blokuje wpisu.
 # Katalog skrzynki: zmienna ECXP_SKRZYNKA albo katalog nadrzędny wobec tego skryptu (<skrzynka>\narzedzia\hook-claude.ps1).
 $ErrorActionPreference = 'SilentlyContinue'
 try {
     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
     $root = if ($env:ECXP_SKRZYNKA) { $env:ECXP_SKRZYNKA } else { Split-Path -Parent $PSScriptRoot }
     $we = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $sesja = [string]$we.session_id
@@ -43,6 +45,15 @@ try {
         }
     }
     if (-not $nazwa) { exit 0 }
+    # nieodebrane wiadomości dla tej sesji: przypomnienie trafia do kontekstu modelu (wyjście hooka UserPromptSubmit)
+    try {
+        $czeka = @(Get-ChildItem (Join-Path $root 'do-claude') -Filter '*.json' -File | ForEach-Object {
+            try { $j = [IO.File]::ReadAllText($_.FullName) | ConvertFrom-Json; if ([string]$j.do -eq $nazwa) { [string]$j.temat } } catch { } })
+        if ($czeka.Count -gt 0) {
+            Write-Output ("[ECXP] Na adres $nazwa czeka nieodebranych wiadomości: " + $czeka.Count + " (" + (($czeka | Select-Object -First 6) -join ', ') +
+                "). Odbierz je narzędziem ecxp_odbierz(ja=$nazwa) i potwierdź każdą – zanim zajmiesz się resztą.")
+        }
+    } catch { }
     if ($tekst -match 'Twoja nazwa w ECXP:') { exit 0 }   # pakiet startowy nie jest wpisem dla drugiej strony
     $dir = Join-Path $root 'stan\wejscia'
     New-Item -ItemType Directory -Force $dir | Out-Null

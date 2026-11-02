@@ -274,6 +274,16 @@ namespace Ecxp
                     if (org != null) { n.Projekt = org.Projekt; if (n.Modul == "wspolne" && org.Modul.Length > 0) n.Modul = org.Modul; }
                 }
                 n.Projekt = P.Slug(n.Projekt, 32, false);
+                // adres modułu (para:, codex/, claude/) musi zgadzać się z modułem wiadomości – inaczej wiadomość trafiłaby do innej pary
+                var mAdr = System.Text.RegularExpressions.Regex.Match((n.Do ?? "").Trim().ToLowerInvariant(), @"^(?:para:|\*/|codex/|claude/)([a-z0-9-]+)$");
+                if (mAdr.Success)
+                {
+                    var modAdr = mAdr.Groups[1].Value;
+                    if (n.Modul.Length == 0 || n.Modul == "wspolne") n.Modul = modAdr;
+                    else if (n.Modul != modAdr)
+                        throw new EcxpException("Adres '" + n.Do + "' to sesje modułu '" + modAdr + "', a wiadomość ma moduł '" + n.Modul +
+                            "'. Wiadomość trafiłaby do innej pary – popraw adres (np. para:" + n.Modul + ") albo moduł.");
+                }
                 var cele = Rozwiaz(n.Projekt, n.Do);
                 // para wstrzymana po rozbieżności gałęzi: agenci nie dostają nowych zadań, dopóki operator jej nie wznowi
                 if (n.Od != P.Wlasciciel && n.Typ == "zadanie")
@@ -317,6 +327,20 @@ namespace Ecxp
                     }
                 }
                 var wynik = new Dictionary<string, object>(pierwsza);
+                // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
+                var kontakt = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.Max(x => x.Ostatnio));
+                var ostrz = new List<string>();
+                foreach (var c in cele.Where(P.PoprawnyNadawca))
+                {
+                    DateTime t;
+                    if (!kontakt.TryGetValue(c, out t)) ostrz.Add("Adresat " + c + " jeszcze nigdy nie odezwał się w ECXP.");
+                    else if ((DateTime.Now - t).TotalHours >= 24) ostrz.Add("Adresat " + c + " nie odzywa się od " + P.Wiek(DateTime.Now - t) + " (ostatni kontakt " + t.ToString("dd.MM.yyyy HH:mm") + ").");
+                }
+                if (ostrz.Count > 0)
+                {
+                    ostrz.Add("Wiadomość wysłana. Stos spróbuje obudzić adresata w jego sesji; jeśli się nie uda, dostaniesz alarm „NIEDORECZONA”.");
+                    wynik["ostrzezenia"] = ostrz;
+                }
                 wynik["adresaci"] = cele;
                 wynik["wyslane"] = wyslane;
                 if (lustroId.Length > 0) wynik["lustro_id"] = lustroId;
