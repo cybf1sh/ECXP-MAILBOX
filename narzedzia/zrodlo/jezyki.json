@@ -494,7 +494,9 @@
   "Wysłano – uwaga o adresacie": "Sent – note about the recipient",
   "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).": "The stack polls and wakes the recipient until the message is received. You get a notification of delivery or failure (with “Send again”).",
   "wysłana · ": "sent · ",
-  "odebrana · ": "received · "
+  "odebrana · ": "received · ",
+  "➦  Wyślij do Codex / Claude…": "➦  Send to Codex / Claude…",
+  "Wyślij do Codex / Claude – zaznacz agentów": "Send to Codex / Claude – select agents"
  },
  "fr": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Nœuds ECXP. Chaque réception, envoi et confirmation via ECXP enregistre un signe de vie.",
@@ -991,7 +993,9 @@
   "Wysłano – uwaga o adresacie": "Envoyé – remarque sur le destinataire",
   "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).": "La pile interroge et réveille le destinataire jusqu'à la réception. Vous serez averti de la livraison ou de l'échec (avec « Renvoyer »).",
   "wysłana · ": "envoyé · ",
-  "odebrana · ": "reçu · "
+  "odebrana · ": "reçu · ",
+  "➦  Wyślij do Codex / Claude…": "➦  Envoyer à Codex / Claude…",
+  "Wyślij do Codex / Claude – zaznacz agentów": "Envoyer à Codex / Claude – choisissez les agents"
  },
  "cs": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Uzly ECXP. Každé přijetí, odeslání a potvrzení přes ECXP zaznamená signál aktivity.",
@@ -1488,7 +1492,9 @@
   "Wysłano – uwaga o adresacie": "Odesláno – upozornění k adresátovi",
   "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).": "Zásobník dotazuje a probouzí adresáta, dokud zprávu nepřevezme. Dostanete upozornění o doručení nebo o neúspěchu (s volbou „Odeslat znovu“).",
   "wysłana · ": "odeslaná · ",
-  "odebrana · ": "přijatá · "
+  "odebrana · ": "přijatá · ",
+  "➦  Wyślij do Codex / Claude…": "➦  Odeslat Codexu / Claude…",
+  "Wyślij do Codex / Claude – zaznacz agentów": "Odeslat Codexu / Claude – vyberte agenty"
  },
  "de": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "ECXP-Knoten. Empfangen, Senden und Bestätigen über ECXP erfasst ein Lebenszeichen.",
@@ -1985,6 +1991,8 @@
   "Wysłano – uwaga o adresacie": "Gesendet – Hinweis zum Empfänger",
   "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).": "Der Stack fragt den Empfänger ab und weckt ihn, bis die Nachricht abgeholt ist. Sie erhalten eine Meldung über Zustellung oder Fehlschlag (mit „Erneut senden“).",
   "wysłana · ": "gesendet · ",
-  "odebrana · ": "empfangen · "
+  "odebrana · ": "empfangen · ",
+  "➦  Wyślij do Codex / Claude…": "➦  An Codex / Claude senden…",
+  "Wyślij do Codex / Claude – zaznacz agentów": "An Codex / Claude senden – Agenten wählen"
  }
 }

@@ -1864,7 +1864,9 @@ namespace Ecxp
         // ---------- pisanie ----------
         void Pisz(Msg odp) { Pisz(odp, null); }
 
-        void Pisz(Msg odp, Msg ponownie)
+        // ponownie != null: formularz wypełniony tą wiadomością. zastap = true („Wyślij ponownie”): nowa wersja zastępuje
+        // nieodebraną poprzednią; zastap = false („Wyślij do Codex / Claude”): kopia do pary modułu, oryginał zostaje.
+        void Pisz(Msg odp, Msg ponownie, bool zastap = true)
         {
             // Adresaci, projekty i moduły pochodzą z konfiguracji projektów (projekty\*\projekt.json), kart węzłów i historii – nic nie jest wpisane na sztywno.
             var projekty = P.Projekty();
@@ -1924,9 +1926,9 @@ namespace Ecxp
                     f.Text = "Odpowiedz – " + NazwaW(komu) + " · " + P.Baza(odp.Temat);
                     f.cbTyp.SelectedIndex = 3;   // odpowiedź
                 }
-                if (ponownie != null) WypelnijPonownie(f, ponownie, adresaci);
+                if (ponownie != null) WypelnijPonownie(f, ponownie, adresaci, zastap);
                 if (f.ShowDialog(form) != DialogResult.OK) return;
-                if (WyslijFormularz(f) && ponownie != null) ZastapPoprzednia(ponownie);
+                if (WyslijFormularz(f) && ponownie != null && zastap) ZastapPoprzednia(ponownie);
             }
         }
 
@@ -1937,6 +1939,8 @@ namespace Ecxp
             var menu = new ContextMenuStrip();
             var miPon = new ToolStripMenuItem("↪  Wyślij ponownie…");
             var miObudz = new ToolStripMenuItem("⏰  Obudź adresata");
+            var miAgenci = new ToolStripMenuItem("➦  Wyślij do Codex / Claude…");
+            miAgenci.Click += delegate { var m = Wybrana(); if (m != null) Pisz(null, m, false); };
             var miOdp = new ToolStripMenuItem("↩  Odpowiedz…");
             var miOkno = new ToolStripMenuItem("Otwórz w oknie");
             var miZam = new ToolStripMenuItem("⊘  Zamknij wątek…");
@@ -1945,7 +1949,7 @@ namespace Ecxp
             miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
             miOkno.Click += delegate { var m = Wybrana(); if (m != null) OtworzWiadomosc(m); };
             miZam.Click += delegate { ZamknijWatki(); };
-            menu.Items.AddRange(new ToolStripItem[] { miPon, miObudz, new ToolStripSeparator(), miOdp, miOkno, new ToolStripSeparator(), miZam });
+            menu.Items.AddRange(new ToolStripItem[] { miPon, miAgenci, miObudz, new ToolStripSeparator(), miOdp, miOkno, new ToolStripSeparator(), miZam });
             menu.Opening += (s, e) =>
             {
                 var m = Wybrana();
@@ -1972,9 +1976,10 @@ namespace Ecxp
             Pisz(null, baza);
         }
 
-        void WypelnijPonownie(PiszForm f, Msg m, List<string> adresaci)
+        void WypelnijPonownie(PiszForm f, Msg m, List<string> adresaci, bool zastap = true)
         {
-            var adres = m.Lustro.Count > 1 && m.Modul.Length > 0 ? "para:" + m.Modul : m.Do;
+            // „Wyślij do Codex / Claude”: para modułu wiadomości, pola wyboru agentów decydują – oba albo jeden osobno
+            var adres = (!zastap || m.Lustro.Count > 1) && m.Modul.Length > 0 && m.Modul != "wspolne" ? "para:" + m.Modul : m.Do;
             f.UstawAdresata(adresaci.FirstOrDefault(a => a.StartsWith(adres + " ")) ?? adres);
             if (m.Projekt.Length > 0) f.cbProjekt.Text = m.Projekt;
             f.cbModul.Text = m.Modul.Length > 0 ? m.Modul : "wspolne";
@@ -1993,7 +1998,7 @@ namespace Ecxp
             }
             if (pliki.Count > 0) f.zal.UstawPliki(pliki);
             f.chPotw.Checked = true;
-            f.Text = Jezyk.T("Wyślij ponownie – popraw i wyślij") + " · " + P.Baza(m.Temat);
+            f.Text = (zastap ? Jezyk.T("Wyślij ponownie – popraw i wyślij") : Jezyk.T("Wyślij do Codex / Claude – zaznacz agentów")) + " · " + P.Baza(m.Temat);
         }
 
         // Poprzednia wersja, której adresat nie odebrał, trafia do archiwum – nie dotrze już obok nowej.

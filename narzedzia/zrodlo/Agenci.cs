@@ -374,6 +374,9 @@ namespace Ecxp
         static readonly HashSet<string> Wyzwalacze = new HashSet<string> { "composer", "send_user_message_async_question" };
         static Dictionary<string, long> offsety = new Dictionary<string, long>();
         static readonly Dictionary<string, string> nazwy = new Dictionary<string, string>();
+        // nazwa sesji wątku Codexa: ustalona raz (plik → nazwa albo "" = wątek spoza par); dla wątków bez wpisu operatora – długość pliku przy ostatnim sprawdzeniu
+        static readonly Dictionary<string, string> glowy = new Dictionary<string, string>();
+        static readonly Dictionary<string, long> bezWpisu = new Dictionary<string, long>();
         static readonly Dictionary<string, string> wyzwalacz = new Dictionary<string, string>();
         static readonly DateTime startStosu = DateTime.Now;
 
@@ -459,11 +462,11 @@ namespace Ecxp
                 long o;
                 if (!offsety.TryGetValue(f, out o))
                 {
-                    // nowy plik od startu stosu – czytamy od początku; starszy – tylko rozpoznajemy nazwę, bez przekazywania historii
+                    // nowy plik od startu stosu – czytamy od początku; starszy – bez przekazywania historii
                     o = fi.CreationTime > startStosu ? 0 : fi.Length;
-                    if (o > 0) { var m = Nazwa(Czytaj(f, 0, fi.Length)); if (m.Length > 0) nazwy[f] = m; }
                     offsety[f] = o; zmiana = true;
                 }
+                if (!nazwy.ContainsKey(f)) { var nw = NazwaWatku(f); if (!string.IsNullOrEmpty(nw)) nazwy[f] = nw; }
                 if (fi.Length <= o) continue;
                 var tekst = Czytaj(f, o, fi.Length);
                 var koniec = tekst.LastIndexOf('\n');
@@ -473,8 +476,7 @@ namespace Ecxp
                 foreach (var linia in porcja.Split('\n'))
                 {
                     if (linia.Trim().Length == 0) continue;
-                    var n = Nazwa(linia);
-                    if (n.Length > 0 && n.StartsWith("codex-")) nazwy[f] = n;
+                    if (!nazwy.ContainsKey(f)) { var nw = NazwaWatku(f); if (!string.IsNullOrEmpty(nw)) nazwy[f] = nw; }
                     Dictionary<string, object> d;
                     try { d = P.Js().Deserialize<Dictionary<string, object>>(linia); } catch { continue; }
                     var pl = d != null && d.ContainsKey("payload") ? d["payload"] as Dictionary<string, object> : null;
@@ -496,6 +498,45 @@ namespace Ecxp
                 }
             }
             return zmiana;
+        }
+
+        // Czyj jest wątek Codexa: sesja pary zaczyna się pakietem startowym, więc liczy się tylko PIERWSZA wiadomość operatora
+        // (pomijane są bloki systemowe: kontekst środowiska, AGENTS.md). Wątek, który tylko wyświetla cudze pakiety
+        // (np. koordynacja), nie staje się przez to stroną pary. null = brak jeszcze wpisu operatora, "" = wątek spoza par.
+        public static string NazwaWatku(string f)
+        {
+            lock (glowy)
+            {
+                string z; if (glowy.TryGetValue(f, out z)) return z;
+                long dl; long teraz = 0;
+                try { teraz = new FileInfo(f).Length; } catch { return null; }
+                if (bezWpisu.TryGetValue(f, out dl) && dl == teraz) return null;
+                try
+                {
+                    using (var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var sr = new StreamReader(fs, Encoding.UTF8))
+                    {
+                        string l; int n = 0;
+                        while ((l = sr.ReadLine()) != null && n++ < 400)
+                        {
+                            if (l.IndexOf("\"role\":\"user\"", StringComparison.Ordinal) < 0) continue;
+                            Dictionary<string, object> d;
+                            try { d = P.Js().Deserialize<Dictionary<string, object>>(l); } catch { continue; }
+                            var pl = d != null && d.ContainsKey("payload") ? d["payload"] as Dictionary<string, object> : null;
+                            if (pl == null || P.S(d, "type") != "response_item" || P.S(pl, "type") != "message" || P.S(pl, "role") != "user") continue;
+                            var txt = string.Concat(P.Lista(pl, "content").Select(c => P.S(c, "text"))).TrimStart();
+                            if (txt.Length == 0 || txt.StartsWith("<") || txt.StartsWith("# AGENTS.md")) continue;
+                            var m = RePakiet.Match(txt);
+                            var wynik = m.Success && m.Groups[1].Value.StartsWith("codex-") ? m.Groups[1].Value : "";
+                            glowy[f] = wynik; bezWpisu.Remove(f);
+                            return wynik;
+                        }
+                    }
+                }
+                catch { return null; }
+                bezWpisu[f] = teraz;
+                return null;
+            }
         }
 
         static string Nazwa(string tekst)

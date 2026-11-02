@@ -104,12 +104,11 @@ namespace Ecxp
                 if (Math.Abs((od - najstarsza).TotalSeconds) > 1) { pr = P.D("od", najstarsza.ToString("o"), "nr", 0); proby[kto] = pr; zmiana = true; }
                 int nr; int.TryParse(P.S(pr, "nr"), out nr);
                 DateTime ost; bool bylaProba = DateTime.TryParse(P.S(pr, "czas"), out ost);
-                if (bylaProba && (DateTime.Now - ost).TotalMinutes < OdstepMin) continue;
 
                 var cel = Cel(kto);
                 string powodAlarmu = null;
                 if (cel == null) powodAlarmu = "adresat " + kto + " nie ma znanej sesji na tym komputerze (ostatni kontakt: " + Kontakt(kto) + ") – nikt nie odbierze tej wiadomości.";
-                else if (nr >= MaxProb) powodAlarmu = "adresat " + kto + " nie odebrał wiadomości mimo " + nr + " prób budzenia (ostatnia: " + P.S(pr, "wynik") + ").";
+                else if (nr >= MaxProb) powodAlarmu = "adresat " + kto + " nie odebrał wiadomości – budzenie się nie udało (" + cel.Opis + "; " + P.S(pr, "wynik") + ").";
                 else if (wylaczone) powodAlarmu = (DateTime.Now - najstarsza).TotalMinutes >= 30 ? "adresat " + kto + " nie odebrał wiadomości od " + P.Wiek(DateTime.Now - najstarsza) + " (budzenie wyłączone w stan\\doreczanie.json)." : null;
                 else if (cel.Aktywna) continue;   // sesja właśnie pracuje – odbierze sama; spróbujemy, gdy ucichnie
                 if (powodAlarmu != null)
@@ -123,6 +122,7 @@ namespace Ecxp
                     }
                     continue;
                 }
+                if (bylaProba && (DateTime.Now - ost).TotalMinutes < OdstepMin) continue;   // odstęp dotyczy tylko kolejnego budzenia, nie alarmu
                 pr["nr"] = nr + 1; pr["czas"] = DateTime.Now.ToString("o"); pr["sposob"] = cel.Opis; pr["wynik"] = "trwa";
                 zmiana = true;
                 var tematy = lista.Select(o => P.Baza(o.M.Temat)).Distinct().Take(6).ToList();
@@ -201,7 +201,7 @@ namespace Ecxp
         static Sesja SesjaCodex(string kto)
         {
             // plik rozmowy rozpoznany przez lustro czatu (pakiet startowy albo ecxp_przypisz w tej rozmowie) albo id wątku z trasy
-            var plik = Lustro.PlikRozmowy(kto);
+            var plik = Lustro.PlikRozmowy(kto) ?? WatekZPakietu(kto);
             string id = null;
             if (plik != null) { var m = ReUuid.Match(Path.GetFileNameWithoutExtension(plik)); if (m.Success) id = m.Groups[1].Value; }
             if (id == null)
@@ -220,6 +220,19 @@ namespace Ecxp
                 if (cwd.Length > 0 && Directory.Exists(cwd)) kat = cwd;
             }
             return new Sesja { Strona = "codex", Id = id, Katalog = kat, Aktywna = aktywna, Opis = "Codex, wątek " + id };
+        }
+
+        // Wątki Codexa z ostatnich 14 dni, których pierwszą wiadomością operatora był pakiet startowy tej sesji (najnowszy).
+        static string WatekZPakietu(string kto)
+        {
+            var baza = Environment.GetEnvironmentVariable("ECXP_CODEX_SESSIONS");
+            if (string.IsNullOrEmpty(baza)) baza = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+            if (!Directory.Exists(baza)) return null;
+            var granica = DateTime.Now.AddDays(-14);
+            return Directory.EnumerateFiles(baza, "rollout-*.jsonl", SearchOption.AllDirectories)
+                .Where(f => { try { return File.GetLastWriteTime(f) >= granica; } catch { return false; } })
+                .Where(f => Lustro.NazwaWatku(f) == kto)
+                .OrderByDescending(File.GetLastWriteTime).FirstOrDefault();
         }
 
         static Sesja SesjaClaude(string kto)
@@ -304,6 +317,8 @@ namespace Ecxp
                     var proby = st.ContainsKey("proby") && st["proby"] is Dictionary<string, object> ? (Dictionary<string, object>)st["proby"] : new Dictionary<string, object>();
                     var p = proby.ContainsKey(kto) && proby[kto] is Dictionary<string, object> ? (Dictionary<string, object>)proby[kto] : pr;
                     p["wynik"] = wynik.Length > 300 ? wynik.Substring(0, 300) : wynik; p["sekund"] = (int)(DateTime.Now - start).TotalSeconds;
+                    // wątek otwarty w aplikacji Codex: kolejne próby nic nie dadzą – alarm u operatora w najbliższym kroku
+                    if (wynik.Contains("otwarty i zajęty")) p["nr"] = MaxProb;
                     proby[kto] = p; st["proby"] = proby;
                     Pliki.Zapisz(Plik, st);
                 }
@@ -418,7 +433,9 @@ namespace Ecxp
                 {
                     rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP doręczanie", "version", "1.0")), 120000);
                     pisz(P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
-                    rpc("thread/resume", P.D("threadId", cel.Id, "approvalPolicy", "on-request", "sandbox", "read-only"), 120000);
+                    try { rpc("thread/resume", P.D("threadId", cel.Id, "approvalPolicy", "on-request", "sandbox", "read-only"), 120000); }
+                    catch (EcxpException ex)
+                    { if (!ex.Message.Contains("active writer")) throw; throw new EcxpException("wątek jest otwarty i zajęty w aplikacji Codex – odbierze wiadomości przy najbliższej pracy albo po wpisaniu w nim „odbierz wiadomości ECXP”"); }
                     rpc("turn/start", P.D("threadId", cel.Id, "approvalPolicy", "on-request",
                         "input", new List<object> { P.D("type", "text", "text", polecenie, "text_elements", new List<object>()) }), 120000);
                     if (!koniecTury.WaitOne(TimeSpan.FromMinutes(15))) return "tura Codex trwa ponad 15 min – zostawiona w wątku";
