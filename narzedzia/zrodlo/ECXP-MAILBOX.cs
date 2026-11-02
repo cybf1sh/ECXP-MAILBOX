@@ -378,12 +378,16 @@ namespace Ecxp
             cbJezyk.SelectedIndex = Math.Max(0, Array.FindIndex(Jezyk.Dostepne, j => j[0] == Jezyk.Kod));
             cbJezyk.SelectedIndexChanged += delegate { ZmienJezyk(Jezyk.Dostepne[cbJezyk.SelectedIndex][0]); };
             var ustawienia = Btn("Ustawienia…");
+            var menuUstawien = new ContextMenuStrip();
+            ustawienia.ContextMenuStrip = menuUstawien;
+            form.Disposed += delegate { menuUstawien.Dispose(); };
             ustawienia.Click += delegate {
-                var menu = new ContextMenuStrip();
+                var menu = menuUstawien;
+                foreach (ToolStripItem item in menu.Items.Cast<ToolStripItem>().ToList()) item.Dispose();
+                menu.Items.Clear();
                 menu.Items.Add(Jezyk.T(Motyw.Ciemny ? "☀  Motyw jasny" : "☾  Motyw ciemny"), null, delegate { PrzelaczMotyw(); });
                 foreach (var j in Jezyk.Dostepne) { string kod = j[0]; menu.Items.Add(new ToolStripMenuItem(j[1], null, delegate { ZmienJezyk(kod); }) { Checked = Jezyk.Kod == kod }); }
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
-                menu.Closed += delegate { menu.Dispose(); };
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));
             };
             headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, ustawienia });
@@ -467,7 +471,6 @@ namespace Ecxp
             var filtrPanel = Btn("Filtry"); top.Controls.Add(filtrPanel);
             filtrPanel.Click += delegate { modulySplit.Panel1Collapsed = !modulySplit.Panel1Collapsed; };
             lv.Resize += delegate { if (lv.Columns.Count > 0) { lv.Columns[0].Width = Math.Max(120, lv.ClientSize.Width - 5); for (int i = 1; i < lv.Columns.Count; i++) lv.Columns[i].Width = 0; } };
-            det.MouseUp += (sender, e) => { if (e.Button != MouseButtons.Left || det.SelectionLength != 0) return; int pos = det.GetCharIndexFromPosition(e.Location); var r = zakresyWiadomosci.FirstOrDefault(x => pos >= x.Item1 && pos < x.Item2); if (r != null) OtworzWiadomosc(r.Item3); };
             lv.MouseClick += (sender, e) => { var hit = lv.HitTest(e.Location); if (hit.Item != null) OtworzWiadomosc((Msg)hit.Item.Tag); };
             lv.KeyDown += (sender, e) => { if (e.KeyCode == Keys.Enter && Wybrana() != null) { e.Handled = true; OtworzWiadomosc(Wybrana()); } };
             form.Resize += delegate { UkladRozmow(); };
