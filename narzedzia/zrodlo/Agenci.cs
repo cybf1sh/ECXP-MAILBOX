@@ -20,6 +20,9 @@ namespace Ecxp
         static readonly Dictionary<string, Process> procesy = new Dictionary<string, Process>();
         static readonly HashSet<string> przerwane = new HashSet<string>();
         public static Action<string> Log = s => { };
+        // Które rekordy agentów obsługuje ta pętla. Stos: wszystkie bez podwyższonych uprawnień; proces podwyższony (UAC):
+        // tylko agenci swojego zadania (Ecxpd.Podwyzszone).
+        public static Func<Dictionary<string, object>, bool> Obsluguje = rec => P.S(rec, "podwyzszone_klucz").Length == 0;
 
         // Program CLI z PATH (Windows: .cmd/.exe/.bat). Pusty, gdy go nie ma na tym stanowisku.
         public static string Program(string nazwa)
@@ -248,7 +251,7 @@ namespace Ecxp
                 Thread.Sleep(5000);
                 try
                 {
-                    foreach (var rec in Lista().Where(x => P.B(x, "aktywny")))
+                    foreach (var rec in Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x)))
                     {
                         var n = P.S(rec, "nazwa");
                         if (Zatrzymana(P.S(rec, "strona"))) continue;

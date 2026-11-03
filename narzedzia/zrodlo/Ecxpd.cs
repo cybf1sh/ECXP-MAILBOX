@@ -69,6 +69,7 @@ namespace Ecxp
             P.Root = Path.GetDirectoryName(katalog);
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
             obrazKonsoli = Path.Combine(katalog, "ECXP-MAILBOX.exe");
+            for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/podwyzszone") return Podwyzszone(args[i + 1]);
             nazwaPotoku = Ramka.NazwaPotoku(P.Root);
             bool nowy;
             using (var mutex = new Mutex(true, @"Local\ECXPD-" + nazwaPotoku, out nowy))
@@ -236,6 +237,13 @@ namespace Ecxp
                         // nadzór obiegu zadań w sesjach aplikacji (agentów w tle pilnuje Agenci.Petla)
                         var wTle = new HashSet<string>(Agenci.Lista().Where(x => P.B(x, "aktywny")).Select(x => P.S(x, "nazwa")));
                         al.AddRange(P.ZBlokada(() => Obieg.Nadzor(wTle)));
+                        foreach (var k in Agenci.Lista().Select(x => P.S(x, "podwyzszone_klucz")).Where(x => x.Length > 0).Distinct().ToList())
+                        {
+                            var po = Path.Combine(P.Root, "stan", "obieg", k + ".json");
+                            bool zak = true; try { zak = !File.Exists(po) || P.B(Pliki.Czytaj(po), "zakonczone"); } catch { }
+                            if (zak && !System.Diagnostics.Process.GetProcessesByName("ecxpd").Any(pr => { try { return pr.Id != System.Diagnostics.Process.GetCurrentProcess().Id && pr.StartTime > DateTime.Now.AddHours(-3.1); } catch { return true; } }))
+                                WygasUprawnienia(k, "zadanie zakończone");
+                        }
                     }
                     foreach (var a in al) Wypchnij(P.D("zdarzenie", "alarm", "id", a.Id, "do", a.Do, "temat", a.Temat, "opis", a.Opis));
                     if (al.Count > 0) Wypchnij(P.D("zdarzenie", "zmiana"));
@@ -276,7 +284,7 @@ namespace Ecxp
         // Nowe zadanie w trybie „w tle”: każda strona dostaje agenta, którego tury uruchamia stos (Agenci.Petla), gdy w kolejce
         // czeka wiadomość – bez okien aplikacji i bez budzenia przez operatora. Katalog pracy: projekty\<projekt>; zapis także
         // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
-        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude)
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "")
         {
             var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
             var katalog = Path.Combine(P.Root, "projekty", projekt);
@@ -289,14 +297,69 @@ namespace Ecxp
                 var p = (Dictionary<string, object>)pk[strona];
                 try
                 {
-                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
+                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
                         P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
                         P.S(p, "rola").Length > 0);      // jawne pole: agent zadania (wykonawca, sprawdzający, sam) musi dać FIN
-                    wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis));
+                    if (podwyzszone.Length > 0)
+                        P.ZBlokada(delegate
+                        {
+                            var pa = Path.Combine(P.Root, "stan", "agenci", P.S(rec, "nazwa") + ".json");
+                            var d = Pliki.Czytaj(pa); d["podwyzszone_klucz"] = podwyzszone; d["uprawnienia_po_zadaniu"] = "edycja"; Pliki.Zapisz(pa, d);
+                            return 0;
+                        });
+                    wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis, "podwyzszone", podwyzszone.Length > 0));
                 }
                 catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
             }
             return wynik;
+        }
+
+        // ---------- podwyższone uprawnienia (UAC) jednego zadania ----------
+        // Proces uruchomiony przez konsolę z „runas” (okno UAC Windows): wykonuje tury tylko agentów tego zadania, z prawami
+        // administratora. Kończy się, gdy zadanie ma FIN (obieg zakończony) albo po 3 h – uprawnienia agentów wracają do „edycja”.
+        static int Podwyzszone(string klucz)
+        {
+            Agenci.Log = t => Log("[UAC " + klucz + "] " + t);
+            Agenci.Obsluguje = rec => P.S(rec, "podwyzszone_klucz") == klucz;
+            Log("[UAC " + klucz + "] start, administrator: " + new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator));
+            new Thread(Agenci.Petla) { IsBackground = true, Name = "ecxp-agenci-uac" }.Start();
+            var start = DateTime.Now;
+            var plik = Path.Combine(P.Root, "stan", "obieg", klucz + ".json");
+            while (true)
+            {
+                Thread.Sleep(5000);
+                bool koniec = DateTime.Now - start > TimeSpan.FromHours(3);
+                try { if (!File.Exists(plik) || P.B(Pliki.Czytaj(plik), "zakonczone")) koniec = true; } catch { }
+                if (!koniec) continue;
+                Agenci.Obsluguje = rec => false;                                    // bez nowych tur
+                for (int i = 0; i < 360 && (Agenci.UslugaStan("claude")["w_toku"] as List<object>).Count + (Agenci.UslugaStan("codex")["w_toku"] as List<object>).Count > 0; i++) Thread.Sleep(5000);
+                WygasUprawnienia(klucz, DateTime.Now - start > TimeSpan.FromHours(3) ? "limit 3 h" : "zadanie zakończone");
+                return 0;
+            }
+        }
+
+        static int WygasUprawnienia(string klucz, string powod)
+        {
+            if ((klucz ?? "").Length == 0) return 0;
+            return P.ZBlokada(delegate
+            {
+                int n = 0;
+                var dir = Path.Combine(P.Root, "stan", "agenci");
+                if (!Directory.Exists(dir)) return 0;
+                foreach (var pa in Directory.GetFiles(dir, "*.json"))
+                {
+                    Dictionary<string, object> d;
+                    try { d = Pliki.Czytaj(pa); } catch { continue; }
+                    if (P.S(d, "podwyzszone_klucz") != klucz) continue;
+                    d["uprawnienia"] = P.S(d, "uprawnienia_po_zadaniu").Length > 0 ? P.S(d, "uprawnienia_po_zadaniu") : "edycja";
+                    d.Remove("podwyzszone_klucz"); d.Remove("uprawnienia_po_zadaniu");
+                    Pliki.Zapisz(pa, d);
+                    P.Zdarzenie("uprawnienia_wygasly", P.D("nazwa", P.S(d, "nazwa"), "klucz", klucz, "powod", powod ?? ""));
+                    n++;
+                }
+                return n;
+            });
         }
 
         static readonly System.Text.RegularExpressions.Regex ReSciezka = new System.Text.RegularExpressions.Regex(@"[A-Za-z]:\\[^\r\n""„”<>|*?:]+");   // bez dwukropka: kolejna ścieżka (X:\) zaczyna nowe dopasowanie
@@ -466,10 +529,24 @@ namespace Ecxp
                         if (kroki.Count > 0 && strony.Count < 2) throw new EcxpException("Łańcuch ról wymaga obu stron pary – zaznacz Codex i Claude albo wyczyść pole łańcucha.");
                         var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony,
                             a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null, P.B(a, "repozytorium"));
-                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"));
+                        // podwyższone uprawnienia: zgoda operatora tylko dla tego zadania, klucz = obieg zadania (wygasają z jego FIN)
+                        string klucz = "";
+                        if (P.B(a, "podwyzszone") && P.B(a, "w_tle") && r["zadanie"] is Dictionary<string, object>)
+                        {
+                            var zd = (Dictionary<string, object>)r["zadanie"];
+                            klucz = P.S(zd, "lustro_id").Length > 0 ? P.S(zd, "lustro_id") : P.S(zd, "id");
+                        }
+                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), klucz);
+                        if (klucz.Length > 0)
+                        {
+                            r["podwyzszone_klucz"] = klucz;
+                            P.Zdarzenie("zgoda_podwyzszone", P.D("klucz", klucz, "kto", P.Wlasciciel, "projekt", P.S(r, "projekt"), "modul", P.S(r, "modul"),
+                                "zakres", "tylko agenci tego zadania, do jego zakończenia"));
+                        }
                         if (kroki.Count > 0) r["lancuch"] = Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), kroki, Czesci(a));
                         return r;
                     }
+                case "podwyzszone_wygas": TylkoOperator(s); return P.D("wygasly", WygasUprawnienia(P.S(a, "klucz"), P.S(a, "powod")));
                 case "decyzja":
                     TylkoOperator(s);
                     return Decyzje.Wydaj(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "do"), P.S(a, "rodzaj"), P.S(a, "commit"), P.S(a, "galaz"), P.S(a, "opis"), P.S(a, "odpowiedz_na"), P.S(a, "lancuch"));

@@ -3219,7 +3219,9 @@ namespace Ecxp
                 var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
                 var chSes = f.Wybor("Zamiast tego załóż sesje w aplikacjach (Codex: wątek z nazwą; Claude: nowa sesja z pakietem) – wymaga Twoich wpisów", false);
                 var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
-                chTlo.CheckedChanged += delegate { chSes.Enabled = !chTlo.Checked; if (chTlo.Checked) chSes.Checked = false; };
+                var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator) – agenci tego zadania mogą uruchamiać programy i polecenia", false);
+                f.Uwaga(TekstZgodyUac);
+                chTlo.CheckedChanged += delegate { chSes.Enabled = !chTlo.Checked; if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
                 chSes.CheckedChanged += delegate { if (chSes.Checked) chTlo.Checked = false; };
                 chSes.Enabled = false;
                 f.Uwaga("Agenci: oba zaznaczone – zadanie trafia do obu stron pary (zasada 1:1), jak dotąd. Jeden zaznaczony – zadanie dostaje tylko ten agent, druga strona nie dostaje kopii. " +
@@ -3258,18 +3260,24 @@ namespace Ecxp
                 if (chCx.Checked) strony.Add("codex");
                 if (chCl.Checked) strony.Add("claude");
                 if (strony.Count == 0) return;
+                // podwyższone uprawnienia: wyraźna zgoda operatora, potem okno UAC Windows
+                bool uac = chUac.Checked && chTlo.Checked;
+                if (uac && MessageBox.Show(form, Jezyk.T(TekstZgodyUac) + "\n\n" + Jezyk.T("Po kliknięciu „Tak” Windows poprosi o zgodę (okno UAC)."), Jezyk.T("Podwyższone uprawnienia – zgoda"),
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
                 try
                 {
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
-                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked,
+                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     OdswiezProjekty(P.S(r, "projekt"));     // nowy projekt od razu w menu „Projekt” u góry
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     Func<string, Dictionary<string, object>> pakiet = s => pk.ContainsKey(s) ? (Dictionary<string, object>)pk[s] : null;
                     UstawBiezaca(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), DateTime.Now, true, strony);
+                    string uacInfo = "";
+                    if (P.S(r, "podwyzszone_klucz").Length > 0) uacInfo = UruchomPodwyzszone(P.S(r, "podwyzszone_klucz"));
                     if (chTlo.Checked)
                     {
                         var ag = P.Lista(r, "agenci_w_tle");
@@ -3279,7 +3287,8 @@ namespace Ecxp
                         MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane.\n\nAgenci w tle: {1}.\nStos sam uruchamia ich tury, gdy w kolejce czeka wiadomość – nie trzeba niczego wpisywać ani klikać. Wynik przyjdzie jako odpowiedź na zadanie w Odebranych."), P.S(r, "tytul_sesji"),
                                 string.Join(", ", ag.Where(x => P.S(x, "blad").Length == 0).Select(x => P.S(x, "nazwa")))) +
                             (zap.Count > 0 ? "\n\n" + Jezyk.T("Zapis dozwolony także w: ") + string.Join(", ", zap) : "") +
-                            (bl.Count > 0 ? "\n\n" + Jezyk.T("Nie uruchomiono: ") + string.Join("; ", bl.Select(x => P.S(x, "nazwa") + " – " + P.S(x, "blad"))) : ""),
+                            (bl.Count > 0 ? "\n\n" + Jezyk.T("Nie uruchomiono: ") + string.Join("; ", bl.Select(x => P.S(x, "nazwa") + " – " + P.S(x, "blad"))) : "") +
+                            (uacInfo.Length > 0 ? "\n\n" + uacInfo : ""),
                             "ECXP", MessageBoxButtons.OK, bl.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                     }
                     else if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"),
@@ -3287,6 +3296,26 @@ namespace Ecxp
                     else PokazPakiety((strony.Count == 2 ? "Para utworzona: " : "Zadanie utworzone: ") + P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"));
                 }
                 catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
+        }
+
+        const string TekstZgodyUac = "Zaznaczając to pole, z pełną świadomością daję agentom tego zadania podwyższone uprawnienia (administrator, UAC) do wykonywania zadania – " +
+            "tylko w jego zakresie i tylko dla tego zadania. Po zakończeniu zadania uprawnienia wygasną.";
+
+        // Okno UAC Windows: proces stosu z prawami administratora wykonuje tury agentów tego zadania i kończy się razem z nim.
+        // Odmowa w UAC – uprawnienia od razu wygasają, agenci pracują ze zwykłymi uprawnieniami.
+        string UruchomPodwyzszone(string klucz)
+        {
+            try
+            {
+                var exe = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "ecxpd.exe");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "/root \"" + P.Root + "\" /podwyzszone " + klucz) { UseShellExecute = true, Verb = "runas", WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden });
+                return Jezyk.T("Podwyższone uprawnienia (UAC): przyznane – wygasną po zakończeniu zadania.");
+            }
+            catch (Exception ex)
+            {
+                try { Stos("podwyzszone_wygas", P.D("klucz", klucz, "powod", "odmowa w oknie UAC")); } catch { }
+                return Jezyk.T("Podwyższone uprawnienia nie zostały przyznane (") + ex.Message + Jezyk.T(") – agenci pracują ze zwykłymi uprawnieniami.");
             }
         }
 
