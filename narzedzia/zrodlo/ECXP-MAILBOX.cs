@@ -546,7 +546,14 @@ namespace Ecxp
             var bTlo = Btn("▶  Agent w tle…");
             var bWznow = Btn("Wznów parę / łańcuch");
             var bBiez = Btn("▶  Ustaw jako bieżącą");
-            agTop.Controls.AddRange(new Control[] { bNowe, bBiez, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            var bSesja = Btn("🪟  Utwórz sesję w aplikacji…");
+            agTop.Controls.AddRange(new Control[] { bNowe, bBiez, bSesja, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            bSesja.Click += delegate { UtworzSesjeAplikacji(null); };
+            // prawy przycisk na parze: sesja w aplikacjach (obie strony albo jedna)
+            var menuAg = new ContextMenuStrip();
+            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję w aplikacjach (Codex + Claude)", null, delegate { UtworzSesjeAplikacji(null); }));
+            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję tylko w Codex", null, delegate { UtworzSesjeAplikacji("codex"); }));
+            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję tylko w Claude", null, delegate { UtworzSesjeAplikacji("claude"); }));
             bBiez.Click += delegate { BiezacaZListy(); };
             bDecyzja.Click += delegate { Decyzja(); };
             bTlo.Click += delegate { UruchomAgenta(); };
@@ -569,6 +576,7 @@ namespace Ecxp
             bPakiet.Click += delegate { PakietyStartowe(); };
             bNazwy.Click += delegate { NazwySesji(); };
             lvAg.DoubleClick += delegate { BiezacaZListy(); };
+            lvAg.ContextMenuStrip = menuAg;
             cbProjekt.SelectedIndexChanged += delegate { RefreshView(); };
 
             // --- Połączenia ---
@@ -3376,6 +3384,36 @@ namespace Ecxp
             }
             MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP). Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
                 "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // Sesja w aplikacji Codex / Claude dla pary z listy agentów – widoczna rozmowa zamiast agenta w tle.
+        // Agent w tle tej strony oddaje pracę sesji (jeden wykonawca na adres). Zakończonego zadania sesja nie powtarza:
+        // dostaje pakiet bez starego zadania i czeka na nowe przez ECXP.
+        void UtworzSesjeAplikacji(string tylko)
+        {
+            var para = WybranaPara();
+            if (para == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Utwórz sesję w aplikacji")); return; }
+            string pr = P.S(para, "projekt"), mo = P.S(para, "modul"), tytul = TytulPary(pr, mo);
+            bool otwarte = Obieg.Otwarte().Any(r => P.S(r, "projekt") == pr && P.S(r, "modul") == mo);
+            Func<string, Dictionary<string, object>> pak = n =>
+            {
+                if (string.IsNullOrEmpty(n)) return null;
+                var plik = Path.Combine(P.Root, "stan", "start", n + ".txt");
+                var txt = File.Exists(plik) ? P.Czytaj(plik) : "Nazwa tej sesji: " + tytul + ".\n\nTwoja nazwa w ECXP: " + n + ". Zacznij od: ecxp_przypisz(ja=" + n + ", projekt=" + pr + ", modul=" + mo + "), potem ecxp_odbierz(ja=" + n + ").\n\nZadanie od operatora:\n";
+                var i = txt.IndexOf("Zadanie od operatora:", StringComparison.Ordinal);
+                if (!otwarte && i >= 0) txt = txt.Substring(0, i) + "Poprzednie zadanie jest zakończone. Odbierz wiadomości (ecxp_odbierz) i czekaj na nowe zadanie operatora – przyjdzie przez ECXP.";
+                return P.D("nazwa", n, "tytul_sesji", tytul, "plik", plik, "tekst", txt);
+            };
+            var cx = tylko == "claude" ? null : pak(P.S(para, "codex"));
+            var cl = tylko == "codex" ? null : pak(P.S(para, "claude"));
+            if (cx == null && cl == null) { MessageBox.Show(form, Jezyk.T("Ta para nie ma wybranej strony."), Jezyk.T("Utwórz sesję w aplikacji")); return; }
+            var wTle = Agenci.Lista().Where(x => P.B(x, "aktywny")).Select(x => P.S(x, "nazwa")).ToList();
+            var zatrz = new[] { cx, cl }.Where(x => x != null).Select(x => P.S(x, "nazwa")).Where(wTle.Contains).ToList();
+            if (zatrz.Count > 0 && MessageBox.Show(form, string.Format(Jezyk.T("Agent w tle {0} przekaże pracę sesji w aplikacji (jeden wykonawca na adres) – kontynuować?"), string.Join(", ", zatrz)),
+                    Jezyk.T("Utwórz sesję w aplikacji"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try { foreach (var n in zatrz) Stos("zatrzymaj_agenta", P.D("nazwa", n)); }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie zatrzymano agenta w tle: ") + ex.Message, Jezyk.T("Utwórz sesję w aplikacji"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            ZalozSesje(pr, mo, tytul, cx, cl, new List<string>());
         }
 
         void NadajRole()
