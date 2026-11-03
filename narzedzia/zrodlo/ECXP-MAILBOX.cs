@@ -4674,10 +4674,10 @@ namespace Ecxp
             Wiersz(t, "", przyciski, SizeType.AutoSize);
             Controls.Add(t);
 
-            cbDo.TextChanged += delegate { UstawAgentow(); Podpowiedz(); if (ModulPary.Length > 0 && cbModul.Text != ModulPary) cbModul.Text = ModulPary; };
+            cbDo.TextChanged += delegate { if (synchro) return; UstawAgentow(); Podpowiedz(); if (ModulPary.Length > 0 && cbModul.Text != ModulPary) cbModul.Text = ModulPary; };
             if (ModulPary.Length > 0) cbModul.Text = ModulPary;   // adres domyślny ustawiony przed podpięciem zdarzenia
-            chCodex.CheckedChanged += delegate { Podpowiedz(); };
-            chClaude.CheckedChanged += delegate { Podpowiedz(); };
+            chCodex.CheckedChanged += delegate { DoZAgentow(); Podpowiedz(); };
+            chClaude.CheckedChanged += delegate { DoZAgentow(); Podpowiedz(); };
             UstawAgentow();
             Podpowiedz();
             bOk.Click += delegate { Wyslij(); };
@@ -4726,6 +4726,28 @@ namespace Ecxp
             if (!agenci.Enabled) return;
             chCodex.Checked = !a.StartsWith("claude/");
             chClaude.Checked = !a.StartsWith("codex/");
+        }
+
+        // Zmiana pól „Agenci” ustawia też pole „Do:” na ten sam adres – oba pola zawsze pokazują, dokąd pójdzie wiadomość.
+        bool synchro;
+        void DoZAgentow()
+        {
+            if (synchro || ModulPary.Length == 0 || (!chCodex.Checked && !chClaude.Checked)) return;
+            var cel = AdresatDoWyslania;
+            if (cel == Adresat) return;
+            synchro = true;
+            try
+            {
+                int i = -1;
+                for (int k = 0; k < cbDo.Items.Count; k++)
+                {
+                    var s = cbDo.Items[k].ToString(); int j = s.IndexOf(" — ");
+                    if ((j >= 0 ? s.Substring(0, j) : s).Trim().ToLowerInvariant() == cel) { i = k; break; }
+                }
+                cbDo.SelectedIndex = i;
+                if (i < 0) cbDo.Text = cel;
+            }
+            finally { synchro = false; }
         }
 
         // Adres faktycznie wysłany: wybór agentów decyduje, czy idzie do pary, czy do jednej strony.
