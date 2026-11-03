@@ -409,7 +409,9 @@ namespace Ecxp
                 else
                 {
                     polecenie = P.Czytaj(sys) + "\n\n" + polecenie;
-                    args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" + (pisze ? " -s workspace-write" : " -s read-only") +
+                    args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" +
+                           // zadanie z podwyższonymi uprawnieniami (UAC, zgoda operatora): bez piaskownicy Codexa – tylko do FIN tego zadania
+                           (P.S(rec, "podwyzszone_klucz").Length > 0 && P.S(rec, "uprawnienia") == "pelne" ? " -s danger-full-access" : pisze ? " -s workspace-write" : " -s read-only") +
                            (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
                            // exec działa z zasadą zgód „never”: narzędzia własnego serwera ECXP są zatwierdzone z góry (tylko w tym wywołaniu)
                            " -c mcp_servers.ecxp.default_tools_approval_mode=\"approve\"" +
