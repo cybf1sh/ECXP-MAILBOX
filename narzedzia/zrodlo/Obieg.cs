@@ -159,10 +159,10 @@ namespace Ecxp
             string tresc;
             if (ag.Count == 1) tresc = n.Tresc.Trim();
             else
-                tresc = string.Join("\n\n", ag.OrderBy(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca" ? 0 : 1).Select(kv =>
+                tresc = string.Join("\n\n", ag.OrderBy(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca" || P.S(kv.Value as Dictionary<string, object>, "rola") == "przekazal" ? 0 : 1).Select(kv =>
                 {
                     var x = (Dictionary<string, object>)kv.Value;
-                    var rola = P.S(x, "rola") == "wykonawca" ? "wykonał" : P.S(x, "rola") == "sprawdzajacy" ? "sprawdził" : "";
+                    var rola = P.S(x, "rola") == "wykonawca" || P.S(x, "rola") == "przejal" ? "wykonał" : P.S(x, "rola") == "sprawdzajacy" ? "sprawdził" : P.S(x, "rola") == "przekazal" ? "przekazał" : "";
                     return P.Nazwa(kv.Key) + " (" + kv.Key + ")" + (rola.Length > 0 ? " – " + rola : "") + ":\n" + P.S(x, "fin");
                 }));
             var f = P.Wyslij(new P.Nowa
@@ -174,6 +174,42 @@ namespace Ecxp
             Zapisz(r);
             P.Zdarzenie("obieg_zakonczony", P.D("klucz", r["klucz"], "fin", f["id"]));
             return P.D("ack", true, "stan", "zakonczone", "zadanie", r["klucz"], "fin_do_operatora", f["id"], "uwagi", "FIN dotarł do operatora. Zadanie zakończone – zakończ turę.");
+        }
+
+        // Trwały błąd wykonawcy (blokada treści, brak logowania): ponawianie nic nie da. Jego wpis dostaje NEGATYWNY z przyczyną,
+        // a zadanie wykonuje partner z pary (sprawdzający zostaje wykonawcą). Bez partnera – od razu FIN NEGATYWNY do operatora.
+        public static List<string> Przekaz(string n, string powod)
+        {
+            var wynik = new List<string>();
+            foreach (var r in Otwarte())
+            {
+                var e = Wpis(r, n);
+                if (e == null || P.S(e, "stan") == "fin" || P.S(e, "rola") == "sprawdzajacy") continue;
+                var tekst = "NEGATYWNY – nie mogę wykonać zadania: " + powod;
+                var partner = Agenci(r).Where(kv => kv.Key != n && P.S(kv.Value as Dictionary<string, object>, "stan") != "fin").Select(kv => kv.Key).FirstOrDefault();
+                if (partner == null)
+                {
+                    ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Tresc = tekst, OdpNa = P.S(e, "zadanie") });
+                    wynik.Add(P.S(r, "klucz"));
+                    continue;
+                }
+                e["stan"] = "fin"; e["fin"] = tekst + " Zadanie przekazane " + partner + "."; e["zmiana"] = P.Teraz(); e["rola"] = "przekazal";
+                var ep = Wpis(r, partner);
+                ep["rola"] = "przejal"; ep["zmiana"] = P.Teraz(); ep["przypomnienia"] = 0;
+                PotwierdzZadania(r, n);
+                var zad = P.Znajdz(P.S(e, "zadanie"));
+                var p = P.Wyslij(new P.Nowa
+                {
+                    Od = P.Straznik, Do = partner, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "informacja", Temat = "PRZEJMIJ " + P.S(r, "temat"), Watek = P.S(r, "klucz"),
+                    Tresc = n + " nie może wykonać zadania (" + powod + "). Wykonaj je Ty – zamiast sprawdzania:\n\n" + (zad != null ? zad.Uwagi : P.S(r, "temat")) +
+                            "\n\nPo wykonaniu wyślij jeden FIN: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=" + P.S(ep, "zadanie") + ") – POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś."
+                });
+                var prz = P.L(r, "przekazane"); prz.Add((string)p["id"]); r["przekazane"] = prz;
+                Zapisz(r);
+                P.Zdarzenie("obieg_przekazany", P.D("klucz", r["klucz"], "od", n, "do", partner, "powod", powod));
+                wynik.Add(P.S(r, "klucz"));
+            }
+            return wynik;
         }
 
         // Agent ma otwarte zadanie bez FIN? (wtedy do operatora nie wysyła informacji ani meldunków – tylko FIN albo pytanie)

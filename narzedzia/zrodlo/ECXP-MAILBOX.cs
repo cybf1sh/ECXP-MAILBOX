@@ -5001,6 +5001,21 @@ namespace Ecxp
                 bool opFin = false;
                 try { k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "fin", "tresc", "x")); } catch (EcxpException) { opFin = true; }
                 ok(opFin, "FIN wysyłają tylko agenci");
+                // błąd trwały wykonawcy: zadanie przejmuje partner, operator dostaje jeden FIN
+                var rfo = (Dictionary<string, object>)k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "fo", "tytul", "FO test", "opis", "Zadanie do przekazania.",
+                    "role_codex", new List<string> { "programista" }, "role_claude", new List<string> { "tester" }));
+                ok(Agenci.Przyczyna(1, "{\"code\":\"safety_violation\",\"message\":\"regurg plugin blocked the output stream.\"}") == "trwaly", "blokada treści rozpoznana jako błąd trwały");
+                P.Odbierz("codex-fo", 10); P.Odbierz("claude-fo", 10);
+                int przedFo = doOperatora();
+                var przekFo = Obieg.Przekaz("codex-fo", "filtr treści");
+                var zadFoCl = Agenci.BezOdpowiedzi("claude-fo");
+                ok(przekFo.Count == 1 && Agenci.BezOdpowiedzi("codex-fo") == null && zadFoCl != null && P.Wszystkie(false).Any(m => m.Do == "claude-fo" && m.Temat.StartsWith("PRZEJMIJ"))
+                    && doOperatora() == przedFo, "błąd trwały: zadanie przekazane Claude, wykonawca nic nie winien, operator jeszcze nic nie dostał");
+                var finFo = Siec.Wyslij(new P.Nowa { Od = "claude-fo", Do = P.Wlasciciel, Projekt = "testowy", Modul = "fo", Typ = "fin", Tresc = "POZYTYWNY – wykonane za Codexa.", OdpNa = zadFoCl.Id });
+                var finFoM = P.Wszystkie(false).Where(m => m.Do == P.Wlasciciel && m.Typ == "fin" && m.Modul == "fo").ToList();
+                ok(P.S(finFo, "stan") == "zakonczone" && doOperatora() == przedFo + 1 && finFoM.Count == 1 && finFoM[0].Uwagi.Contains("filtr treści") && finFoM[0].Uwagi.Contains("wykonane za Codexa"),
+                    "po przejęciu: jeden FIN z przyczyną i wynikiem Claude");
+
                 ok(Agenci.Przyczyna(1, "Error: getaddrinfo ENOTFOUND api.anthropic.com") == "siec" && Agenci.Przyczyna(1, "Access is denied.") == "blokada" && Agenci.Przyczyna(1, "coś innego") == "inny",
                     "przyczyna nieudanej tury: sieć, blokada, inny");
 

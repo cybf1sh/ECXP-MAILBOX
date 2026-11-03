@@ -285,9 +285,12 @@ namespace Ecxp
         static readonly Regex ReSiec = new Regex(@"ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|getaddrinfo|fetch failed|socket hang up|network error|stream disconnected|error sending request|" +
             @"could not resolve|connection (was )?(reset|closed|refused)|nie można rozpoznać|brak połączenia", RegexOptions.IgnoreCase);
         static readonly Regex ReBlokada = new Regex(@"access is denied|odmowa dostępu|EPERM|EACCES|requires elevation|wymaga podniesienia|0xc0000022|virus|wirus|blocked by|zablokowan|operation did not complete successfully", RegexOptions.IgnoreCase);
+        // Trwały: odpowiedź modelu zablokowana przez filtr treści albo CLI niezalogowane – ponowienie nic nie zmieni.
+        static readonly Regex ReTrwaly = new Regex(@"safety_violation|content_policy|regurg|blocked the output|invalid_api_key|not logged in|please run /login|Invalid API key|OAuth token has expired", RegexOptions.IgnoreCase);
         public static string Przyczyna(int kod, string wynik)
         {
             if (kod == 0) return "";
+            if (ReTrwaly.IsMatch(wynik ?? "")) return "trwaly";
             if (kod == 5 || kod == 740 || kod == 225 || ReBlokada.IsMatch(wynik ?? "")) return "blokada";
             if (ReSiec.IsMatch(wynik ?? "")) return "siec";
             return "inny";
@@ -332,6 +335,7 @@ namespace Ecxp
                 if (siecWrocila > tOst) return DateTimeOffset.MinValue;      // sieć wróciła po nieudanej turze – od razu
                 return tOst.AddSeconds(OdstepInny[Math.Min(k - 1, OdstepInny.Length - 1)]);
             }
+            if (przyczyna == "trwaly") return tOst.AddSeconds(OdstepInny[OdstepInny.Length - 1]);   // zadanie przejął partner
             var o = przyczyna == "blokada" ? OdstepBlokada : OdstepInny;
             return tOst.AddSeconds(o[Math.Min(k - 1, o.Length - 1)]);
         }
@@ -451,6 +455,13 @@ namespace Ecxp
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
                         if (przypomnij != null) Obieg.Przypomniano(n, przypomnij.Id);
                         var przyczyna = Przyczyna(kod, wynik);
+                        if (przyczyna == "trwaly")
+                        {
+                            var mt = Regex.Match(wynik, @"""message""\s*:\s*""([^""]{1,160})""");
+                            var powod = mt.Success ? mt.Groups[1].Value : "błąd trwały (" + Regex.Match(wynik, ReTrwaly.ToString(), RegexOptions.IgnoreCase).Value + ")";
+                            var przek = Obieg.Przekaz(n, powod);
+                            if (przek.Count > 0) Log("agenci: " + n + " – błąd trwały, zadanie przekazane partnerowi: " + string.Join(", ", przek));
+                        }
                         u.Add(P.D("przyczyna", przyczyna, "czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "przypomnienie", przypomnij != null ? przypomnij.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
@@ -460,7 +471,7 @@ namespace Ecxp
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
                         // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam
-                        if (kod != 0 && !przezOperatora && NieudaneZRzedu(u.Cast<Dictionary<string, object>>().ToList()) >= 3)
+                        if (kod != 0 && !przezOperatora && przyczyna != "trwaly" && NieudaneZRzedu(u.Cast<Dictionary<string, object>>().ToList()) >= 3)
                         {
                             DateTimeOffset tA;
                             if (!DateTimeOffset.TryParse(P.S(d, "ostatni_alarm"), out tA) || tA < DateTimeOffset.Now.AddHours(-1))
