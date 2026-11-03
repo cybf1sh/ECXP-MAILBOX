@@ -93,6 +93,7 @@ namespace EcxpSetup
                 "Désinstaller ECXP de cet ordinateur ?\n\nLes programmes, raccourcis et enregistrements dans Claude Code et Codex seront supprimés. Les messages, le journal et les projets restent dans :\n{0}",
                 "Odinstalovat ECXP z tohoto počítače?\n\nProgramy, zástupci a registrace v Claude Code a Codexu budou odstraněny. Zprávy, deník a projekty zůstanou ve složce:\n{0}",
                 "ECXP von diesem Computer deinstallieren?\n\nProgramme, Verknüpfungen und die Registrierungen in Claude Code und Codex werden entfernt. Nachrichten, Journal und Projekte bleiben in:\n{0}" } },
+            { "skrot_odinst", new[] { "Odinstaluj ECXP", "Uninstall ECXP", "Désinstaller ECXP", "Odinstalovat ECXP", "ECXP deinstallieren" } },
             { "odinst_ok", new[] { "ECXP odinstalowano. Dane zostały w:\n{0}", "ECXP has been uninstalled. Your data is still in:\n{0}", "ECXP a été désinstallé. Vos données restent dans :\n{0}", "ECXP byl odinstalován. Data zůstala ve složce:\n{0}", "ECXP wurde deinstalliert. Ihre Daten liegen weiterhin in:\n{0}" } },
             { "odinst_brak", new[] { "Nie znaleziono instalacji ECXP.", "No ECXP installation was found.", "Aucune installation d’ECXP trouvée.", "Instalace ECXP nebyla nalezena.", "Keine ECXP-Installation gefunden." } },
             { "katalog_zly", new[] { "Podaj katalog instalacji.", "Enter an install folder.", "Indiquez un dossier d’installation.", "Zadejte instalační složku.", "Geben Sie einen Installationsordner an." } },
@@ -151,13 +152,35 @@ namespace EcxpSetup
         static void Zatrzymaj(string katalog)
         {
             var narz = Path.Combine(katalog, "narzedzia");
+            // konsola i stos razem z drzewem procesów (agenci w tle: codex app-server / exec, claude -p)
             foreach (var n in new[] { "ECXP-MAILBOX", "ecxpd" })
                 foreach (var p in Process.GetProcessesByName(n))
                     try
                     {
-                        if (p.MainModule.FileName.StartsWith(narz, StringComparison.OrdinalIgnoreCase)) { p.Kill(); p.WaitForExit(5000); }
+                        if (!p.MainModule.FileName.StartsWith(narz, StringComparison.OrdinalIgnoreCase)) continue;
+                        Uruchom(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + p.Id + " /T /F", 15000);
+                        p.WaitForExit(5000);
                     }
                     catch { }
+            // ciepłe procesy agentów zapisane przez stos (stangenci\cieple-*.txt) – tylko procesy agentów
+            try
+            {
+                var dir = Path.Combine(katalog, "stan", "agenci");
+                if (Directory.Exists(dir))
+                    foreach (var f in Directory.GetFiles(dir, "cieple-*.txt"))
+                        foreach (var s in File.ReadAllLines(f))
+                        {
+                            int pid; if (!int.TryParse(s.Trim(), out pid)) continue;
+                            try
+                            {
+                                var n = Process.GetProcessById(pid).ProcessName.ToLowerInvariant();
+                                if (n == "cmd" || n == "node" || n == "codex" || n == "claude")
+                                    Uruchom(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pid + " /T /F", 15000);
+                            }
+                            catch { }
+                        }
+            }
+            catch { }
         }
 
         // cel istniejącego skrótu (pusty, gdy go nie ma)
@@ -242,6 +265,8 @@ namespace EcxpSetup
             Skrot(Skroty("pulpit"), konsola, "", pulpit, narz);
             Skrot(Skroty("autostart"), konsola, "", autostart, narz);
             Skrot(Skroty("menu"), konsola, "", true, narz);
+            // deinstalator w menu Start (obok konsoli): ECXP-Setup.exe /odinstaluj
+            Skrot(Path.Combine(Path.GetDirectoryName(Skroty("menu")), L.S("skrot_odinst") + ".lnk"), setup, "/odinstaluj", true, narz);
             krok(L.S("k_skroty"), L.S("ok"));
 
             krok(L.S("k_apl"), "…");
@@ -297,6 +322,7 @@ namespace EcxpSetup
             if (Zarejestrowany(narz))
                 try { Uruchom(Path.Combine(narz, "ECXP-MAILBOX.exe"), "/odinstaluj /cicho /jezyk " + L.Kod, 180000); } catch { }
             foreach (var k in new[] { "pulpit", "autostart", "menu" }) Skrot(Skroty(k), "", "", false, narz);
+            try { foreach (var lnk in Directory.GetFiles(Path.GetDirectoryName(Skroty("menu")), "*.lnk")) Skrot(lnk, "", "", false, narz); } catch { }
             try { Directory.Delete(Path.GetDirectoryName(Skroty("menu"))); } catch { }
             Registry.CurrentUser.DeleteSubKeyTree(KluczApl, false);
 
