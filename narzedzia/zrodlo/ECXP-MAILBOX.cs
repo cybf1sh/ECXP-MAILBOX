@@ -4960,6 +4960,10 @@ namespace Ecxp
                 ok(brakO != null && brakO.Id == zadL.Id, "gwarancja odpowiedzi: przyjęte zadanie bez odpowiedzi wykryte");
                 Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "NEGATYWNY – test.", OdpNa = zadL.Id });
                 ok(Agenci.BezOdpowiedzi("codex-elan") == null, "gwarancja odpowiedzi: po odpowiedzi zadanie nie jest już wskazywane");
+                // sprawdzający odpowiada po wykonawcy: jego odpowiedź nie wraca kopią do wykonawcy
+                var zadCl = P.Wszystkie(false).First(m => m.Do == "claude-elan" && m.Typ == "zadanie" && m.LustroId == zadL.LustroId);
+                var odpCl = Siec.Wyslij(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "POZYTYWNY – sprawdzone.", OdpNa = zadCl.Id });
+                ok(((System.Collections.IEnumerable)odpCl["kopie_dla_pary"]).Cast<object>().Count() == 0, "odpowiedź sprawdzającego po wykonawcy – bez kopii zwrotnej");
 
                 // wybór agentów: operator może wysłać tylko do jednej strony, bez kopii dla drugiej
                 var rb = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "bez_kopii", true, "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Tylko dla Codexa, bez kopii."));

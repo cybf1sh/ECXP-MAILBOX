@@ -397,6 +397,10 @@ namespace Ecxp
                     {
                         var partner = Partner(t.Projekt, t.Modul, n.Od);
                         if (partner.Length == 0 || cele.Contains(partner)) continue;
+                        // druga strona już odpowiedziała na to zadanie (np. sprawdzający po wykonawcy) – kopia niczego jej nie wnosi
+                        var zadanie = P.Znajdz(n.OdpNa);
+                        if (zadanie != null && P.Wszystkie(false).Any(x => x.Od == partner && x.Do == P.Wlasciciel && x.Typ == "odpowiedz" && x.Czas >= zadanie.Czas
+                                && x.Projekt == t.Projekt && x.Modul == t.Modul)) continue;
                         kopie.Add(KopiaDlaPary(n, partner, t, P.Nazwa(n.Od) + " (" + n.Od + ") napisał do operatora:", zrodlo, watek));
                     }
                 }
