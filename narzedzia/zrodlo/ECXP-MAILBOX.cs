@@ -3232,6 +3232,7 @@ namespace Ecxp
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var chSpr = f.Wybor("Druga strona sprawdza wynik (dwa przebiegi – wolniej)", false);
+                var chPokaz = f.Wybor("Pokaż sesje agentów – okna Codex i Claude otworzą się automatycznie", false);
                 var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
                 f.Uwaga(TekstZgodyUac);
                 f.Zaaw = true;
@@ -3300,7 +3301,7 @@ namespace Ecxp
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
-                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
+                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "pokaz_sesje", chPokaz.Checked && chTlo.Checked, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     OdswiezProjekty(P.S(r, "projekt"));     // nowy projekt od razu w menu „Projekt” u góry

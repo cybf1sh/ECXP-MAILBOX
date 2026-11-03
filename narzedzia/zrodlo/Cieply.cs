@@ -40,6 +40,46 @@ namespace Ecxp
         // zablokowana praca bez pytań) – jednorazowe „codex exec” / „claude -p”, wolniej, ale wszędzie, gdzie są Codex i Claude.
         // Po pierwszej porażce strona zostaje w trybie zastępczym do restartu stosu; ECXP_BEZ_CIEPLYCH=1 – zawsze zastępczy.
         static readonly HashSet<string> zastepczy = new HashSet<string>();
+
+        // ---------- „Pokaż sesje agentów”: okno rozmowy otwiera się samo ----------
+        // Zgłoszenie trafia do stan\pokaz; okna otwiera zwykły proces stosu (nie proces UAC – aplikacje nie mogą działać
+        // jako administrator). Codex: wątek w aplikacji Codex od startu zadania; Claude: okno Claude Code z sesją po zakończeniu.
+        public static bool WProcesieUac;
+        static string DirPokaz { get { return Path.Combine(P.Root, "stan", "pokaz"); } }
+        static void ZglosPokaz(Dictionary<string, object> rec, string strona, string id)
+        {
+            if (rec == null || !P.B(rec, "pokaz_sesje") || string.IsNullOrEmpty(id)) return;
+            try
+            {
+                Directory.CreateDirectory(DirPokaz);
+                Pliki.Zapisz(Path.Combine(DirPokaz, P.S(rec, "nazwa") + "-" + DateTime.Now.Ticks + ".json"),
+                    P.D("strona", strona, "id", id, "katalog", P.S(rec, "katalog"), "nazwa", P.S(rec, "nazwa")));
+            }
+            catch { }
+        }
+        public static void PokazOczekujace()
+        {
+            if (WProcesieUac || !Directory.Exists(DirPokaz)) return;
+            foreach (var f in Directory.GetFiles(DirPokaz, "*.json"))
+            {
+                Dictionary<string, object> d;
+                try { d = Pliki.Czytaj(f); File.Move(f, f + ".pokazane"); } catch { continue; }
+                try
+                {
+                    if (P.S(d, "strona") == "codex")
+                        Process.Start(new ProcessStartInfo("codex://threads/" + P.S(d, "id")) { UseShellExecute = true });
+                    else
+                    {
+                        var prog = Agenci.Program("claude");
+                        if (prog.Length > 0)
+                            Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/k \"\"" + prog + "\" --resume " + P.S(d, "id") + "\"")
+                                { UseShellExecute = true, WorkingDirectory = Directory.Exists(P.S(d, "katalog")) ? P.S(d, "katalog") : P.Root });
+                    }
+                    Log("pokazano sesję " + P.S(d, "nazwa") + " (" + P.S(d, "strona") + ")");
+                }
+                catch (Exception ex) { Log("pokaż sesję " + P.S(d, "nazwa") + ": " + ex.Message); }
+            }
+        }
         public static bool Zastepczy(string strona)
         {
             if (Environment.GetEnvironmentVariable("ECXP_BEZ_CIEPLYCH") == "1") return true;
@@ -270,7 +310,7 @@ namespace Ecxp
                     wystartowal = true;
                     if (rejestr != null) rejestr(w.Pr);
                     if (w.Strona == "codex") WykonajCodex(w, rec, tekst, limitMin, wy);
-                    else WykonajClaude(w, tekst, limitMin, wy);
+                    else WykonajClaude(w, rec, tekst, limitMin, wy);
                 }
             }
             catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message + "\n" + Dziennik(w); }
@@ -339,13 +379,18 @@ namespace Ecxp
             catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message; return wy; }
             lock (wyjscie) wy.Wyjscie = "(tryb zastępczy)\n" + wyjscie;
             if (wy.Kod != 0) return wy;
-            if (strona == "codex") { try { wy.Odpowiedz = File.Exists(plikWyniku) && File.GetLastWriteTime(plikWyniku) >= startTury ? File.ReadAllText(plikWyniku, Encoding.UTF8).Trim() : ""; } catch { } }
+            if (strona == "codex")
+            {
+                try { wy.Odpowiedz = File.Exists(plikWyniku) && File.GetLastWriteTime(plikWyniku) >= startTury ? File.ReadAllText(plikWyniku, Encoding.UTF8).Trim() : ""; } catch { }
+                var mw = System.Text.RegularExpressions.Regex.Match(wy.Wyjscie, @"session id:\s*([0-9a-f-]{36})");
+                if (mw.Success) ZglosPokaz(rec, "codex", mw.Groups[1].Value);
+            }
             else
                 foreach (var linia in wy.Wyjscie.Split('\n').Reverse())
                 {
                     var t = linia.Trim();
                     if (!t.StartsWith("{") || !t.Contains("\"result\"")) continue;
-                    try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (P.B(j, "is_error")) wy.Kod = 1; else wy.Odpowiedz = P.S(j, "result").Trim(); } catch { }
+                    try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (P.B(j, "is_error")) wy.Kod = 1; else { wy.Odpowiedz = P.S(j, "result").Trim(); ZglosPokaz(rec, "claude", P.S(j, "session_id")); } } catch { }
                     break;
                 }
             return wy;
@@ -365,6 +410,7 @@ namespace Ecxp
             // nazwa wątku jak przy sesjach w aplikacji („🔗ECXP …”) – wątek agenta w tle łatwo znaleźć w aplikacji Codex
             var nazwa = P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : w.Nazwa;
             try { Rpc(w, "thread/name/set", P.D("threadId", watek, "name", nazwa), 15000); } catch (Exception ex) { Dopisz(w, "nazwa wątku: " + ex.Message); }
+            ZglosPokaz(rec, "codex", watek);
             w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
             var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
                 "input", new List<object> { P.D("type", "text", "text", tekst, "text_elements", new List<object>()) });
@@ -375,7 +421,7 @@ namespace Ecxp
             else { wy.Kod = 1; wy.Wyjscie = "tura " + (w.StatusTury ?? "przerwana") + ": " + (w.BladTury ?? "") + "\n" + Dziennik(w); }
         }
 
-        static void WykonajClaude(Proc w, string tekst, int limitMin, Wynik wy)
+        static void WykonajClaude(Proc w, Dictionary<string, object> rec, string tekst, int limitMin, Wynik wy)
         {
             Pisz(w, P.D("type", "user", "message", P.D("role", "user", "content", tekst)));
             string linia = null;
@@ -394,6 +440,7 @@ namespace Ecxp
             wy.Wyjscie = linia;
             if (j == null || P.B(j, "is_error")) { wy.Kod = 1; return; }
             wy.Kod = 0; wy.Odpowiedz = P.S(j, "result").Trim();
+            ZglosPokaz(rec, "claude", P.S(j, "session_id"));
         }
 
         static string Dziennik(Proc w) { lock (w.Dziennik) { var s = w.Dziennik.ToString(); return s.Length > 4000 ? s.Substring(s.Length - 4000) : s; } }

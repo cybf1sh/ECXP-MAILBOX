@@ -257,6 +257,7 @@ namespace Ecxp
                 {
                     var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona"))).ToList();
                     Cieply.Sprzataj(lista.GroupBy(x => P.S(x, "nazwa")).ToDictionary(g => g.Key, g => g.First()));
+                    Cieply.PokazOczekujace();          // „Pokaż sesje agentów”: okna Codex / Claude
                     // agenci z otwartym zadaniem (bez FIN) – ich procesy są rozgrzane z wyprzedzeniem (np. sprawdzający, zanim skończy wykonawca)
                     var wObiegu = new HashSet<string>();
                     foreach (var r in Obieg.Otwarte())
