@@ -242,6 +242,7 @@ namespace Ecxp
         // Pętla w stosie: agent z oczekującymi wiadomościami, bez trwającej tury i w granicy budżetu dostaje jedną turę.
         public static void Petla()
         {
+            NasluchSieci();
             while (true)
             {
                 Thread.Sleep(5000);
@@ -252,24 +253,19 @@ namespace Ecxp
                         var n = P.S(rec, "nazwa");
                         if (Zatrzymana(P.S(rec, "strona"))) continue;
                         lock (trwa) if (trwa.Contains(n)) continue;
-                        // Gwarancja odpowiedzi: wykonawca musi odpowiedzieć na każde zadanie operatora. Gdy tura się skończyła,
-                        // a odpowiedzi nie ma – tura z przypomnieniem (najwyżej MaxPrzypomnien), potem alarm u operatora.
+                        // Gwarancja FIN (zapis obiegu zadania, pole obowiazkowa_odpowiedz): tura się skończyła, a FIN nie ma –
+                        // tura z przypomnieniem (najwyżej MaxPrzypomnien), potem jeden alarm u operatora.
                         Msg brak = null;
                         if (!MaOczekujace(n))
                         {
-                            if (!P.B(rec, "obowiazkowa_odpowiedz") || (brak = BezOdpowiedzi(n)) == null) continue;
-                            object pv; var przyp = rec.TryGetValue("przypomnienia", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
-                            int ile; int.TryParse(P.S(przyp, brak.Id), out ile);
-                            if (ile >= MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, brak); continue; }
+                            if ((brak = BezOdpowiedzi(n)) == null) continue;
+                            if (Obieg.Przypomnienia(n, brak.Id) >= MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, brak); continue; }
                         }
                         int naGodzine; int.TryParse(P.S(rec, "na_godzine"), out naGodzine);
                         var ostatnie = P.Lista(rec, "uruchomienia").Count(u => { DateTimeOffset t; return DateTimeOffset.TryParse(P.S(u, "czas"), out t) && t > DateTimeOffset.Now.AddHours(-1); });
                         if (ostatnie >= Math.Max(1, naGodzine)) continue;
-                        // po nieudanej turze 10 minut przerwy – bez pętli ponowień
-                        var ost = P.Lista(rec, "uruchomienia").LastOrDefault();
-                        DateTimeOffset tOst;
-                        if (ost != null && P.S(ost, "kod") != "0" && DateTimeOffset.TryParse(P.S(ost, "czas"), out tOst) && tOst > DateTimeOffset.Now.AddMinutes(-10)
-                            && tOst > Reset(P.S(rec, "strona"))) continue;
+                        // po nieudanej turze ponowienie według przyczyny (Ponowienie): bez pętli i bez zbędnego ruchu
+                        if (Ponowienie(rec) > DateTimeOffset.Now) continue;
                         lock (trwa) trwa.Add(n);
                         var kopia = rec; var kopiaBrak = brak;
                         new Thread(() => Tura(kopia, kopiaBrak)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
@@ -281,18 +277,70 @@ namespace Ecxp
 
         public const int MaxPrzypomnien = 2;
 
-        // Najstarsze zadanie operatora dla agenta, na które agent nie wysłał odpowiedzi (odpowiedz_na = id zadania).
-        // Pomijane, gdy agent po zadaniu zadał pytanie, na które jeszcze nikt nie odpowiedział (czeka zasadnie).
-        public static Msg BezOdpowiedzi(string n)
+        // Zadanie, na które agent jest winien FIN (zapis obiegu zadania – Obieg.Brakujacy).
+        public static Msg BezOdpowiedzi(string n) { return Obieg.Brakujacy(n); }
+
+        // ---------- ponawianie po nieudanej turze ----------
+        // Przyczyna z wyniku tury: brak sieci, blokada (antywirus, UAC, odmowa dostępu) albo inny błąd.
+        static readonly Regex ReSiec = new Regex(@"ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|getaddrinfo|fetch failed|socket hang up|network error|stream disconnected|error sending request|" +
+            @"could not resolve|connection (was )?(reset|closed|refused)|nie można rozpoznać|brak połączenia", RegexOptions.IgnoreCase);
+        static readonly Regex ReBlokada = new Regex(@"access is denied|odmowa dostępu|EPERM|EACCES|requires elevation|wymaga podniesienia|0xc0000022|virus|wirus|blocked by|zablokowan|operation did not complete successfully", RegexOptions.IgnoreCase);
+        public static string Przyczyna(int kod, string wynik)
         {
-            var w = P.Wszystkie(false);
-            var odp = new HashSet<string>(w.Where(x => x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
-            var zad = w.Where(m => m.Do == n && m.Od == P.Wlasciciel && m.Typ == "zadanie" && m.KopiaDla.Length == 0 && m.Katalog != "do-codex" && m.Katalog != "do-claude"
-                    && !w.Any(x => x.Od == n && x.OdpNa == m.Id))
-                .OrderBy(m => m.Czas).FirstOrDefault();
-            if (zad == null) return null;
-            bool czekaNaOdpowiedz = w.Any(x => x.Od == n && x.Typ == "pytanie" && x.Czas > zad.Czas && !odp.Contains(x.Id));
-            return czekaNaOdpowiedz ? null : zad;
+            if (kod == 0) return "";
+            if (kod == 5 || kod == 740 || kod == 225 || ReBlokada.IsMatch(wynik ?? "")) return "blokada";
+            if (ReSiec.IsMatch(wynik ?? "")) return "siec";
+            return "inny";
+        }
+        static readonly int[] OdstepBlokada = { 5, 30, 120, 600 }, OdstepInny = { 30, 120, 600 };
+
+        // Sieć: tylko lokalny stan karty (bez pakietów). Powrót sieci zgłasza Windows (NetworkChange) – wtedy tura od razu.
+        static DateTimeOffset siecWrocila = DateTimeOffset.MinValue;
+        static bool nasluchSieci;
+        static void NasluchSieci()
+        {
+            if (nasluchSieci) return; nasluchSieci = true;
+            try
+            {
+                System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += (s, e) => { if (e.IsAvailable) siecWrocila = DateTimeOffset.Now; };
+                System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (s, e) => { if (SiecLokalna()) siecWrocila = DateTimeOffset.Now; };
+            }
+            catch { }
+        }
+        static bool SiecLokalna() { try { return System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable(); } catch { return true; } }
+
+        // Kiedy wolno uruchomić następną turę po nieudanych (MinValue = od razu).
+        public static DateTimeOffset Ponowienie(Dictionary<string, object> rec)
+        {
+            var reset = Reset(P.S(rec, "strona"));
+            var u = P.Lista(rec, "uruchomienia");
+            int k = 0; Dictionary<string, object> ost = null; var tOst = DateTimeOffset.MinValue;
+            for (int i = u.Count - 1; i >= 0; i--)
+            {
+                DateTimeOffset t;
+                if (!DateTimeOffset.TryParse(P.S(u[i], "czas"), out t) || t <= reset) break;
+                if (P.S(u[i], "kod") == "0" || P.S(u[i], "wynik").StartsWith("przerwano przez operatora")) break;
+                if (ost == null) { ost = u[i]; tOst = t; }
+                k++;
+            }
+            if (k == 0) return DateTimeOffset.MinValue;
+            int kod; int.TryParse(P.S(ost, "kod"), out kod);
+            var przyczyna = P.S(ost, "przyczyna").Length > 0 ? P.S(ost, "przyczyna") : Przyczyna(kod, P.S(ost, "wynik"));
+            if (przyczyna == "siec")
+            {
+                if (!SiecLokalna()) return DateTimeOffset.MaxValue;          // czeka na zdarzenie Windows, bez prób
+                if (siecWrocila > tOst) return DateTimeOffset.MinValue;      // sieć wróciła po nieudanej turze – od razu
+                return tOst.AddSeconds(OdstepInny[Math.Min(k - 1, OdstepInny.Length - 1)]);
+            }
+            var o = przyczyna == "blokada" ? OdstepBlokada : OdstepInny;
+            return tOst.AddSeconds(o[Math.Min(k - 1, o.Length - 1)]);
+        }
+
+        static int NieudaneZRzedu(List<Dictionary<string, object>> u)
+        {
+            int k = 0;
+            for (int i = u.Count - 1; i >= 0 && P.S(u[i], "kod") != "0" && !P.S(u[i], "wynik").StartsWith("przerwano przez operatora"); i--) k++;
+            return k;
         }
 
         static void AlarmBrakOdpowiedzi(Dictionary<string, object> rec, Msg zad)
@@ -302,15 +350,12 @@ namespace Ecxp
             {
                 P.ZBlokada(delegate
                 {
-                    var p = Path.Combine(Dir, n + ".json");
-                    var d = Pliki.Czytaj(p);
-                    var byly = P.L(d, "alarmy_odp");
-                    if (byly.Contains(zad.Id)) return 0;
-                    byly.Add(zad.Id); d["alarmy_odp"] = byly; Pliki.Zapisz(p, d);
+                    if (Obieg.Alarmowano(n, zad.Id)) return 0;
+                    var d = Pliki.Czytaj(Path.Combine(Dir, n + ".json"));
                     var ost = P.Lista(d, "uruchomienia").LastOrDefault();
                     var w = ost == null ? "" : P.S(ost, "wynik");
-                    P.Wyslij(new P.Nowa { Od = P.Straznik, Do = P.Wlasciciel, Projekt = zad.Projekt, Modul = zad.Modul, Typ = "blokada", Temat = "BRAK-ODPOWIEDZI", OdpNa = zad.Id,
-                        Tresc = n + " nie odpowiedział na zadanie „" + zad.Temat + "” mimo " + MaxPrzypomnien + " przypomnień." + (w.Length > 0 ? " Ostatnia tura: " + (w.Length > 200 ? w.Substring(0, 200) : w).Trim() : "") +
+                    P.Wyslij(new P.Nowa { Od = P.Straznik, Do = P.Wlasciciel, Projekt = zad.Projekt, Modul = zad.Modul, Typ = "blokada", Temat = "BRAK FIN", OdpNa = zad.Id,
+                        Tresc = n + " nie dał FIN zadania „" + zad.Temat + "” mimo " + MaxPrzypomnien + " przypomnień." + (w.Length > 0 ? " Ostatnia tura: " + (w.Length > 200 ? w.Substring(0, 200) : w).Trim() : "") +
                                 "\nSzczegóły: stan\\agenci\\" + n + ".log" });
                     Log("agenci: " + n + " – brak odpowiedzi na " + zad.Id + ", alarm u operatora");
                     return 0;
@@ -329,14 +374,12 @@ namespace Ecxp
                 var strona = P.S(rec, "strona");
                 var prog = Program(strona);
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
-                var polecenie = "Masz nowe wiadomości w ECXP. Wywołaj ecxp_odbierz(ja=" + n + ") i obsłuż je według zasad z pakietu startowego: " +
-                                "na wiadomość, która tego wymaga, odpowiadasz typ=odpowiedz z odpowiedz_na=<jej id>, pozostałe potwierdzasz ecxp_potwierdz. " +
-                                "Nie wysyłaj meldunków pośrednich – gdy czekasz na kogoś, po prostu zakończ turę (stos obudzi Cię, gdy przyjdzie odpowiedź).";
+                var polecenie = "Masz nowe wiadomości w ECXP: ecxp_odbierz(ja=" + n + "). Wykonaj tylko zadanie – nic poza nim – i wyślij jeden FIN " +
+                                "(typ=fin, odpowiedz_na=<id zadania>). Nic pośredniego; gdy czekasz, zakończ turę.";
                 if (przypomnij != null)
-                    polecenie = "Nie odpowiedziałeś jeszcze na zadanie operatora „" + przypomnij.Temat + "” (id " + przypomnij.Id + "). Każde zadanie wymaga odpowiedzi. " +
-                                "Dokończ je, jeśli trzeba, i wyślij teraz JEDNĄ odpowiedź: ecxp_wyslij(ja=" + n + ", do=wlasciciel, typ=odpowiedz, odpowiedz_na=" + przypomnij.Id +
-                                ", projekt=" + przypomnij.Projekt + ", modul=" + przypomnij.Modul + ") – w treści wynik POZYTYWNY albo NEGATYWNY i krótko dlaczego. " +
-                                "Jeśli zadania nie da się wykonać, odpowiedz NEGATYWNY z powodem.";
+                    polecenie = "Zadanie „" + przypomnij.Temat + "” (id " + przypomnij.Id + ") nie ma jeszcze Twojego FIN. Dokończ tylko to zadanie i wyślij: ecxp_wyslij(ja=" + n +
+                                ", do=wlasciciel, typ=fin, odpowiedz_na=" + przypomnij.Id + ", projekt=" + przypomnij.Projekt + ", modul=" + przypomnij.Modul +
+                                ") – POZYTYWNY albo NEGATYWNY i krótko dlaczego.";
                 var zapis = P.L(rec, "katalogi_zapisu").Where(Directory.Exists).ToList();
                 var pisze = P.S(rec, "uprawnienia") != "odczyt";
                 var sys = Path.Combine(Dir, n + ".system.txt");
@@ -406,12 +449,9 @@ namespace Ecxp
                         var p = Path.Combine(Dir, n + ".json");
                         var d = Pliki.Czytaj(p);
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
-                        if (przypomnij != null)
-                        {
-                            object pv; var przyp = d.TryGetValue("przypomnienia", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
-                            int ile; int.TryParse(P.S(przyp, przypomnij.Id), out ile); przyp[przypomnij.Id] = ile + 1; d["przypomnienia"] = przyp;
-                        }
-                        u.Add(P.D("czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "przypomnienie", przypomnij != null ? przypomnij.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
+                        if (przypomnij != null) Obieg.Przypomniano(n, przypomnij.Id);
+                        var przyczyna = Przyczyna(kod, wynik);
+                        u.Add(P.D("przyczyna", przyczyna, "czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "przypomnienie", przypomnij != null ? przypomnij.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
@@ -419,7 +459,8 @@ namespace Ecxp
                         if (kod == 0 || wynik.Contains("already in use") || wynik.Contains("\"session_id\"")) d["sesja_zalozona"] = true;
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
-                        if (kod != 0 && !przezOperatora)
+                        // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam
+                        if (kod != 0 && !przezOperatora && NieudaneZRzedu(u.Cast<Dictionary<string, object>>().ToList()) >= 3)
                         {
                             DateTimeOffset tA;
                             if (!DateTimeOffset.TryParse(P.S(d, "ostatni_alarm"), out tA) || tA < DateTimeOffset.Now.AddHours(-1))
@@ -427,9 +468,9 @@ namespace Ecxp
                                 var m = Regex.Match(wynik, "\"result\":\"([^\"]{0,200})");
                                 var powod = m.Success ? m.Groups[1].Value : (wynik.Length > 200 ? wynik.Substring(0, 200) : wynik);
                                 P.Wyslij(new P.Nowa { Od = P.Straznik, Do = P.Wlasciciel, Projekt = P.S(d, "projekt"), Modul = P.S(d, "modul"), Typ = "blokada", Temat = "AGENT-W-TLE",
-                                    Tresc = "Agent w tle " + n + ": tura nieudana (kod " + kod + "). " + powod.Trim() +
+                                    Tresc = "Agent w tle " + n + ": 3 nieudane tury z rzędu (" + (przyczyna == "siec" ? "brak sieci" : przyczyna == "blokada" ? "blokada antywirusa, UAC albo uprawnień" : "kod " + kod) + "). " + powod.Trim() +
                                             (powod.Contains("authenticate") || powod.Contains("OAuth") ? "\nCLI nie jest zalogowane na tym stanowisku – uruchom w terminalu polecenie claude i zaloguj się." : "") +
-                                            "\nKolejna próba najwcześniej za 10 minut. Szczegóły: stan\\agenci\\" + n + ".log" });
+                                            "\nStos ponawia sam" + (przyczyna == "siec" ? " – od razu, gdy Windows zgłosi powrót sieci" : " (co 2–10 min)") + ". Szczegóły: stan\\agenci\\" + n + ".log" });
                                 d["ostatni_alarm"] = P.Teraz();
                             }
                         }

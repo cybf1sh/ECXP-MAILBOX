@@ -65,7 +65,7 @@ namespace Ecxp
         public const string Wlasciciel = "wlasciciel", Koordynacja = "codex-koordynacja", Straznik = "ecxp-straznik";
         public static readonly string[] Kolejki = { "do-wlasciciela", "do-codex", "do-claude" };
         public static readonly string[] Foldery = { "do-wlasciciela", "do-codex", "do-claude", "przeczytane" };
-        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada", "decyzja" };
+        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada", "decyzja", "fin", "w_trakcie" };
         // Wołane po każdej zmianie stanu zadania (łańcuchy ról w stosie): zadanie, stan, kto, uwagi.
         public static Action<string, string, string, string> PoZmianieZadania;
         public static readonly string[] Wyniki = { "obsluzona", "przyjeta", "odrzucona" };
@@ -189,7 +189,7 @@ namespace Ecxp
             {
                 case "pytanie": case "zadanie": return "QUESTION";
                 case "blokada": return "BLOCKED";
-                case "meldunek": return "COMPLETE";
+                case "meldunek": case "fin": return "COMPLETE";
                 case "recenzja": return "REVIEW";
                 case "decyzja": return "DECISION";
                 default: return "PROGRESS";
@@ -206,6 +206,7 @@ namespace Ecxp
                 case "recenzja": return "Recenzja";
                 case "decyzja": return "Decyzja";
                 case "odpowiedz": return "Odpowiedź";
+                case "fin": return "FIN";
                 case "informacja": return "Informacja";
             }
             switch (m.Status)
@@ -554,6 +555,7 @@ namespace Ecxp
             if (!PoprawnyAdresat(n.Do)) throw new EcxpException("Niepoprawny adresat: '" + n.Do + "'. Dozwolone: wlasciciel, codex[-nazwa], claude[-nazwa].");
             if (n.Od != Wlasciciel && n.Od != Straznik && !PoprawnyNadawca(n.Od)) throw new EcxpException("Niepoprawny nadawca: '" + n.Od + "'. Użyj nazwy codex-<czat> albo claude-<sesja>.");
             if (!Typy.Contains(n.Typ)) throw new EcxpException("Niepoprawny typ: '" + n.Typ + "'. Dozwolone: " + string.Join(", ", Typy));
+            if (n.Typ == "w_trakcie") throw new EcxpException("„w trakcie” to stan zadania w stosie, nie wiadomość – wyślij go przez ecxp_wyslij z odpowiedz_na=<id zadania>.");
             if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("Pusta treść.");
             if (n.Tresc.Length > 50000) throw new EcxpException("Treść dłuższa niż 50 000 znaków – podaj ścieżkę pliku w polu pliki.");
             var modul = Slug(n.Modul, 24, false); if (modul.Length == 0) modul = "wspolne";
@@ -670,22 +672,28 @@ namespace Ecxp
                 var js = Js();
                 var lista = new DirectoryInfo(dir).GetFiles("*.json").Select(f => Wczytaj(f, Folder(ja), js))
                     .Where(m => DoMnie(ja, m.Do) || (m.Blad != null)).OrderByDescending(m => m.Pilne).ThenBy(m => m.Czas).ThenBy(m => m.Seq).ToList();
-                foreach (var m in lista.Take(limit <= 0 ? 50 : limit))
+                var wydane = lista.Take(limit <= 0 ? 50 : limit).ToList();
+                foreach (var m in wydane)
                 {
                     Stan s; stany.TryGetValue(m.Id, out s);
                     string integralnosc = m.Blad != null ? "USZKODZONA: " + m.Blad
                         : s == null ? (m.NowyFormat ? "brak wpisu w dzienniku" : "stary format (bez dziennika)")
                         : (s.Sha.Length > 0 && s.Sha != ShaPliku(m.Sciezka)) ? "USZKODZONA: plik zmieniony po wysłaniu" : "ok";
-                    var d = D("id", m.Id, "plik", m.Sciezka, "od", m.Od, "do", m.Do, "modul", m.Modul, "typ", m.Typ.Length > 0 ? m.Typ : Rodzaj(m).ToLowerInvariant(),
-                        "status", m.Status, "temat", m.Temat, "pilne", m.Pilne, "czas", m.Czas.ToString("yyyy-MM-dd HH:mm:ss"), "seq", m.Seq,
-                        "odpowiedz_na", m.OdpNa, "watek", m.WatekPole, "tresc", m.Uwagi, "commit", m.Commit, "kontrole", m.Kontrole,
-                        "pliki", m.Pliki, "ograniczenia", m.Ograniczenia, "integralnosc", integralnosc,
-                        "proba_dostarczenia", (s != null ? s.Dostarczenia : 0) + 1, "ponowienia", s != null ? s.Ponowienia : 0,
-                        "wymaga_odpowiedzi", m.WymagaOdp);
+                    // tylko to, czego agent potrzebuje – każde zbędne pole to tokeny w jego kontekście
+                    var d = D("id", m.Id, "od", m.Od, "typ", m.Typ.Length > 0 ? m.Typ : Rodzaj(m).ToLowerInvariant(), "projekt", m.Projekt, "modul", m.Modul,
+                        "temat", m.Temat, "tresc", m.Uwagi, "integralnosc", integralnosc);
+                    if (m.OdpNa.Length > 0) d["odpowiedz_na"] = m.OdpNa;
+                    if (m.Pilne) d["pilne"] = true;
+                    if (m.Commit.Length > 0) d["commit"] = m.Commit;
+                    if (m.Kontrole.Count > 0) d["kontrole"] = m.Kontrole;
+                    if (m.Pliki.Count > 0) d["pliki"] = m.Pliki;
+                    if (s != null && s.Dostarczenia > 0) d["proba_dostarczenia"] = s.Dostarczenia + 1;
                     if (m.Czesci.Count > 0) d["czesci"] = CzesciDoOdbioru(m.Czesci);
                     wynik.Add(d);
                     Zdarzenie("dostarczona", D("id", m.Id, "kto", ja, "proba", (s != null ? s.Dostarczenia : 0) + 1));
                 }
+                // zadania operatora i wiadomości obiegu: odbiór = „w trakcie”, potwierdzone przez stos (bez meldunku)
+                Obieg.Odebrane(ja, wydane.Where(m => m.Blad == null));
                 var tmp = new DirectoryInfo(dir).GetFiles("*.tmp").Where(f => f.LastWriteTime < DateTime.Now.AddMinutes(-2)).ToList();
                 if (tmp.Count > 0)
                     wynik.Add(D("ostrzezenie", "Niedokończone zapisy (.tmp starsze niż 2 min): " + string.Join(", ", tmp.Select(f => f.Name)) + ". Nadawca przerwał wysyłanie – poproś o ponowienie."));

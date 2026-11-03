@@ -343,6 +343,12 @@ namespace Ecxp
                     if (org != null) { n.Projekt = org.Projekt; if (n.Modul == "wspolne" && org.Modul.Length > 0) n.Modul = org.Modul; }
                 }
                 n.Projekt = P.Slug(n.Projekt, 32, false);
+                // obieg zadania: „w trakcie” i FIN agenta zapisuje stos; do operatora trafia tylko końcowy FIN
+                if (P.PoprawnyNadawca(n.Od))
+                {
+                    var ob = Obieg.ZAgenta(n);
+                    if (ob != null) return ob;
+                }
                 // adres modułu (para:, codex/, claude/) musi zgadzać się z modułem wiadomości – inaczej wiadomość trafiłaby do innej pary
                 var mAdr = System.Text.RegularExpressions.Regex.Match((n.Do ?? "").Trim().ToLowerInvariant(), @"^(?:para:|\*/|codex/|claude/)([a-z0-9-]+)$");
                 if (mAdr.Success)
@@ -374,36 +380,10 @@ namespace Ecxp
                     if (pierwsza == null) pierwsza = r;
                     wyslane.Add(r);
                 }
-                // Kopie dla pary (zasada 1:1): to, co trafia między operatorem a jedną stroną pary, dostaje też druga.
+                // Bez kopii dla drugiej strony pary: wynik zadania przekazuje obieg (Obieg.ZAgenta) – jak najmniej wiadomości.
                 var kopie = new List<object>();
                 var zrodlo = (string)pierwsza["id"];
-                var watek = n.Watek.Length > 0 ? n.Watek : zrodlo;
-                // Kopie tylko tam, gdzie druga strona ich potrzebuje: zadanie operatora i końcowa odpowiedź agenta na zadanie.
-                // Meldunki pośrednie, informacje i pytania do operatora nie są powielane (mniej szumu w kolejkach).
-                var odpNaZadanie = n.OdpNa.Length > 0 && Typ(n.Typ) == "odpowiedz" && (P.Znajdz(n.OdpNa) ?? new Msg()).Typ == "zadanie";
-                if (n.Od == P.Wlasciciel && !n.BezKopii && Typ(n.Typ) == "zadanie")
-                {
-                    foreach (var c in cele.Where(P.PoprawnyNadawca).ToList())
-                        foreach (var t in Przynaleznosc(c).Where(x => n.Projekt.Length == 0 || x.Projekt == n.Projekt))
-                        {
-                            var partner = Partner(t.Projekt, t.Modul, c);
-                            if (partner.Length == 0 || cele.Contains(partner)) continue;
-                            kopie.Add(KopiaDlaPary(n, partner, t, "Operator napisał do " + P.Nazwa(c) + " (" + c + "):", zrodlo, watek));
-                        }
-                }
-                else if (P.PoprawnyNadawca(n.Od) && cele.Contains(P.Wlasciciel) && odpNaZadanie)
-                {
-                    foreach (var t in Przynaleznosc(n.Od).Where(x => n.Projekt.Length == 0 || x.Projekt == n.Projekt))
-                    {
-                        var partner = Partner(t.Projekt, t.Modul, n.Od);
-                        if (partner.Length == 0 || cele.Contains(partner)) continue;
-                        // druga strona już odpowiedziała na to zadanie (np. sprawdzający po wykonawcy) – kopia niczego jej nie wnosi
-                        var zadanie = P.Znajdz(n.OdpNa);
-                        if (zadanie != null && P.Wszystkie(false).Any(x => x.Od == partner && x.Do == P.Wlasciciel && x.Typ == "odpowiedz" && x.Czas >= zadanie.Czas
-                                && x.Projekt == t.Projekt && x.Modul == t.Modul)) continue;
-                        kopie.Add(KopiaDlaPary(n, partner, t, P.Nazwa(n.Od) + " (" + n.Od + ") napisał do operatora:", zrodlo, watek));
-                    }
-                }
+                if (n.Od == P.Wlasciciel && Typ(n.Typ) == "zadanie") Obieg.Zalozone(n.Projekt, n.Modul, n.Temat.Length > 0 ? n.Temat : P.Baza((string)P.Znajdz(zrodlo).Temat), wyslane, lustroId);
                 var wynik = new Dictionary<string, object>(pierwsza);
                 // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
                 var kontakt = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.Max(x => x.Ostatnio));
@@ -441,6 +421,14 @@ namespace Ecxp
             if (typ == "odpowiedz" && n.OdpNa.Length == 0)
                 throw new EcxpException("Odpowiedź musi wskazywać wiadomość, na którą odpowiadasz: podaj odpowiedz_na=<id tej wiadomości>.");
             if (n.OdpNa.Length > 0 || (typ != "informacja" && typ != "meldunek")) return;
+            // zadanie operatora w obiegu: do operatora idzie tylko FIN (albo pytanie, gdy agent czegoś potrzebuje)
+            if (cele.Contains(P.Wlasciciel))
+            {
+                var ob = Obieg.OtwarteDla(n.Od, n.Projekt);
+                if (ob != null)
+                    throw new EcxpException("Zadanie „" + P.S(ob, "temat") + "” jest w obiegu: operator dostaje tylko FIN. Meldunki pośrednie nie są potrzebne – stos sam zapisuje, że pracujesz. " +
+                        "Po wykonaniu: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=<id zadania>). Potrzebujesz czegoś – typ=pytanie.");
+            }
             var wszystkie = P.Wszystkie(false);
             var odpowiedziane = new HashSet<string>(wszystkie.Where(x => x.Od == n.Od && x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
             var czeka = wszystkie.Where(m => m.Do == n.Od && cele.Contains(m.Od) && (m.Typ == "pytanie" || m.Typ == "zadanie") && m.KopiaDla.Length == 0
@@ -500,7 +488,11 @@ namespace Ecxp
                 object pv; var pary = pr.TryGetValue("pary", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
                 // strona bez zadania zostaje taka, jaka była w projekcie (albo pusta) – nie rejestrujemy jej na zapas
                 object sv; var stara = pary.TryGetValue(modul, out sv) && sv is Dictionary<string, object> ? (Dictionary<string, object>)sv : new Dictionary<string, object>();
-                pary[modul] = P.D("codex", strony.Contains("codex") ? codex : P.S(stara, "codex"), "claude", strony.Contains("claude") ? claude : P.S(stara, "claude"), "tytul", tytulSesji);
+                // w parze jedna strona wykonuje, druga sprawdza wynik: wykonawcą jest strona z rolą „programista”, inaczej Codex
+                bool cxProg = roleCodex.Contains("programista"), clProg = roleClaude.Contains("programista");
+                var wykonawca = cxProg == clProg ? "codex" : cxProg ? "codex" : "claude";
+                pary[modul] = P.D("codex", strony.Contains("codex") ? codex : P.S(stara, "codex"), "claude", strony.Contains("claude") ? claude : P.S(stara, "claude"), "tytul", tytulSesji,
+                    "wykonawca", obie ? (wykonawca == "codex" ? codex : claude) : "");
                 pr["pary"] = pary;
                 // ikony: null = bez zmian, "" = usuń, inna wartość tylko z listy Ikony
                 if (ikonaProjektu != null) { if (Ikony.Contains(ikonaProjektu)) pr["ikona"] = ikonaProjektu; else if (ikonaProjektu.Length == 0) pr.Remove("ikona"); }
@@ -524,15 +516,12 @@ namespace Ecxp
                     var partner = strona == "codex" ? claude : codex;
                     var role = strona == "codex" ? roleCodex : roleClaude;
                     var kim = strona == "codex" ? "ChatGPT/Codex" : "Claude";
-                    // w parze jedna strona wykonuje, druga sprawdza wynik: wykonawcą jest strona z rolą „programista”, inaczej Codex
-                    bool cxProg = roleCodex.Contains("programista"), clProg = roleClaude.Contains("programista");
-                    var wykonawca = cxProg == clProg ? "codex" : cxProg ? "codex" : "claude";
-                    var txt = Pakiet(tytulSesji, kim, ja, projekt, modul, role, obie ? partner : "", obie ? (strona == wykonawca ? "wykonawca" : "sprawdzajacy") : "sam",
-                        repozytorium, opis.Trim() + Zalaczniki(czesci));
+                    var rolaWParze = obie ? (strona == wykonawca ? "wykonawca" : "sprawdzajacy") : "sam";
+                    var txt = Pakiet(tytulSesji, kim, ja, projekt, modul, role, obie ? partner : "", rolaWParze, repozytorium, opis.Trim() + Zalaczniki(czesci));
                     var sd = Path.Combine(P.Root, "stan", "start");
                     Directory.CreateDirectory(sd);
                     File.WriteAllText(Path.Combine(sd, ja + ".txt"), txt, new UTF8Encoding(false));
-                    pakiety[strona] = P.D("nazwa", ja, "tytul_sesji", tytulSesji, "plik", Path.Combine(sd, ja + ".txt"), "tekst", txt);
+                    pakiety[strona] = P.D("nazwa", ja, "tytul_sesji", tytulSesji, "plik", Path.Combine(sd, ja + ".txt"), "tekst", txt, "rola", rolaWParze);
                 }
                 object w = null;
                 if (wyslijZadanie) w = Wyslij(new P.Nowa
@@ -555,19 +544,17 @@ namespace Ecxp
                 (role != null && role.Count > 0 ? " Role: " + string.Join(", ", role) + "." : "") + "\n");
             sb.Append("Zacznij od: ecxp_przypisz(ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + "), potem ecxp_odbierz(ja=" + ja + ").\n");
             sb.Append("Bez narzędzi ecxp_* (np. sesja w chmurze) nie wykonuj zadania – napisz operatorowi: „Brak narzędzi ECXP”.\n\n");
-            sb.Append("Zasady komunikacji – jedno pytanie, jedna odpowiedź:\n");
-            sb.Append("- Na wiadomość odpowiadasz ecxp_wyslij(typ=odpowiedz, odpowiedz_na=<id tej wiadomości>) – to ją też potwierdza. Wiadomość, która nie wymaga odpowiedzi, potwierdzasz ecxp_potwierdz.\n");
-            sb.Append("- Nie wysyłaj meldunków pośrednich („przyjąłem”, „czekam”, „zaczynam”). Doręczenie pilnuje stos – gdy przyjdzie odpowiedź, sam Cię obudzi.\n");
-            sb.Append("- Potrzebujesz czegoś? Jedno pytanie (typ=pytanie) i zakończ turę.\n\n");
+            sb.Append("Wykonujesz tylko to zadanie – nic poza nim (bez porządków, dodatkowych plików, commitów i czynności spoza projektu).\n\n");
+            sb.Append("Komunikacja – tylko dwa kroki, resztę robi stos ECXP:\n");
+            sb.Append("1. ecxp_odbierz – odbiór stos zapisuje jako przyjęcie (ACK). Nic nie potwierdzaj i nie wysyłaj meldunków („przyjąłem”, „czekam”).\n");
+            sb.Append("2. Po wykonaniu JEDEN FIN: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=<id zadania>) – POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś. Stos odpowie ACK i przekaże dalej. Zakończ turę.\n");
+            sb.Append("Bez czegoś nie da się wykonać zadania? Jedno pytanie (typ=pytanie) i zakończ turę.\n\n");
             if (rolaWParze == "wykonawca")
-                sb.Append("Pracujesz w parze z " + partner + ". Ty wykonujesz zadanie. Po wykonaniu wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, " +
-                    "odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co zrobiłeś. Stos przekaże ją " + partner + " do sprawdzenia.\n\n");
+                sb.Append("Ty wykonujesz zadanie, " + partner + " je sprawdzi – Twój FIN stos przekaże " + partner + ".\n\n");
             else if (rolaWParze == "sprawdzajacy")
-                sb.Append("Pracujesz w parze z " + partner + ". Zadanie wykonuje " + partner + ", Ty sprawdzasz wynik. Teraz tylko potwierdź zadanie (ecxp_potwierdz, wynik=przyjeta) i zakończ turę – " +
-                    "nic nie zmieniaj. Gdy dostaniesz odpowiedź " + partner + " na zadanie, sprawdź wynik i wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, " +
-                    "odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co sprawdziłeś.\n\n");
+                sb.Append("Zadanie wykonuje " + partner + ", Ty sprawdzasz. Teraz nic nie rób i zakończ turę. Gdy stos przekaże Ci FIN " + partner + ", sprawdź wynik i wyślij swój FIN (odpowiedz_na=<id Twojego zadania>).\n\n");
             else
-                sb.Append("Zadanie dostałeś tylko Ty. Po wykonaniu wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co zrobiłeś.\n\n");
+                sb.Append("Zadanie dostałeś tylko Ty – Twój FIN trafi prosto do operatora.\n\n");
             if (repozytorium)
                 sb.Append("Zadanie zmienia repozytorium: przed pierwszą zmianą " + (rolaWParze == "sam" ? "" : "uzgodnij z " + partner + " ") + "gałąź i commit bazowy (ecxp_umowa_galezi), " +
                     "po commicie ecxp_stan_galezi. Bez push i scalenia bez decyzji operatora.\n\n");

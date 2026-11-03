@@ -230,7 +230,13 @@ namespace Ecxp
                 try
                 {
                     List<P.Alarm> al;
-                    lock (stos) al = P.Straz();
+                    lock (stos)
+                    {
+                        al = P.Straz();
+                        // nadzór obiegu zadań w sesjach aplikacji (agentów w tle pilnuje Agenci.Petla)
+                        var wTle = new HashSet<string>(Agenci.Lista().Where(x => P.B(x, "aktywny")).Select(x => P.S(x, "nazwa")));
+                        al.AddRange(P.ZBlokada(() => Obieg.Nadzor(wTle)));
+                    }
                     foreach (var a in al) Wypchnij(P.D("zdarzenie", "alarm", "id", a.Id, "do", a.Do, "temat", a.Temat, "opis", a.Opis));
                     if (al.Count > 0) Wypchnij(P.D("zdarzenie", "zmiana"));
                 }
@@ -285,7 +291,7 @@ namespace Ecxp
                 {
                     var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
                         P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
-                        P.S(p, "tekst").Contains("Ty wykonujesz zadanie") || P.S(p, "tekst").Contains("Zadanie dostałeś tylko Ty"));
+                        P.S(p, "rola").Length > 0);      // jawne pole: agent zadania (wykonawca, sprawdzający, sam) musi dać FIN
                     wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis));
                 }
                 catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
@@ -352,6 +358,7 @@ namespace Ecxp
                         };
                         int.TryParse("0", out dummy);
                         if (n.Typ.Length == 0) n.Typ = "informacja";
+                        if (s.Operator && (n.Typ == "fin" || n.Typ == "w_trakcie")) throw new EcxpException("FIN i „w trakcie” wysyłają agenci – operator wysyła zadanie, pytanie albo informację.");
                         if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)
                             n.Ograniczenia = "Wiadomość operatora przez ECXP (konsola ECXP-MAILBOX, tożsamość potwierdzona przez stos).";
@@ -363,7 +370,7 @@ namespace Ecxp
                         var ja = Agent(s, a);
                         var lst = P.Odbierz(ja, limit);
                         return P.D("liczba", lst.Count(x => x.ContainsKey("id")), "wiadomosci", lst,
-                            "przypomnienie", lst.Count > 0 ? "Potwierdź każdą wiadomość: ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na=<id>." : "Brak wiadomości dla Ciebie.");
+                            "przypomnienie", lst.Count > 0 ? "Zadanie: wykonaj i wyślij jeden FIN (typ=fin, odpowiedz_na=<id zadania>) – odbiór stos już zapisał. Inne wiadomości: ecxp_potwierdz." : "Brak wiadomości dla Ciebie.");
                     }
                 case "potwierdz": return P.Potwierdz(Agent(s, a), P.S(a, "id").Trim(), P.S(a, "wynik").Trim().ToLowerInvariant(), P.S(a, "uwagi"));
                 case "stan":

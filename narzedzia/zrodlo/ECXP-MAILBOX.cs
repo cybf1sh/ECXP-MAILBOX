@@ -4959,33 +4959,50 @@ namespace Ecxp
                 var zn = P.Czytaj(Path.Combine(P.Root, "stan", "znaczniki.json"));
                 ok(zn.Contains("codex-elan") && zn.Contains("claude-elan"), "znaczniki ECXP zapisane dla obu sesji");
 
-                var r2 = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Zadanie tylko do Codexa."));
-                var kopie = ((System.Collections.IEnumerable)r2["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
-                ok(kopie.Count == 1 && P.S(kopie[0], "do") == "claude-elan", "zasada 1:1: zadanie operatora do Codexa ma kopię u Claude");
-                var r2i = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "informacja", "tresc", "Uwaga tylko do Codexa."));
-                ok(((System.Collections.IEnumerable)r2i["kopie_dla_pary"]).Cast<object>().Count() == 0, "informacja operatora do jednej strony – bez kopii dla drugiej");
-
-                // zasada pytanie → odpowiedź (agent): odpowiedź bez odpowiedz_na i meldunek obok nieodpowiedzianego zadania są odrzucane
-                var idZad = (string)r2["id"];
+                // obieg zadania: zadanie → odbiór (ACK, „w trakcie”) → FIN wykonawcy → sprawdzający → jeden FIN do operatora
+                Func<int> doOperatora = () => P.Wszystkie(false).Count(m => m.Do == P.Wlasciciel && m.Od != P.Straznik);
                 Func<P.Nowa, string> agentWysyla = n => { try { Siec.Wyslij(n); return ""; } catch (EcxpException ex) { return ex.Message; } };
+                var zadL = P.Wszystkie(false).First(m => m.Do == "codex-elan" && m.Typ == "zadanie" && m.LustroId.Length > 0);
+                var zadCl = P.Wszystkie(false).First(m => m.Do == "claude-elan" && m.Typ == "zadanie" && m.LustroId == zadL.LustroId);
+                int przed0 = doOperatora();
+                var odbC = P.Odbierz("codex-elan", 10);
+                ok(odbC.Any(x => P.S(x, "id") == zadL.Id) && P.Znajdz(zadL.Id).Katalog == "przeczytane" && doOperatora() == przed0,
+                    "odbiór zadania = ACK i „w trakcie” w stosie – bez wiadomości do operatora");
+                ok(!odbC[0].ContainsKey("plik") && !odbC[0].ContainsKey("seq") && !odbC[0].ContainsKey("wymaga_odpowiedzi"), "odbiór bez zbędnych pól (mniej tokenów)");
+                ok(Agenci.BezOdpowiedzi("codex-elan") != null && Agenci.BezOdpowiedzi("codex-elan").Id == zadL.Id, "gwarancja FIN: wykonawca winien FIN po odbiorze");
+                ok(Agenci.BezOdpowiedzi("claude-elan") == null, "sprawdzający przed FIN wykonawcy nic nie jest winien");
+                ok(agentWysyla(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "meldunek", Temat = "CZEKAM", Tresc = "zaczynam" }).Contains("typ=fin"),
+                    "meldunek pośredni do operatora odrzucony z podpowiedzią FIN");
+                ok(agentWysyla(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "za wcześnie", OdpNa = zadCl.Id }).Contains("Poczekaj"),
+                    "FIN sprawdzającego przed FIN wykonawcy odrzucony");
+                var finA = Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "POZYTYWNY – plik zapisany.", OdpNa = zadL.Id });
+                var doSpr = P.Wszystkie(false).Where(m => m.Do == "claude-elan" && m.Od == "codex-elan" && m.Uwagi.Contains("POZYTYWNY – plik zapisany")).ToList();
+                ok(P.B(finA, "ack") && P.S(finA, "przekazano") == "claude-elan" && doSpr.Count == 1 && doOperatora() == przed0,
+                    "FIN wykonawcy: ACK, przekazany sprawdzającemu, operator jeszcze nic nie dostał");
+                ok(Agenci.BezOdpowiedzi("codex-elan") == null && Agenci.BezOdpowiedzi("claude-elan") != null && Agenci.BezOdpowiedzi("claude-elan").Id == zadCl.Id,
+                    "po FIN wykonawcy FIN jest winien sprawdzający");
+                var finB = Siec.Wyslij(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "POZYTYWNY – sprawdzone.", OdpNa = zadCl.Id });
+                var finy = P.Wszystkie(false).Where(m => m.Do == P.Wlasciciel && m.Typ == "fin").ToList();
+                ok(P.S(finB, "stan") == "zakonczone" && doOperatora() == przed0 + 1 && finy.Count == 1 && finy[0].Uwagi.Contains("plik zapisany") && finy[0].Uwagi.Contains("sprawdzone"),
+                    "jeden wspólny FIN do operatora z wynikiem obu");
+                ok(Agenci.BezOdpowiedzi("claude-elan") == null && P.Znajdz(doSpr[0].Id).Katalog == "przeczytane", "po FIN nic nie jest winne, przekazany wynik potwierdzony przez stos");
+                ok(agentWysyla(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "jeszcze raz", OdpNa = zadCl.Id }).Contains("zakończone"),
+                    "drugi FIN zakończonego zadania odrzucony");
+
+                // zadanie do jednego agenta: bez kopii dla drugiej strony, FIN (także jako odpowiedź) prosto do operatora
+                var r2 = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Zadanie tylko do Codexa."));
+                ok(((System.Collections.IEnumerable)r2["kopie_dla_pary"]).Cast<object>().Count() == 0, "zadanie do jednej strony – bez kopii dla drugiej (mniej wiadomości)");
+                var idZad = (string)r2["id"];
                 ok(agentWysyla(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "x" }).Contains("odpowiedz_na"),
                     "odpowiedź agenta bez odpowiedz_na odrzucona");
-                var bladMeld = agentWysyla(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "meldunek", Temat = "CZEKAM", Tresc = "czekam na drugą stronę" });
-                ok(bladMeld.Contains("Najpierw odpowiedz") && bladMeld.Contains("odpowiedz_na="), "meldunek pośredni obok nieodpowiedzianego zadania odrzucony z podpowiedzią");
+                int przed1 = doOperatora();
                 var odpA = Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "Wynik POZYTYWNY.", OdpNa = idZad });
-                var kopieOdp = ((System.Collections.IEnumerable)odpA["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
-                ok(kopieOdp.Count == 1 && P.S(kopieOdp[0], "do") == "claude-elan", "końcowa odpowiedź na zadanie trafia też do drugiej strony (do sprawdzenia)");
-                // gwarancja odpowiedzi: zadanie odebrane i potwierdzone, ale bez odpowiedzi – stos je wskazuje (przypomnienie / alarm)
-                var zadL = P.Wszystkie(false).First(m => m.Do == "codex-elan" && m.Typ == "zadanie" && m.LustroId.Length > 0);
-                P.Potwierdz("codex-elan", zadL.Id, "przyjeta", "");
-                var brakO = Agenci.BezOdpowiedzi("codex-elan");
-                ok(brakO != null && brakO.Id == zadL.Id, "gwarancja odpowiedzi: przyjęte zadanie bez odpowiedzi wykryte");
-                Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "NEGATYWNY – test.", OdpNa = zadL.Id });
-                ok(Agenci.BezOdpowiedzi("codex-elan") == null, "gwarancja odpowiedzi: po odpowiedzi zadanie nie jest już wskazywane");
-                // sprawdzający odpowiada po wykonawcy: jego odpowiedź nie wraca kopią do wykonawcy
-                var zadCl = P.Wszystkie(false).First(m => m.Do == "claude-elan" && m.Typ == "zadanie" && m.LustroId == zadL.LustroId);
-                var odpCl = Siec.Wyslij(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "POZYTYWNY – sprawdzone.", OdpNa = zadCl.Id });
-                ok(((System.Collections.IEnumerable)odpCl["kopie_dla_pary"]).Cast<object>().Count() == 0, "odpowiedź sprawdzającego po wykonawcy – bez kopii zwrotnej");
+                ok(P.S(odpA, "stan") == "zakonczone" && doOperatora() == przed1 + 1 && P.Znajdz(idZad).Katalog == "przeczytane", "odpowiedź na zadanie = FIN: jedna wiadomość do operatora, zadanie potwierdzone");
+                bool opFin = false;
+                try { k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "fin", "tresc", "x")); } catch (EcxpException) { opFin = true; }
+                ok(opFin, "FIN wysyłają tylko agenci");
+                ok(Agenci.Przyczyna(1, "Error: getaddrinfo ENOTFOUND api.anthropic.com") == "siec" && Agenci.Przyczyna(1, "Access is denied.") == "blokada" && Agenci.Przyczyna(1, "coś innego") == "inny",
+                    "przyczyna nieudanej tury: sieć, blokada, inny");
 
                 // wybór agentów: operator może wysłać tylko do jednej strony, bez kopii dla drugiej
                 var rb = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "bez_kopii", true, "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Tylko dla Codexa, bez kopii."));
@@ -5013,6 +5030,8 @@ namespace Ecxp
                 try { k.Wywolaj("wyslij", P.D("do", "para:brak", "projekt", "testowy", "typ", "zadanie", "tresc", "x")); } catch (EcxpException) { niepelna = true; }
                 ok(niepelna, "niepełna para odrzucona (zasada 1:1 wymaga obu stron)");
 
+                for (int i = 0; i < 2; i++)
+                    k.Wywolaj("wyslij", P.D("do", "claude/elan", "projekt", "testowy", "modul", "elan", "typ", "informacja", "tresc", "Informacja " + i + " przed przejęciem."));
                 var r3 = (Dictionary<string, object>)k.Wywolaj("przypisz", P.D("nazwa", "claude-elan2", "projekt", "testowy", "modul", "elan", "role", new List<string> { "recenzent" }));
                 var przek = ((System.Collections.IEnumerable)r3["przekazane"]).Cast<object>().Count();
                 ok(P.S((Dictionary<string, object>)r3["para"], "claude") == "claude-elan2" && przek >= 2, "przejęcie adresu: nowa sesja Claude dostała " + przek + " niepotwierdzone wiadomości poprzedniej");
