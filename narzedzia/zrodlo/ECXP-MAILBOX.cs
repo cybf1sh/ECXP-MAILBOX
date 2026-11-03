@@ -546,14 +546,14 @@ namespace Ecxp
             var bTlo = Btn("▶  Agent w tle…");
             var bWznow = Btn("Wznów parę / łańcuch");
             var bBiez = Btn("▶  Ustaw jako bieżącą");
-            var bSesja = Btn("🪟  Utwórz sesję w aplikacji…");
+            var bSesja = Btn("Utwórz sesję w aplikacji…");
             agTop.Controls.AddRange(new Control[] { bNowe, bBiez, bSesja, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
             bSesja.Click += delegate { UtworzSesjeAplikacji(null); };
             // prawy przycisk na parze: sesja w aplikacjach (obie strony albo jedna)
             var menuAg = new ContextMenuStrip();
-            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję w aplikacjach (Codex + Claude)", null, delegate { UtworzSesjeAplikacji(null); }));
-            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję tylko w Codex", null, delegate { UtworzSesjeAplikacji("codex"); }));
-            menuAg.Items.Add(new ToolStripMenuItem("🪟  Utwórz sesję tylko w Claude", null, delegate { UtworzSesjeAplikacji("claude"); }));
+            menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję w aplikacjach (Codex + Claude)", null, delegate { UtworzSesjeAplikacji(null); }));
+            menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję tylko w Codex", null, delegate { UtworzSesjeAplikacji("codex"); }));
+            menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję tylko w Claude", null, delegate { UtworzSesjeAplikacji("claude"); }));
             bBiez.Click += delegate { BiezacaZListy(); };
             bDecyzja.Click += delegate { Decyzja(); };
             bTlo.Click += delegate { UruchomAgenta(); };
@@ -3225,13 +3225,13 @@ namespace Ecxp
                 var zalN = f.Zalaczniki("Załączniki:");
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
                 var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
-                var chSes = f.Wybor("Zamiast tego załóż sesje w aplikacjach (Codex: wątek z nazwą; Claude: nowa sesja z pakietem) – wymaga Twoich wpisów", false);
+                var chSes = f.Wybor("Utwórz sesje w aplikacjach – widoczna rozmowa w Codex i Claude zamiast pracy w tle", false);
                 var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
                 var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
                 f.Uwaga(TekstZgodyUac);
-                chTlo.CheckedChanged += delegate { chSes.Enabled = !chTlo.Checked; if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
+                // tryb pracy: w tle albo sesje w aplikacjach – zaznaczenie jednego wyłącza drugie (oba zawsze dostępne)
+                chTlo.CheckedChanged += delegate { if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
                 chSes.CheckedChanged += delegate { if (chSes.Checked) chTlo.Checked = false; };
-                chSes.Enabled = false;
                 f.Uwaga("Agenci: oba zaznaczone – zadanie trafia do obu stron pary (zasada 1:1), jak dotąd. Jeden zaznaczony – zadanie dostaje tylko ten agent, druga strona nie dostaje kopii. " +
                         "Zadanie trafia do sesji, która już prowadzi moduł; gdy jej nie ma albo zaznaczysz zakładanie sesji – ECXP zakłada nową sesję i wykonuje w niej zadanie.");
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
@@ -3299,7 +3299,8 @@ namespace Ecxp
                             (uacInfo.Length > 0 ? "\n\n" + uacInfo : ""),
                             "ECXP", MessageBoxButtons.OK, bl.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                     }
-                    else if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"),
+                    else if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"),
+                        ZIkona(P.S(r, "tytul_sesji"), Formularz.WybranaIkona(ikM).Length > 0 ? Formularz.WybranaIkona(ikM) : Formularz.WybranaIkona(ikP)), pakiet("codex"), pakiet("claude"),
                         zalN.Pliki.Where(SesjeAplikacji.Obraz).ToList());
                     else PokazPakiety((strony.Count == 2 ? "Para utworzona: " : "Zadanie utworzone: ") + P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"));
                 }
@@ -3389,11 +3390,18 @@ namespace Ecxp
         // Sesja w aplikacji Codex / Claude dla pary z listy agentów – widoczna rozmowa zamiast agenta w tle.
         // Agent w tle tej strony oddaje pracę sesji (jeden wykonawca na adres). Zakończonego zadania sesja nie powtarza:
         // dostaje pakiet bez starego zadania i czeka na nowe przez ECXP.
+        // Nazwa sesji w aplikacjach z ikoną wybraną w formularzu: „🔗ECXP 🤖 nazwa”.
+        static string ZIkona(string tytul, string ik)
+        {
+            if (string.IsNullOrEmpty(ik)) return tytul;
+            return tytul.StartsWith(ZnacznikEcxp) ? ZnacznikEcxp + " " + ik + " " + tytul.Substring(ZnacznikEcxp.Length).TrimStart() : ik + " " + tytul;
+        }
+
         void UtworzSesjeAplikacji(string tylko)
         {
             var para = WybranaPara();
             if (para == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Utwórz sesję w aplikacji")); return; }
-            string pr = P.S(para, "projekt"), mo = P.S(para, "modul"), tytul = TytulPary(pr, mo);
+            string pr = P.S(para, "projekt"), mo = P.S(para, "modul"), tytul = ZIkona(TytulPary(pr, mo), IkonaModulu(pr, mo).Length > 0 ? IkonaModulu(pr, mo) : IkonaProjektu(pr));
             bool otwarte = Obieg.Otwarte().Any(r => P.S(r, "projekt") == pr && P.S(r, "modul") == mo);
             Func<string, Dictionary<string, object>> pak = n =>
             {
