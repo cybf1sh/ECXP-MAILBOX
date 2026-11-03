@@ -106,12 +106,13 @@ namespace Ecxp
             {
                 var narz = new List<string> { "Read", "Grep", "Glob" };
                 if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
-                if (P.S(rec, "uprawnienia") == "pelne") narz.Add("Bash");
+                if (P.S(rec, "uprawnienia") == "pelne") { narz.Add("Bash"); narz.Add("PowerShell"); }
                 Directory.CreateDirectory(Dir);
                 var mcpCfg = Path.Combine(Dir, w.Nazwa + ".mcp.json");                 // pusta konfiguracja MCP: agent nie widzi ECXP
                 File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
                 var args = "-p --input-format stream-json --output-format stream-json --verbose --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", narz) +
-                           (pisze ? " --permission-mode acceptEdits" : "") +
+                           // zadanie z UAC (zgoda operatora): bez pytań o zgodę – w trybie bez okna każda prośba kończyłaby się odmową
+                           (Podwyzszone(rec) ? " --permission-mode bypassPermissions" : pisze ? " --permission-mode acceptEdits" : "") +
                            (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                            (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "");
                 psi = Psi(prog, args, katalog);
