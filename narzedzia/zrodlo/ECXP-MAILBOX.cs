@@ -3247,9 +3247,7 @@ namespace Ecxp
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
                 f.Zaaw = false;
-                var chWiecej = f.Wybor("Więcej opcji (ikony, role, łańcuch ról, sesje w aplikacjach, repozytorium)", false);
-                chWiecej.CheckedChanged += delegate { f.PokazZaawansowane(chWiecej.Checked); };
-                f.Shown += delegate { f.PokazZaawansowane(chWiecej.Checked); };
+                f.PrzelacznikZaawansowanych(Jezyk.T("Więcej opcji ▾"), Jezyk.T("Mniej opcji ▴"));
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
                 // przy każdym agencie: do której sesji trafi zadanie – istniejącej w module czy nowej
                 Action cele = delegate
@@ -4579,6 +4577,7 @@ namespace Ecxp
         readonly TableLayoutPanel t;
         readonly Font fb;
         readonly Button ok;
+        readonly FlowLayoutPanel dol;
         public Formularz(string tytul, Font f, Font fb)
         {
             Text = tytul; Font = f; this.fb = fb; Size = new Size(760, 640); MinimumSize = new Size(560, 400);
@@ -4587,7 +4586,7 @@ namespace Ecxp
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             Controls.Add(t);
-            var dol = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 48, Padding = new Padding(8) };
+            dol = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 48, Padding = new Padding(8) };
             ok = new Button { Text = "OK", AutoSize = true, Height = 32, Font = fb, BackColor = Color.FromArgb(255, 222, 0), FlatStyle = FlatStyle.Flat, DialogResult = DialogResult.OK };
             var an = new Button { Text = "Anuluj", AutoSize = true, Height = 32, DialogResult = DialogResult.Cancel };
             dol.Controls.Add(ok); dol.Controls.Add(an);
@@ -4608,6 +4607,16 @@ namespace Ecxp
             Grupa(l, c);
         }
         public void PokazZaawansowane(bool tak) { t.SuspendLayout(); foreach (var c in Zaawansowane) c.Visible = tak; t.ResumeLayout(); }
+        // Przełącznik „Więcej opcji ▾ / Mniej opcji ▴” w dolnym pasku – zawsze widoczny, działa w obie strony.
+        public Button PrzelacznikZaawansowanych(string wiecej, string mniej)
+        {
+            bool pokazane = false;
+            var b = new Button { Text = wiecej, AutoSize = true, Height = 32, Margin = new Padding(3, 3, 24, 3) };
+            b.Click += delegate { pokazane = !pokazane; PokazZaawansowane(pokazane); b.Text = pokazane ? mniej : wiecej; };
+            Shown += delegate { PokazZaawansowane(pokazane); };
+            dol.Controls.Add(b);
+            return b;
+        }
         public ComboBox Combo(string e, List<string> lista, string wart)
         {
             var c = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown };
