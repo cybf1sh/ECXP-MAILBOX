@@ -5071,6 +5071,11 @@ namespace Ecxp
                 P.Stany(out spoj); ok(spoj.StartsWith("spójny"), "dziennik spójny przed ingerencją: " + spoj);
                 linie.RemoveAt(1); File.WriteAllLines(dz, linie, new UTF8Encoding(false));
                 P.Stany(out spoj); ok(spoj.StartsWith("NARUSZONY"), "usunięcie wpisu wykryte: " + spoj);
+                // 8. lustro czatu Codexa pomija bloki aplikacji, zostawia wpis operatora
+                ok(Lustro.BezBlokowSystemowych("<external_codex_apps_open_page>{\"page_id\":null}</external_codex_apps_open_page>") == ""
+                    && Lustro.BezBlokowSystemowych("<environment_context>\n <cwd>x</cwd>\n</environment_context>") == ""
+                    && Lustro.BezBlokowSystemowych(" „odbierz wiadomości ECXP”\n") == "„odbierz wiadomości ECXP”",
+                    "lustro czatu: bloki aplikacji Codex pominięte, wpis operatora zachowany");
             }
             catch (Exception ex) { log.AppendLine("FAIL  wyjątek: " + ex); zle++; }
             log.AppendLine(zle == 0 ? "WYNIK: wszystkie testy PASS" : "WYNIK: FAIL " + zle);

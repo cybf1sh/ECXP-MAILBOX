@@ -326,9 +326,13 @@ namespace Ecxp
                 var m = ReUuid.Match((t.Sesja ?? "").Replace("local_", ""));
                 if (m.Success) ids.Add(m.Groups[1].Value);
             }
-            if (ids.Count == 0 || Agenci.Program("claude").Length == 0) return null;
             var projekty = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
-            if (!Directory.Exists(projekty)) return null;
+            if (Agenci.Program("claude").Length == 0 || !Directory.Exists(projekty)) return null;
+            // Trasa z aplikacji Claude niesie jej id (local_…), a nie id rozmowy CLI; hak nie działa w niezaufanym folderze
+            // (aplikacja otwiera wtedy katalog tymczasowy). Ostatnia droga: zapis rozmowy, w którym sesja sama wywołała ecxp_przypisz.
+            var zPrzypisz = RozmowaZPrzypisz(projekty, kto);
+            if (zPrzypisz != null) ids.Add(zPrzypisz);
+            if (ids.Count == 0) return null;
             FileInfo najnowszy = null; string idN = null;
             foreach (var id in ids.Distinct())
                 foreach (var d in Directory.GetDirectories(projekty))
@@ -342,6 +346,48 @@ namespace Ecxp
             var cwd = Pole(najnowszy.FullName, "cwd");
             if (cwd.Length == 0 || !Directory.Exists(cwd)) return null;
             return new Sesja { Strona = "claude", Id = idN, Katalog = cwd, Aktywna = (DateTime.Now - najnowszy.LastWriteTime).TotalMinutes < AktywnaSesjaMin, Opis = "Claude, sesja " + idN };
+        }
+
+        static readonly Dictionary<string, string> rozmowyClaude = new Dictionary<string, string>();
+        static readonly Dictionary<string, DateTime> rozmowyClaudeSzukano = new Dictionary<string, DateTime>();
+
+        // Id rozmowy Claude Code (nazwa pliku .jsonl), która wywołała ecxp_przypisz(ja=kto) – z ostatnich 3 dni.
+        // Wynik trzymany w pamięci; nieudane szukanie powtarzane najwyżej co 2 minuty.
+        public static string RozmowaZPrzypisz(string projekty, string kto)
+        {
+            lock (rozmowyClaude)
+            {
+                string znany; DateTime kiedy;
+                if (rozmowyClaude.TryGetValue(kto, out znany) && Directory.GetFiles(projekty, znany + ".jsonl", SearchOption.AllDirectories).Length > 0) return znany;
+                if (rozmowyClaudeSzukano.TryGetValue(kto, out kiedy) && (DateTime.Now - kiedy).TotalMinutes < 2) return null;
+                rozmowyClaudeSzukano[kto] = DateTime.Now;
+            }
+            var wzor = new Regex("\"name\":\"mcp__ecxp__ecxp_przypisz\"[^}]*?\"ja\":\"" + Regex.Escape(kto) + "\"");
+            var granica = DateTime.Now.AddDays(-3);
+            string wynik = null; DateTime najnowszy = DateTime.MinValue;
+            try
+            {
+                foreach (var f in Directory.EnumerateFiles(projekty, "*.jsonl", SearchOption.AllDirectories))
+                {
+                    DateTime t; try { t = File.GetLastWriteTime(f); } catch { continue; }
+                    if (t < granica || t <= najnowszy || f.IndexOf(Path.DirectorySeparatorChar + "subagents" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    try
+                    {
+                        using (var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                        using (var sr = new StreamReader(fs, Encoding.UTF8))
+                        {
+                            string l;
+                            while ((l = sr.ReadLine()) != null)
+                                if (l.IndexOf("\"type\":\"assistant\"", StringComparison.Ordinal) >= 0 && l.IndexOf(kto, StringComparison.Ordinal) >= 0 && wzor.IsMatch(l))
+                                { wynik = Path.GetFileNameWithoutExtension(f); najnowszy = t; break; }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            if (wynik != null) lock (rozmowyClaude) rozmowyClaude[kto] = wynik;
+            return wynik;
         }
 
         // Pierwsze wystąpienie pola tekstowego JSON (np. "cwd") w początkowych wierszach zapisu rozmowy.

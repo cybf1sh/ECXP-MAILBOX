@@ -534,13 +534,27 @@ namespace Ecxp
                         string w, nz;
                         if (!wyzwalacz.TryGetValue(f, out w) || !Wyzwalacze.Contains(w) || !nazwy.TryGetValue(f, out nz)) continue;
                         var txt = string.Concat(P.Lista(pl, "content").Select(c => P.S(c, "text")));
-                        if (txt.StartsWith("<environment_context") || txt.StartsWith("<heartbeat")) continue;
+                        txt = BezBlokowSystemowych(txt);
+                        if (txt.Length == 0) continue;   // sam blok aplikacji (kontekst, strona, heartbeat) – wpis operatora przyjdzie dalej
                         Przekaz("codex", nz, Path.GetFileNameWithoutExtension(f), txt);
                         wyzwalacz[f] = "";
                     }
                 }
             }
             return zmiana;
+        }
+
+        // Aplikacja Codex dokleja do tury własne bloki (<environment_context>, <external_codex_apps_…>, <heartbeat> …)
+        // jako osobne wiadomości "user". To nie są wpisy operatora – usuwamy je, zostaje tylko jego tekst.
+        static readonly System.Text.RegularExpressions.Regex BlokSystemowy = new System.Text.RegularExpressions.Regex(
+            @"<(environment_context|heartbeat|external_[a-z_]+|user_instructions|turn_aborted|system[a-z_]*)\b[^>]*?(/>|>.*?</\1\s*>)",
+            System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        public static string BezBlokowSystemowych(string txt)
+        {
+            if (string.IsNullOrEmpty(txt)) return "";
+            var t = BlokSystemowy.Replace(txt, "").Trim();
+            if (t.StartsWith("<environment_context") || t.StartsWith("<heartbeat")) return "";   // blok bez zamknięcia
+            return t;
         }
 
         // Czyj jest wątek Codexa: sesja pary zaczyna się pakietem startowym, więc liczy się tylko PIERWSZA wiadomość operatora
