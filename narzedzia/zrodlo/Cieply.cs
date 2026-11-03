@@ -35,6 +35,22 @@ namespace Ecxp
         }
 
         static readonly Dictionary<string, Proc> procesy = new Dictionary<string, Proc>();
+
+        // Tryb zastępczy: gdy ciepły proces nie działa na tym stanowisku (starsze CLI, brak app-server / stream-json / --name,
+        // zablokowana praca bez pytań) – jednorazowe „codex exec” / „claude -p”, wolniej, ale wszędzie, gdzie są Codex i Claude.
+        // Po pierwszej porażce strona zostaje w trybie zastępczym do restartu stosu; ECXP_BEZ_CIEPLYCH=1 – zawsze zastępczy.
+        static readonly HashSet<string> zastepczy = new HashSet<string>();
+        public static bool Zastepczy(string strona)
+        {
+            if (Environment.GetEnvironmentVariable("ECXP_BEZ_CIEPLYCH") == "1") return true;
+            lock (zastepczy) return zastepczy.Contains(strona);
+        }
+        static void PrzejdzNaZastepczy(string strona, string powod)
+        {
+            lock (zastepczy) { if (!zastepczy.Add(strona)) return; }
+            Log("ciepli agenci: " + strona + " – tryb zastępczy (jednorazowe uruchomienia): " + (powod.Length > 300 ? powod.Substring(0, 300) : powod));
+            Zamknij(x => x.StartsWith(strona + "-"));
+        }
         public static Action<string> Log = s => { };
         public const int BezczynnoscMin = 30;
         static string Dir { get { return Path.Combine(P.Root, "stan", "agenci"); } }
@@ -58,6 +74,7 @@ namespace Ecxp
         public static void Rozgrzej(Dictionary<string, object> rec)
         {
             var n = P.S(rec, "nazwa");
+            if (Zastepczy(P.S(rec, "strona"))) return;
             lock (procesy)
             {
                 Proc w;
@@ -212,23 +229,51 @@ namespace Ecxp
         // rejestr: proces tury (Stop / Uruchom ponownie w konsoli przerywa go jak dotąd).
         public static Wynik Wykonaj(Dictionary<string, object> rec, string tekst, int limitMin, Action<Process> rejestr)
         {
+            var strona = P.S(rec, "strona");
+            if (Zastepczy(strona)) return Jednorazowo(rec, tekst, limitMin, rejestr);
+            string powod;
+            var wy = WykonajCiepla(rec, tekst, limitMin, rejestr, out powod);
+            if (powod == null) return wy;
+            // ciepły proces nie działa na tym stanowisku – to samo zadanie jeszcze raz w trybie zastępczym
+            PrzejdzNaZastepczy(strona, powod);
+            return Jednorazowo(rec, tekst, limitMin, rejestr);
+        }
+
+        // Rozpoznanie „ten tryb nie działa na tym stanowisku” (a nie zwykły błąd zadania).
+        static string NieDziala(Proc w, Wynik wy, bool wystartowal)
+        {
+            if (!wystartowal) return "proces nie wystartował: " + Dziennik(w);
+            if (wy.Kod == 0) return null;
+            var t = (wy.Wyjscie ?? "") + "\n" + Dziennik(w);
+            if (w.Strona == "codex" && System.Text.RegularExpressions.Regex.IsMatch(t, @"-32601|[Mm]ethod not found|unknown variant|unknown method|nie odpowiedział na (initialize|thread/start|turn/start)")) return t;
+            if (w.Strona == "claude" && w.Martwy && System.Text.RegularExpressions.Regex.IsMatch(t, @"unknown option|error: option|[Uu]nknown argument|bypassPermissions|stream-json|--name|not allowed|disabled|zakończył się bez wyniku")) return t;
+            return null;
+        }
+
+        static Wynik WykonajCiepla(Dictionary<string, object> rec, string tekst, int limitMin, Action<Process> rejestr, out string nieDziala)
+        {
+            nieDziala = null;
             var n = P.S(rec, "nazwa");
             Rozgrzej(rec);
             Proc w;
             lock (procesy) w = procesy[n];
             w.Zajety = true;
             var wy = new Wynik();
+            bool wystartowal = false;
             try
             {
                 var doGotowosci = DateTime.Now.AddMinutes(3);
                 while (!w.Gotowy && !w.Martwy && DateTime.Now < doGotowosci) Thread.Sleep(50);
-                if (!w.Gotowy) { wy.Kod = 1; wy.Wyjscie = "proces agenta nie wystartował: " + Dziennik(w); return wy; }
-                if (rejestr != null) rejestr(w.Pr);
-                if (w.Strona == "codex") WykonajCodex(w, rec, tekst, limitMin, wy);
-                else WykonajClaude(w, tekst, limitMin, wy);
-                return wy;
+                if (!w.Gotowy) { wy.Kod = 1; wy.Wyjscie = "proces agenta nie wystartował: " + Dziennik(w); }
+                else
+                {
+                    wystartowal = true;
+                    if (rejestr != null) rejestr(w.Pr);
+                    if (w.Strona == "codex") WykonajCodex(w, rec, tekst, limitMin, wy);
+                    else WykonajClaude(w, tekst, limitMin, wy);
+                }
             }
-            catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message + "\n" + Dziennik(w); return wy; }
+            catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message + "\n" + Dziennik(w); }
             finally
             {
                 w.Zajety = false; w.Ostatnio = DateTime.Now;
@@ -236,6 +281,74 @@ namespace Ecxp
                 // Codex i każdy proces po błędzie: wątek/kontekst też nie przechodzi dalej (nowy wątek albo nowy proces).
                 if (w.Strona == "claude" || wy.Kod != 0 || w.Martwy) lock (procesy) { if (procesy.ContainsKey(n) && procesy[n] == w) procesy.Remove(n); ZamknijProc(w); }
             }
+            nieDziala = NieDziala(w, wy, wystartowal);
+            return wy;
+        }
+
+        // ---------- tryb zastępczy: jednorazowe uruchomienie (jak przed ciepłymi procesami) ----------
+        static Wynik Jednorazowo(Dictionary<string, object> rec, string tekst, int limitMin, Action<Process> rejestr)
+        {
+            var wy = new Wynik();
+            var strona = P.S(rec, "strona"); var n = P.S(rec, "nazwa");
+            var prog = Agenci.Program(strona);
+            if (prog.Length == 0) { wy.Kod = 1; wy.Wyjscie = "brak " + strona + " CLI na tym stanowisku"; return wy; }
+            var katalog = P.S(rec, "katalog");
+            var pisze = P.S(rec, "uprawnienia") != "odczyt";
+            Directory.CreateDirectory(Dir);
+            var plikWyniku = Path.Combine(Dir, n + ".wynik.txt");
+            var startTury = DateTime.Now.AddSeconds(-1);      // wynik tylko z tej tury (plik nadpisuje „-o”)
+            string args;
+            if (strona == "claude")
+            {
+                var narz = new List<string> { "Read", "Grep", "Glob" };
+                if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
+                if (P.S(rec, "uprawnienia") == "pelne") { narz.Add("Bash"); narz.Add("PowerShell"); }
+                var mcpCfg = Path.Combine(Dir, n + ".mcp.json");
+                File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
+                // bez trybu „bypassPermissions” (może być zablokowany na stanowisku) – narzędzia dozwolone listą
+                args = "-p --output-format json --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", narz) +
+                       (pisze ? " --permission-mode acceptEdits" : "") +
+                       (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
+                       (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "");
+            }
+            else
+            {
+                var tryb = Podwyzszone(rec) ? "danger-full-access" : pisze ? "workspace-write" : "read-only";
+                args = "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
+                       (pisze && tryb != "danger-full-access" ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
+                       " -o \"" + plikWyniku + "\"" +
+                       (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
+            }
+            var psi = Psi(prog, args, katalog);
+            var wyjscie = new StringBuilder();
+            try
+            {
+                using (var pr = Process.Start(psi))
+                {
+                    if (rejestr != null) rejestr(pr);
+                    pr.OutputDataReceived += (s2, e) => { if (e.Data != null) lock (wyjscie) wyjscie.AppendLine(e.Data); };
+                    pr.ErrorDataReceived += (s2, e) => { if (e.Data != null) lock (wyjscie) wyjscie.AppendLine(e.Data); };
+                    pr.BeginOutputReadLine(); pr.BeginErrorReadLine();
+                    var we = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false));
+                    we.Write(tekst); we.Close();
+                    if (!pr.WaitForExit(limitMin * 60 * 1000)) { try { pr.Kill(); } catch { } wy.Kod = -1; lock (wyjscie) wy.Wyjscie = "przerwano po " + limitMin + " min\n" + wyjscie; return wy; }
+                    pr.WaitForExit();
+                    wy.Kod = pr.ExitCode;
+                }
+            }
+            catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message; return wy; }
+            lock (wyjscie) wy.Wyjscie = "(tryb zastępczy)\n" + wyjscie;
+            if (wy.Kod != 0) return wy;
+            if (strona == "codex") { try { wy.Odpowiedz = File.Exists(plikWyniku) && File.GetLastWriteTime(plikWyniku) >= startTury ? File.ReadAllText(plikWyniku, Encoding.UTF8).Trim() : ""; } catch { } }
+            else
+                foreach (var linia in wy.Wyjscie.Split('\n').Reverse())
+                {
+                    var t = linia.Trim();
+                    if (!t.StartsWith("{") || !t.Contains("\"result\"")) continue;
+                    try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (P.B(j, "is_error")) wy.Kod = 1; else wy.Odpowiedz = P.S(j, "result").Trim(); } catch { }
+                    break;
+                }
+            return wy;
         }
 
         static void WykonajCodex(Proc w, Dictionary<string, object> rec, string tekst, int limitMin, Wynik wy)
