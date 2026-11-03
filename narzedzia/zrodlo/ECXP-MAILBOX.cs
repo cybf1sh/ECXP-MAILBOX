@@ -3238,6 +3238,16 @@ namespace Ecxp
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
                 var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
                 var chSes = f.Wybor("Utwórz sesje w aplikacjach – widoczna rozmowa w Codex i Claude zamiast pracy w tle", false);
+                // folder projektu – ten sam, w którym pracują agenci i który dodaje się w aplikacjach Codex i Claude, by widzieć sesje
+                var bFolder = new Button { Text = Jezyk.T("📁  Pokaż folder projektu"), AutoSize = true, Margin = new Padding(3, 1, 3, 1) };
+                f.Rzad("", bFolder);
+                bFolder.Click += delegate
+                {
+                    var pr = P.Slug(cbP.Text, 32, false);
+                    if (pr.Length == 0) { MessageBox.Show(f, Jezyk.T("Podaj nazwę projektu."), Jezyk.T("Folder projektu")); return; }
+                    try { System.Diagnostics.Process.Start("explorer.exe", "\"" + SesjeAplikacji.Katalog(pr) + "\""); }
+                    catch (Exception ex) { MessageBox.Show(f, ex.Message, Jezyk.T("Folder projektu")); }
+                };
                 var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
                 // tryb pracy: w tle albo sesje w aplikacjach – zaznaczenie jednego wyłącza drugie (oba zawsze dostępne)
                 chTlo.CheckedChanged += delegate { if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
