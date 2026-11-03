@@ -692,8 +692,11 @@ namespace Ecxp
                     wynik.Add(d);
                     Zdarzenie("dostarczona", D("id", m.Id, "kto", ja, "proba", (s != null ? s.Dostarczenia : 0) + 1));
                 }
-                // zadania operatora i wiadomości obiegu: odbiór = „w trakcie”, potwierdzone przez stos (bez meldunku)
+                // odbiór = ACK (jak w TCP): każda wydana wiadomość jest potwierdzona przez stos, agent nic nie potwierdza;
+                // zadanie operatora przechodzi w obiegu w stan „w trakcie”, a jego wynik gwarantuje FIN (Obieg)
                 Obieg.Odebrane(ja, wydane.Where(m => m.Blad == null));
+                foreach (var m in wydane.Where(x => x.Blad == null && File.Exists(x.Sciezka)))
+                    try { PotwierdzPlik(m, ja, "przyjeta", "odbiór (ACK)"); } catch { }
                 var tmp = new DirectoryInfo(dir).GetFiles("*.tmp").Where(f => f.LastWriteTime < DateTime.Now.AddMinutes(-2)).ToList();
                 if (tmp.Count > 0)
                     wynik.Add(D("ostrzezenie", "Niedokończone zapisy (.tmp starsze niż 2 min): " + string.Join(", ", tmp.Select(f => f.Name)) + ". Nadawca przerwał wysyłanie – poproś o ponowienie."));

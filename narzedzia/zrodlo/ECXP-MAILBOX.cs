@@ -5116,7 +5116,7 @@ namespace Ecxp
 
                 // 3. przekazanie do modułu i odpowiedź z doklejonym potwierdzeniem
                 var r2 = P.Wyslij(new P.Nowa { Od = P.Koordynacja, Do = "codex-elcarver", Modul = "elcarver", Typ = "zadanie", Temat = "STAN-ELCARVER", Tresc = "Właściciel pyta o stan.", OdpNa = (string)r1["id"] });
-                ok((string)r2["potwierdzono_przy_okazji"] == (string)r1["id"], "przekazanie potwierdza oryginał (ACK doklejony)");
+                ok(P.Znajdz((string)r1["id"]).Katalog == "przeczytane", "odbiór potwierdza wiadomość (ACK przy odbiorze, agent nic nie potwierdza)");
                 ok(File.Exists(Path.Combine(root, "przeczytane", Path.GetFileName(p1))), "oryginał przeniesiony do przeczytane");
                 var r3 = P.Wyslij(new P.Nowa { Od = "codex-elcarver", Do = P.Wlasciciel, Modul = "elcarver", Typ = "odpowiedz", Temat = "STAN-ELCARVER", Tresc = "Czeka na scalenie.", OdpNa = (string)r2["id"] });
                 ok(((string)r3["plik"]).Contains("\\do-wlasciciela\\"), "odpowiedź dla właściciela w do-wlasciciela");
