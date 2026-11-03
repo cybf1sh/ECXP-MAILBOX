@@ -299,7 +299,7 @@ namespace Ecxp
             return wynik;
         }
 
-        static readonly System.Text.RegularExpressions.Regex ReSciezka = new System.Text.RegularExpressions.Regex(@"[A-Za-z]:\\[^\r\n""„”<>|*?]+");
+        static readonly System.Text.RegularExpressions.Regex ReSciezka = new System.Text.RegularExpressions.Regex(@"[A-Za-z]:\\[^\r\n""„”<>|*?:]+");   // bez dwukropka: kolejna ścieżka (X:\) zaczyna nowe dopasowanie
         public static List<string> KatalogiZTresci(string opis)
         {
             var l = new List<string>();
