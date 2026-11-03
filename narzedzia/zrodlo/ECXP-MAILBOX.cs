@@ -3219,7 +3219,7 @@ namespace Ecxp
                 var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
                 var chSes = f.Wybor("Zamiast tego załóż sesje w aplikacjach (Codex: wątek z nazwą; Claude: nowa sesja z pakietem) – wymaga Twoich wpisów", false);
                 var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
-                var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator) – agenci tego zadania mogą uruchamiać programy i polecenia", false);
+                var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
                 f.Uwaga(TekstZgodyUac);
                 chTlo.CheckedChanged += delegate { chSes.Enabled = !chTlo.Checked; if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
                 chSes.CheckedChanged += delegate { if (chSes.Checked) chTlo.Checked = false; };
