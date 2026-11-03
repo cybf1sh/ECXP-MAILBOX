@@ -106,6 +106,7 @@ namespace Ecxp
             if (strona != "claude" && strona != "codex") throw new EcxpException("Strona usługi: claude albo codex.");
             if (akcja != "start" && akcja != "stop" && akcja != "restart") throw new EcxpException("Akcja usługi: start, stop albo restart.");
             int ile = akcja == "start" ? 0 : PrzerwijTury(strona);
+            if (akcja != "start") Cieply.Zamknij(x => x.StartsWith(strona + "-"));
             var u = Uslugi();
             u[strona + "_zatrzymana"] = akcja == "stop";
             u[strona + "_zmiana"] = P.Teraz();
@@ -125,6 +126,7 @@ namespace Ecxp
         public static Dictionary<string, object> Zakoncz(bool przyZamknieciu)
         {
             int ile = PrzerwijTury("claude") + PrzerwijTury("codex");
+            Cieply.ZamknijWszystko();
             int sieroty = 0;
             try { sieroty = ZamknijOsierocone(); } catch (Exception ex) { Log("zakończenie usług – procesy osierocone: " + ex.Message); }
             var u = Uslugi();
@@ -246,32 +248,50 @@ namespace Ecxp
         public static void Petla()
         {
             NasluchSieci();
+            Cieply.Log = t => Log(t);
+            try { var s = Cieply.SprzatajSieroty(); if (s > 0) Log("ciepli agenci: zamknięte procesy osierocone: " + s); } catch { }
             while (true)
             {
-                Thread.Sleep(5000);
+                Thread.Sleep(500);      // szybka reakcja: zadanie trafia do agenta w ułamku sekundy
                 try
                 {
-                    foreach (var rec in Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x)))
+                    var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona"))).ToList();
+                    Cieply.Sprzataj(lista.GroupBy(x => P.S(x, "nazwa")).ToDictionary(g => g.Key, g => g.First()));
+                    // agenci z otwartym zadaniem (bez FIN) – ich procesy są rozgrzane z wyprzedzeniem (np. sprawdzający, zanim skończy wykonawca)
+                    var wObiegu = new HashSet<string>();
+                    foreach (var r in Obieg.Otwarte())
+                    {
+                        object ao;
+                        if (r.TryGetValue("agenci", out ao) && ao is Dictionary<string, object>)
+                            foreach (var kv in (Dictionary<string, object>)ao) if (P.S(kv.Value as Dictionary<string, object>, "stan") != "fin") wObiegu.Add(kv.Key);
+                    }
+                    foreach (var rec in lista)
                     {
                         var n = P.S(rec, "nazwa");
-                        if (Zatrzymana(P.S(rec, "strona"))) continue;
                         lock (trwa) if (trwa.Contains(n)) continue;
-                        // Gwarancja FIN (zapis obiegu zadania, pole obowiazkowa_odpowiedz): tura się skończyła, a FIN nie ma –
-                        // tura z przypomnieniem (najwyżej MaxPrzypomnien), potem jeden alarm u operatora.
-                        Msg brak = null;
-                        if (!MaOczekujace(n))
+                        // ECXP przezroczysty: stos odbiera za agenta (ACK), agent dostaje samą treść pracy, bez protokołu.
+                        // Informacje (np. podziękowania) kończą się na ACK – bez tury i bez tokenów.
+                        if (MaOczekujace(n)) Odbierz(n);
+                        Praca praca = null;
+                        if (wObiegu.Contains(n) || P.L(Pliki.Czytaj(Path.Combine(Dir, n + ".json")), "pytania").Count > 0) praca = NastepnaPraca(n);
+                        if (praca == null)
                         {
-                            if ((brak = BezOdpowiedzi(n)) == null) continue;
-                            if (Obieg.Przypomnienia(n, brak.Id) >= MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, brak); continue; }
+                            DateTimeOffset tOst;
+                            var ost = P.Lista(rec, "uruchomienia").LastOrDefault();
+                            bool niedawno = ost != null && DateTimeOffset.TryParse(P.S(ost, "czas"), out tOst) && tOst > DateTimeOffset.Now.AddMinutes(-Cieply.BezczynnoscMin);
+                            if (wObiegu.Contains(n) || niedawno) Cieply.Rozgrzej(rec);
+                            continue;
                         }
+                        // gwarancja FIN: tury bez wyniku liczone w obiegu; po MaxPrzypomnien+1 jeden alarm u operatora
+                        if (praca.Zadanie != null && Obieg.Przypomnienia(n, praca.Zadanie.Id) > MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, praca.Zadanie); continue; }
                         int naGodzine; int.TryParse(P.S(rec, "na_godzine"), out naGodzine);
                         var ostatnie = P.Lista(rec, "uruchomienia").Count(u => { DateTimeOffset t; return DateTimeOffset.TryParse(P.S(u, "czas"), out t) && t > DateTimeOffset.Now.AddHours(-1); });
                         if (ostatnie >= Math.Max(1, naGodzine)) continue;
                         // po nieudanej turze ponowienie według przyczyny (Ponowienie): bez pętli i bez zbędnego ruchu
                         if (Ponowienie(rec) > DateTimeOffset.Now) continue;
                         lock (trwa) trwa.Add(n);
-                        var kopia = rec; var kopiaBrak = brak;
-                        new Thread(() => Tura(kopia, kopiaBrak)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
+                        var kopia = rec; var kopiaPraca = praca;
+                        new Thread(() => Tura(kopia, kopiaPraca)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
                     }
                 }
                 catch (Exception ex) { Log("agenci: " + ex.Message); }
@@ -371,82 +391,72 @@ namespace Ecxp
             catch (Exception ex) { Log("agenci: alarm braku odpowiedzi " + n + ": " + ex.Message); }
         }
 
-        static void Tura(Dictionary<string, object> rec, Msg przypomnij = null)
+        // Praca agenta w tle: zadanie z obiegu (wynik = FIN) albo pytanie operatora (wynik = odpowiedź).
+        class Praca { public Msg Zadanie, Pytanie; public string Tekst = ""; }
+
+        // Stos odbiera wiadomości za agenta (każdy odbiór = ACK). Pytania operatora czekają w zapisie agenta na turę.
+        static void Odbierz(string n)
+        {
+            P.ZBlokada(delegate
+            {
+                var odebrane = P.Odbierz(n, 50);
+                var pyt = odebrane.Where(x => P.S(x, "od") == P.Wlasciciel && P.S(x, "typ") == "pytanie").Select(x => P.S(x, "id")).ToList();
+                if (pyt.Count > 0)
+                {
+                    var p = Path.Combine(Dir, n + ".json"); var d = Pliki.Czytaj(p);
+                    var l = P.L(d, "pytania"); l.AddRange(pyt.Where(x => !l.Contains(x))); d["pytania"] = l; Pliki.Zapisz(p, d);
+                }
+                return 0;
+            });
+        }
+
+        static Praca NastepnaPraca(string n)
+        {
+            var d = Pliki.Czytaj(Path.Combine(Dir, n + ".json"));
+            foreach (var id in P.L(d, "pytania"))
+            {
+                var q = P.Znajdz(id);
+                if (q != null) return new Praca { Pytanie = q, Tekst = q.Uwagi };
+            }
+            var zad = Obieg.Brakujacy(n);
+            if (zad == null) return null;
+            if (Obieg.Rola(n, zad.Id) == "sprawdzajacy")
+                return new Praca { Zadanie = zad, Tekst = "Sprawdź, czy to zadanie zostało wykonane poprawnie i dokładnie. Odpowiedz krótko: POZYTYWNY albo NEGATYWNY i dlaczego.\n\nZadanie:\n" +
+                    zad.Uwagi + "\n\nWykonawca zgłosił:\n" + Obieg.FinWykonawcy(zad.Id) };
+            return new Praca { Zadanie = zad, Tekst = zad.Uwagi };
+        }
+
+        // Ostatnia odpowiedź agenta: Claude – pole result z JSON, Codex – plik z -o.
+        static string WynikTury(string strona, string wyjscie, string plikCodex)
+        {
+            if (strona == "codex") { try { return File.Exists(plikCodex) ? File.ReadAllText(plikCodex, Encoding.UTF8).Trim() : ""; } catch { return ""; } }
+            foreach (var linia in (wyjscie ?? "").Split('\n').Reverse())
+            {
+                var t = linia.Trim();
+                if (!t.StartsWith("{") || !t.Contains("\"result\"")) continue;
+                try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (!P.B(j, "is_error")) return P.S(j, "result").Trim(); } catch { }
+            }
+            return "";
+        }
+
+        static void Tura(Dictionary<string, object> rec, Praca praca)
         {
             var n = P.S(rec, "nazwa");
             var start = DateTime.Now;
-            int kod = -1; string wynik = "";
+            int kod = -1; string wynik = "", odpowiedz = "";
+            Msg przypomnij = praca.Zadanie;
             try
             {
                 var strona = P.S(rec, "strona");
                 var prog = Program(strona);
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
-                var polecenie = "Masz nowe wiadomości w ECXP: ecxp_odbierz(ja=" + n + "). Wykonaj tylko zadanie – nic poza nim – i wyślij jeden FIN " +
-                                "(typ=fin, odpowiedz_na=<id zadania>). Nic pośredniego; gdy czekasz, zakończ turę.";
-                if (przypomnij != null)
-                    polecenie = "Zadanie „" + przypomnij.Temat + "” (id " + przypomnij.Id + ") nie ma jeszcze Twojego FIN. Dokończ tylko to zadanie i wyślij: ecxp_wyslij(ja=" + n +
-                                ", do=wlasciciel, typ=fin, odpowiedz_na=" + przypomnij.Id + ", projekt=" + przypomnij.Projekt + ", modul=" + przypomnij.Modul +
-                                ") – POZYTYWNY albo NEGATYWNY i krótko dlaczego.";
-                var zapis = P.L(rec, "katalogi_zapisu").Where(Directory.Exists).ToList();
-                var pisze = P.S(rec, "uprawnienia") != "odczyt";
-                var sys = Path.Combine(Dir, n + ".system.txt");
-                string args;
-                if (strona == "claude")
-                {
-                    var narz = new List<string> { "mcp__ecxp", "Read", "Grep", "Glob" };
-                    if (P.S(rec, "uprawnienia") != "odczyt") { narz.Add("Edit"); narz.Add("Write"); }
-                    if (P.S(rec, "uprawnienia") == "pelne") narz.Add("Bash");
-                    // własna konfiguracja MCP: agent rozmawia z tym samym stosem (ten sam katalog instalacji), na każdym stanowisku
-                    var mcpCfg = Path.Combine(Dir, n + ".mcp.json");
-                    var mcpExe = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
-                    File.WriteAllText(mcpCfg, P.Js().Serialize(P.D("mcpServers", P.D("ecxp", P.D("command", mcpExe, "args", new List<string> { "--root", P.Root })))), new UTF8Encoding(false));
-                    args = "-p --output-format json --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --append-system-prompt-file \"" + sys + "\" --allowedTools " + string.Join(" ", narz) +
-                           (pisze ? " --permission-mode acceptEdits" : "") +
-                           (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
-                           (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "") +
-                           (P.B(rec, "sesja_zalozona") ? " --resume " : " --session-id ") + P.S(rec, "sesja");
-                }
-                else
-                {
-                    polecenie = P.Czytaj(sys) + "\n\n" + polecenie;
-                    args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" +
-                           // zadanie z podwyższonymi uprawnieniami (UAC, zgoda operatora): bez piaskownicy Codexa – tylko do FIN tego zadania
-                           (P.S(rec, "podwyzszone_klucz").Length > 0 && P.S(rec, "uprawnienia") == "pelne" ? " -s danger-full-access" : pisze ? " -s workspace-write" : " -s read-only") +
-                           (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
-                           // exec działa z zasadą zgód „never”: narzędzia własnego serwera ECXP są zatwierdzone z góry (tylko w tym wywołaniu)
-                           " -c mcp_servers.ecxp.default_tools_approval_mode=\"approve\"" +
-                           (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
-                }
-                var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                    ? new ProcessStartInfo(prog, args)
-                    : new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" " + args + "\"");
-                psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.WorkingDirectory = P.S(rec, "katalog");
-                psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-                psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
-                psi.EnvironmentVariables["ECXP_DORECZANIE"] = "1";   // hook-claude.ps1: tura agenta w tle nie jest wpisem operatora (bez lustra)
-                var przed = Oczekujace(n);
-                using (var pr = Process.Start(psi))
-                {
-                    lock (trwa) procesy[n] = pr;
-                    var wy = new StringBuilder();
-                    pr.OutputDataReceived += (s, e) => { if (e.Data != null) lock (wy) wy.AppendLine(e.Data); };
-                    pr.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (wy) wy.AppendLine(e.Data); };
-                    pr.BeginOutputReadLine(); pr.BeginErrorReadLine();
-                    var we = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false));
-                    we.Write(polecenie); we.Close();
-                    if (!pr.WaitForExit(30 * 60 * 1000)) { try { pr.Kill(); } catch { } wynik = "przerwano po 30 min"; }
-                    else kod = pr.ExitCode;
-                    lock (wy) wynik = (wynik.Length > 0 ? wynik + "\n" : "") + wy.ToString();
-                }
-                // tura „udana”, a żadna z czekających wiadomości nie została odebrana – to porażka (np. narzędzia ECXP zablokowane):
-                // przerwa 10 min i alarm zamiast ponawiania tej samej pustej tury do wyczerpania limitu
-                if (kod == 0 && przed.Count > 0 && Oczekujace(n).Intersect(przed).Count() == przed.Count)
-                {
-                    kod = 2;
-                    var mz = Regex.Match(wynik, @"(MCP tool call requires approval[^\r\n]*|Brak narzędzi ECXP[^\r\n]*)");
-                    wynik = "bez postępu: tura nie odebrała żadnej z " + przed.Count + " czekających wiadomości" + (mz.Success ? " (" + mz.Value.Trim() + ")" : "") + ".\n" + wynik;
-                }
-                File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + "\n" + wynik + "\n", new UTF8Encoding(false));
+                // agent dostaje samą treść pracy – jak od człowieka; ECXP jest dla niego niewidoczny
+                var polecenie = praca.Tekst;
+                // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
+                var cw = Cieply.Wykonaj(rec, polecenie, 30, pr => { lock (trwa) procesy[n] = pr; });
+                kod = cw.Kod; wynik = cw.Wyjscie; odpowiedz = cw.Odpowiedz;
+                if (kod == 0 && odpowiedz.Length == 0) { kod = 2; wynik = "bez wyniku: tura zakończona bez odpowiedzi agenta.\n" + wynik; }
+                File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + " (" + (int)(DateTime.Now - start).TotalMilliseconds + " ms)\n" + wynik + "\n", new UTF8Encoding(false));
             }
             catch (Exception ex) { wynik = "błąd: " + ex.Message; }
             finally
@@ -458,21 +468,33 @@ namespace Ecxp
                         var p = Path.Combine(Dir, n + ".json");
                         var d = Pliki.Czytaj(p);
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
-                        if (przypomnij != null) Obieg.Przypomniano(n, przypomnij.Id);
                         var przyczyna = Przyczyna(kod, wynik);
+                        // wynik agenta zamienia stos: zadanie – FIN w obiegu, pytanie – odpowiedź do operatora
+                        if (odpowiedz.Length > 0)
+                        {
+                            try
+                            {
+                                if (praca.Zadanie != null)
+                                    Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Zadanie.Projekt, Modul = praca.Zadanie.Modul, Typ = "fin", OdpNa = praca.Zadanie.Id, Tresc = odpowiedz });
+                                else if (praca.Pytanie != null)
+                                    Siec.Wyslij(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Pytanie.Projekt, Modul = praca.Pytanie.Modul, Typ = "odpowiedz", Temat = praca.Pytanie.Temat, OdpNa = praca.Pytanie.Id, Tresc = odpowiedz });
+                            }
+                            catch (Exception ex) { Log("agenci: " + n + " – wynik nie przekazany: " + ex.Message); }
+                            if (praca.Pytanie != null) { var l = P.L(d, "pytania"); l.Remove(praca.Pytanie.Id); d["pytania"] = l; }
+                        }
+                        else if (kod == 2 && praca.Zadanie != null) Obieg.Przypomniano(n, praca.Zadanie.Id);
                         if (przyczyna == "trwaly")
                         {
-                            var mt = Regex.Match(wynik, @"""message""\s*:\s*""([^""]{1,160})""");
+                            // komunikat także z JSON zagnieżdżonego w JSON (Codex app-server: \"message\":\"…\")
+                            var mt = Regex.Match(wynik, @"message\\*""\s*:\s*\\*""([^""\\]{3,160})");
                             var powod = mt.Success ? mt.Groups[1].Value : "błąd trwały (" + Regex.Match(wynik, ReTrwaly.ToString(), RegexOptions.IgnoreCase).Value + ")";
                             var przek = Obieg.Przekaz(n, powod);
                             if (przek.Count > 0) Log("agenci: " + n + " – błąd trwały, zadanie przekazane partnerowi: " + string.Join(", ", przek));
                         }
-                        u.Add(P.D("przyczyna", przyczyna, "czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "przypomnienie", przypomnij != null ? przypomnij.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
+                        u.Add(P.D("przyczyna", przyczyna, "czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "praca", praca.Zadanie != null ? praca.Zadanie.Id : praca.Pytanie != null ? praca.Pytanie.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
-                        // identyfikator sesji jest zajęty już po pierwszej próbie (także nieudanej) – dalej tylko --resume
-                        if (kod == 0 || wynik.Contains("already in use") || wynik.Contains("\"session_id\"")) d["sesja_zalozona"] = true;
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
                         // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam

@@ -1,0 +1,367 @@
+// ECXP – ciepli agenci w tle: jeden stale działający proces na agenta, gotowy, zanim przyjdzie zadanie.
+//  * Codex: „codex app-server” (JSON-RPC na stdin/stdout). Każde zadanie to nowy wątek (świeży kontekst) w tym samym
+//    procesie – wątek zakłada się w kilkadziesiąt milisekund.
+//  * Claude: „claude -p” w trybie strumieniowym (stream-json). Po zadaniu proces jest zamykany, a pętla agentów od razu
+//    uruchamia nowy – świeży kontekst i znów gotowy.
+// Zimny start (Node, konfiguracja, logowanie) dzieje się w tle; na ścieżce zadania zostaje sam czas modelu.
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+
+namespace Ecxp
+{
+    static class Cieply
+    {
+        public class Wynik { public int Kod = -1; public string Odpowiedz = "", Wyjscie = ""; }
+
+        class Proc
+        {
+            public string Nazwa = "", Strona = "", Klucz = "";
+            public Process Pr; public StreamWriter We;
+            public DateTime Ostatnio = DateTime.Now;
+            public volatile bool Gotowy, Martwy, Zajety;
+            public readonly StringBuilder Dziennik = new StringBuilder();
+            // Claude: linie wyniku („type”: „result”)
+            public readonly Queue<string> Wyniki = new Queue<string>();
+            // Codex: odpowiedzi JSON-RPC i stan tury
+            public int Nr;
+            public readonly Dictionary<int, Dictionary<string, object>> Odp = new Dictionary<int, Dictionary<string, object>>();
+            public string Ost = "", StatusTury, BladTury;
+            public readonly ManualResetEvent KoniecTury = new ManualResetEvent(false);
+        }
+
+        static readonly Dictionary<string, Proc> procesy = new Dictionary<string, Proc>();
+        public static Action<string> Log = s => { };
+        public const int BezczynnoscMin = 30;
+        static string Dir { get { return Path.Combine(P.Root, "stan", "agenci"); } }
+
+        // Konfiguracja procesu: zmiana uprawnień, katalogów albo modelu = nowy proces.
+        static string Klucz(Dictionary<string, object> rec)
+        {
+            return string.Join("|", new[] { P.S(rec, "strona"), P.S(rec, "katalog"), P.S(rec, "uprawnienia"), P.S(rec, "podwyzszone_klucz"), P.S(rec, "model"),
+                string.Join(";", P.L(rec, "katalogi_zapisu")) });
+        }
+
+        static void Dopisz(Proc w, string t)
+        {
+            lock (w.Dziennik) { if (w.Dziennik.Length > 20000) w.Dziennik.Remove(0, 10000); w.Dziennik.AppendLine(t); }
+        }
+
+        // ---------- rozgrzewanie ----------
+        public static bool Cieplly(string nazwa) { lock (procesy) { Proc w; return procesy.TryGetValue(nazwa, out w) && !w.Martwy; } }
+
+        // Uruchamia proces agenta w tle, jeśli go nie ma (albo ma inną konfigurację). Nie czeka.
+        public static void Rozgrzej(Dictionary<string, object> rec)
+        {
+            var n = P.S(rec, "nazwa");
+            lock (procesy)
+            {
+                Proc w;
+                if (procesy.TryGetValue(n, out w))
+                {
+                    if (!w.Martwy && w.Klucz == Klucz(rec)) return;
+                    if (w.Zajety) return;
+                    procesy.Remove(n); ZamknijProc(w);
+                }
+                w = new Proc { Nazwa = n, Strona = P.S(rec, "strona"), Klucz = Klucz(rec) };
+                procesy[n] = w;
+                var kopia = rec;
+                new Thread(() => { try { Uruchom(w, kopia); } catch (Exception ex) { w.Martwy = true; Dopisz(w, "start: " + ex.Message); Log("ciepły " + n + ": " + ex.Message); } })
+                    { IsBackground = true, Name = "ecxp-cieply-" + n }.Start();
+            }
+        }
+
+        static ProcessStartInfo Psi(string prog, string args, string katalog)
+        {
+            var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? new ProcessStartInfo(prog, args)
+                : new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" " + args + "\"");
+            psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.WorkingDirectory = katalog;
+            psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+            psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
+            psi.EnvironmentVariables["ECXP_DORECZANIE"] = "1";   // hook-claude.ps1: tura agenta w tle nie jest wpisem operatora (bez lustra)
+            return psi;
+        }
+
+        static List<string> Zapis(Dictionary<string, object> rec)
+        {
+            var l = new List<string> { P.S(rec, "katalog") };
+            l.AddRange(P.L(rec, "katalogi_zapisu").Where(Directory.Exists));
+            return l.Where(x => x.Length > 0).Select(x => x.TrimEnd(Path.DirectorySeparatorChar)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        static bool Podwyzszone(Dictionary<string, object> rec) { return P.S(rec, "podwyzszone_klucz").Length > 0 && P.S(rec, "uprawnienia") == "pelne"; }
+
+        static void Uruchom(Proc w, Dictionary<string, object> rec)
+        {
+            var prog = Agenci.Program(w.Strona);
+            if (prog.Length == 0) throw new EcxpException("brak " + w.Strona + " CLI");
+            var katalog = P.S(rec, "katalog");
+            var pisze = P.S(rec, "uprawnienia") != "odczyt";
+            ProcessStartInfo psi;
+            if (w.Strona == "claude")
+            {
+                var narz = new List<string> { "Read", "Grep", "Glob" };
+                if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
+                if (P.S(rec, "uprawnienia") == "pelne") narz.Add("Bash");
+                Directory.CreateDirectory(Dir);
+                var mcpCfg = Path.Combine(Dir, w.Nazwa + ".mcp.json");                 // pusta konfiguracja MCP: agent nie widzi ECXP
+                File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
+                var args = "-p --input-format stream-json --output-format stream-json --verbose --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", narz) +
+                           (pisze ? " --permission-mode acceptEdits" : "") +
+                           (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
+                           (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "");
+                psi = Psi(prog, args, katalog);
+            }
+            else psi = Psi(prog, "app-server", katalog);
+            var pr = Process.Start(psi);
+            w.Pr = pr;
+            w.We = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+            ZapiszPidy();
+            pr.ErrorDataReceived += (s, e) => { if (e.Data != null) Dopisz(w, e.Data); };
+            pr.BeginErrorReadLine();
+            new Thread(() => Czytaj(w)) { IsBackground = true, Name = "ecxp-cieply-czyt-" + w.Nazwa }.Start();
+            if (w.Strona == "codex")
+            {
+                Rpc(w, "initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP", "version", "1.2")), 120000);
+                Pisz(w, P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
+            }
+            w.Gotowy = true;
+            w.Ostatnio = DateTime.Now;
+            Log("ciepły " + w.Nazwa + ": gotowy (" + w.Strona + ")");
+        }
+
+        static void Pisz(Proc w, object o) { lock (w.We) w.We.WriteLine(P.Js().Serialize(o)); }
+
+        static void Czytaj(Proc w)
+        {
+            var js = P.Js();
+            try
+            {
+                string l;
+                while ((l = w.Pr.StandardOutput.ReadLine()) != null)
+                {
+                    if (w.Strona == "claude")
+                    {
+                        if (l.Contains("\"type\":\"result\"")) lock (w.Wyniki) { w.Wyniki.Enqueue(l); Monitor.PulseAll(w.Wyniki); }
+                        continue;
+                    }
+                    Dictionary<string, object> m;
+                    try { m = js.Deserialize<Dictionary<string, object>>(l); } catch { continue; }
+                    if (m == null) continue;
+                    var metoda = P.S(m, "method");
+                    var pa = m.ContainsKey("params") ? m["params"] as Dictionary<string, object> : null;
+                    if (m.ContainsKey("id") && metoda.Length > 0)
+                    {
+                        // prośba o zgodę przy zasadzie „never” nie powinna przyjść; gdyby przyszła – odmowa (agent zgłosi to w wyniku)
+                        Dopisz(w, "prośba " + metoda + " – odmowa");
+                        object wynik = metoda.Contains("elicitation") ? (object)P.D("action", "decline", "content", P.D())
+                                     : metoda.Contains("permissions") ? (object)P.D("permissions", new List<object>(), "scope", "turn")
+                                     : P.D("decision", "decline");
+                        Pisz(w, P.D("jsonrpc", "2.0", "id", m["id"], "result", wynik));
+                        continue;
+                    }
+                    if (m.ContainsKey("id")) { int id; if (int.TryParse(P.S(m, "id"), out id)) lock (w.Odp) { w.Odp[id] = m; Monitor.PulseAll(w.Odp); } continue; }
+                    if (metoda == "item/completed" && pa != null && pa.ContainsKey("item"))
+                    {
+                        var it = pa["item"] as Dictionary<string, object>;
+                        if (it != null && P.S(it, "type") == "agentMessage") w.Ost = P.S(it, "text");
+                    }
+                    else if (metoda == "turn/completed")
+                    {
+                        var tu = pa != null && pa.ContainsKey("turn") ? pa["turn"] as Dictionary<string, object> : null;
+                        w.StatusTury = tu != null ? P.S(tu, "status") : "";
+                        if (tu != null && w.StatusTury != "completed") w.BladTury = js.Serialize(tu.ContainsKey("error") ? tu["error"] : tu);
+                        w.KoniecTury.Set();
+                    }
+                    else if (metoda == "error" && pa != null) Dopisz(w, "błąd: " + js.Serialize(pa));
+                }
+            }
+            catch (Exception ex) { Dopisz(w, "czytanie: " + ex.Message); }
+            w.Martwy = true;
+            w.KoniecTury.Set();
+            lock (w.Wyniki) Monitor.PulseAll(w.Wyniki);
+            lock (w.Odp) Monitor.PulseAll(w.Odp);
+        }
+
+        static Dictionary<string, object> Rpc(Proc w, string metoda, Dictionary<string, object> par, int ms)
+        {
+            int id = Interlocked.Increment(ref w.Nr);
+            Pisz(w, P.D("jsonrpc", "2.0", "id", id, "method", metoda, "params", par));
+            var koniec = DateTime.Now.AddMilliseconds(ms);
+            lock (w.Odp)
+                while (!w.Odp.ContainsKey(id))
+                {
+                    var zostalo = (int)(koniec - DateTime.Now).TotalMilliseconds;
+                    if (zostalo <= 0 || w.Martwy) throw new EcxpException("Codex app-server nie odpowiedział na " + metoda + ".");
+                    Monitor.Wait(w.Odp, Math.Min(zostalo, 500));
+                }
+            var r = w.Odp[id];
+            lock (w.Odp) w.Odp.Remove(id);
+            if (r.ContainsKey("error")) throw new EcxpException("Codex " + metoda + ": " + P.Js().Serialize(r["error"]));
+            return r.ContainsKey("result") ? r["result"] as Dictionary<string, object> : null;
+        }
+
+        // ---------- wykonanie jednej pracy ----------
+        // rejestr: proces tury (Stop / Uruchom ponownie w konsoli przerywa go jak dotąd).
+        public static Wynik Wykonaj(Dictionary<string, object> rec, string tekst, int limitMin, Action<Process> rejestr)
+        {
+            var n = P.S(rec, "nazwa");
+            Rozgrzej(rec);
+            Proc w;
+            lock (procesy) w = procesy[n];
+            w.Zajety = true;
+            var wy = new Wynik();
+            try
+            {
+                var doGotowosci = DateTime.Now.AddMinutes(3);
+                while (!w.Gotowy && !w.Martwy && DateTime.Now < doGotowosci) Thread.Sleep(50);
+                if (!w.Gotowy) { wy.Kod = 1; wy.Wyjscie = "proces agenta nie wystartował: " + Dziennik(w); return wy; }
+                if (rejestr != null) rejestr(w.Pr);
+                if (w.Strona == "codex") WykonajCodex(w, rec, tekst, limitMin, wy);
+                else WykonajClaude(w, tekst, limitMin, wy);
+                return wy;
+            }
+            catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message + "\n" + Dziennik(w); return wy; }
+            finally
+            {
+                w.Zajety = false; w.Ostatnio = DateTime.Now;
+                // Claude: świeży kontekst na następne zadanie – proces zamknięty, pętla agentów od razu uruchomi nowy.
+                // Codex i każdy proces po błędzie: wątek/kontekst też nie przechodzi dalej (nowy wątek albo nowy proces).
+                if (w.Strona == "claude" || wy.Kod != 0 || w.Martwy) lock (procesy) { if (procesy.ContainsKey(n) && procesy[n] == w) procesy.Remove(n); ZamknijProc(w); }
+            }
+        }
+
+        static void WykonajCodex(Proc w, Dictionary<string, object> rec, string tekst, int limitMin, Wynik wy)
+        {
+            var katalog = P.S(rec, "katalog");
+            string tryb; object polityka;
+            if (Podwyzszone(rec)) { tryb = "danger-full-access"; polityka = P.D("type", "dangerFullAccess"); }      // zgoda operatora + UAC, do FIN tego zadania
+            else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
+            else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", false); }
+            var st = Rpc(w, "thread/start", P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb), 60000);
+            var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
+            var watek = th != null ? P.S(th, "id") : "";
+            if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
+            w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
+            var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
+                "input", new List<object> { P.D("type", "text", "text", tekst, "text_elements", new List<object>()) });
+            if (P.S(rec, "model").Length > 0) par["model"] = P.S(rec, "model");
+            Rpc(w, "turn/start", par, 60000);
+            if (!w.KoniecTury.WaitOne(TimeSpan.FromMinutes(limitMin))) { wy.Kod = -1; wy.Wyjscie = "przerwano po " + limitMin + " min"; return; }
+            if (w.StatusTury == "completed") { wy.Kod = 0; wy.Odpowiedz = (w.Ost ?? "").Trim(); wy.Wyjscie = "wątek " + watek + "\n" + wy.Odpowiedz; }
+            else { wy.Kod = 1; wy.Wyjscie = "tura " + (w.StatusTury ?? "przerwana") + ": " + (w.BladTury ?? "") + "\n" + Dziennik(w); }
+        }
+
+        static void WykonajClaude(Proc w, string tekst, int limitMin, Wynik wy)
+        {
+            Pisz(w, P.D("type", "user", "message", P.D("role", "user", "content", tekst)));
+            string linia = null;
+            var koniec = DateTime.Now.AddMinutes(limitMin);
+            lock (w.Wyniki)
+                while (w.Wyniki.Count == 0)
+                {
+                    var zostalo = (int)(koniec - DateTime.Now).TotalMilliseconds;
+                    if (zostalo <= 0 || w.Martwy) break;
+                    Monitor.Wait(w.Wyniki, Math.Min(zostalo, 500));
+                }
+            lock (w.Wyniki) if (w.Wyniki.Count > 0) linia = w.Wyniki.Dequeue();
+            if (linia == null) { wy.Kod = -1; wy.Wyjscie = (w.Martwy ? "proces Claude zakończył się bez wyniku\n" : "przerwano po " + limitMin + " min\n") + Dziennik(w); return; }
+            Dictionary<string, object> j = null;
+            try { j = P.Js().Deserialize<Dictionary<string, object>>(linia); } catch { }
+            wy.Wyjscie = linia;
+            if (j == null || P.B(j, "is_error")) { wy.Kod = 1; return; }
+            wy.Kod = 0; wy.Odpowiedz = P.S(j, "result").Trim();
+        }
+
+        static string Dziennik(Proc w) { lock (w.Dziennik) { var s = w.Dziennik.ToString(); return s.Length > 4000 ? s.Substring(s.Length - 4000) : s; } }
+
+        // ---------- sprzątanie ----------
+        static void ZamknijProc(Proc w)
+        {
+            w.Martwy = true;
+            var pr = w.Pr;
+            new Thread(() =>
+            {
+                try { if (w.We != null) w.We.Close(); } catch { }
+                try
+                {
+                    if (pr != null && !pr.WaitForExit(3000))
+                        Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pr.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true }).WaitForExit(10000);
+                }
+                catch { }
+                ZapiszPidy();
+            }) { IsBackground = true }.Start();
+        }
+
+        public static void Zamknij(Func<string, bool> ktore)
+        {
+            lock (procesy)
+                foreach (var kv in procesy.Where(x => ktore(x.Key)).ToList()) { procesy.Remove(kv.Key); ZamknijProc(kv.Value); }
+        }
+        public static void ZamknijWszystko() { Zamknij(x => true); }
+
+        // Procesy bezczynne ponad BezczynnoscMin, nieaktywnych agentów albo z inną konfiguracją – zamknięte.
+        public static void Sprzataj(Dictionary<string, Dictionary<string, object>> aktywni)
+        {
+            lock (procesy)
+                foreach (var kv in procesy.ToList())
+                {
+                    var w = kv.Value;
+                    if (w.Zajety) continue;
+                    Dictionary<string, object> rec;
+                    bool zbedny = w.Martwy || !aktywni.TryGetValue(kv.Key, out rec) || Klucz(rec) != w.Klucz || DateTime.Now - w.Ostatnio > TimeSpan.FromMinutes(BezczynnoscMin);
+                    if (zbedny) { procesy.Remove(kv.Key); ZamknijProc(w); }
+                }
+        }
+
+        // Identyfikatory procesów tego stosu (plik na proces ecxpd) – po awarii stosu następny start zamyka sieroty.
+        static string PlikPidow { get { return Path.Combine(Dir, "cieple-" + Process.GetCurrentProcess().Id + ".txt"); } }
+        static void ZapiszPidy()
+        {
+            try
+            {
+                List<string> l;
+                lock (procesy) l = procesy.Values.Where(x => x.Pr != null && !x.Martwy).Select(x => { try { return x.Pr.Id.ToString(); } catch { return ""; } }).Where(x => x.Length > 0).ToList();
+                Directory.CreateDirectory(Dir);
+                File.WriteAllLines(PlikPidow, l);
+            }
+            catch { }
+        }
+        public static int SprzatajSieroty()
+        {
+            int n = 0;
+            try
+            {
+                if (!Directory.Exists(Dir)) return 0;
+                foreach (var f in Directory.GetFiles(Dir, "cieple-*.txt"))
+                {
+                    int wl;
+                    if (!int.TryParse(Path.GetFileNameWithoutExtension(f).Substring(7), out wl) || wl == Process.GetCurrentProcess().Id) continue;
+                    bool zyje = false;
+                    try { zyje = !Process.GetProcessById(wl).HasExited && Process.GetProcessById(wl).ProcessName.StartsWith("ecxpd", StringComparison.OrdinalIgnoreCase); } catch { }
+                    if (zyje) continue;
+                    foreach (var s in File.ReadAllLines(f))
+                    {
+                        int pid; if (!int.TryParse(s.Trim(), out pid)) continue;
+                        try
+                        {
+                            // tylko procesy agentów (numer PID mógł zostać nadany innemu programowi)
+                            var nazwa = Process.GetProcessById(pid).ProcessName.ToLowerInvariant();
+                            if (nazwa != "cmd" && nazwa != "node" && nazwa != "codex" && nazwa != "claude") continue;
+                            Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pid + " /T /F") { UseShellExecute = false, CreateNoWindow = true }).WaitForExit(10000);
+                            n++;
+                        }
+                        catch { }
+                    }
+                    try { File.Move(f, f + ".zamkniete-" + DateTime.Now.Ticks); } catch { }
+                }
+            }
+            catch { }
+            return n;
+        }
+    }
+}

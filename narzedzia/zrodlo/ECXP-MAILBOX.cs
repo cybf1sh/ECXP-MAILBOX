@@ -3188,9 +3188,13 @@ namespace Ecxp
                 var bNowyP = new Button { Text = "＋  Nowy projekt…", AutoSize = true, Margin = new Padding(10, 1, 3, 1) };
                 var lblNowyP = new Label { AutoSize = true, ForeColor = Color.FromArgb(0, 110, 0), Margin = new Padding(10, 7, 3, 3) };
                 f.Rzad("Projekt:", cbP, bNowyP, lblNowyP);
+                f.Zaaw = true;
                 var ikP = f.Ikony("Ikona projektu:", Siec.Ikony, OpisyIkon.Select(x => Jezyk.T(x)).ToArray(), IkonaProjektu(cbP.Text));
+                f.Zaaw = false;
                 var tbM = f.Tekst("Moduł / zadanie (krótka nazwa):", "");
+                f.Zaaw = true;
                 var ikM = f.Ikony("Ikona modułu:", Siec.Ikony, OpisyIkon.Select(x => Jezyk.T(x)).ToArray(), "");
+                f.Zaaw = false;
                 bNowyP.Click += delegate
                 {
                     using (var fp = new Formularz(Jezyk.T("Nowy projekt"), fontN, fontB))
@@ -3216,19 +3220,25 @@ namespace Ecxp
                     else if (slug.Length > 0) lblNowyP.Text = Jezyk.T("nowy – powstanie po wysłaniu");
                 };
                 tbM.TextChanged += delegate { var ik = IkonaModulu(cbP.Text, tbM.Text); if (ik.Length > 0) foreach (var r in ikM) r.Checked = (string)r.Tag == ik; };
+                f.Zaaw = true;
                 var tbT = f.Tekst("Nazwa sesji po obu stronach:", "");
+                f.Zaaw = false;
                 var agenci = f.Wybory("Wyślij do agentów:", new[] { "ChatGPT/Codex", "Claude" }, true);
                 var chCx = agenci[0]; var chCl = agenci[1];
+                f.Zaaw = true;
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
+                f.Zaaw = false;
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
+                var chSpr = f.Wybor("Druga strona sprawdza wynik (dwa przebiegi – wolniej)", false);
+                var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
+                f.Uwaga(TekstZgodyUac);
+                f.Zaaw = true;
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
                 var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
                 var chSes = f.Wybor("Utwórz sesje w aplikacjach – widoczna rozmowa w Codex i Claude zamiast pracy w tle", false);
                 var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
-                var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
-                f.Uwaga(TekstZgodyUac);
                 // tryb pracy: w tle albo sesje w aplikacjach – zaznaczenie jednego wyłącza drugie (oba zawsze dostępne)
                 chTlo.CheckedChanged += delegate { if (chTlo.Checked) chSes.Checked = false; chUac.Enabled = chTlo.Checked; if (!chTlo.Checked) chUac.Checked = false; };
                 chSes.CheckedChanged += delegate { if (chSes.Checked) chTlo.Checked = false; };
@@ -3236,6 +3246,10 @@ namespace Ecxp
                         "Zadanie trafia do sesji, która już prowadzi moduł; gdy jej nie ma albo zaznaczysz zakładanie sesji – ECXP zakłada nową sesję i wykonuje w niej zadanie.");
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
                 f.Uwaga("ECXP zarejestruje parę o tych samych nazwach: codex-<moduł> i claude-<moduł>, ze znacznikiem " + ZnacznikEcxp + ", wyśle zadanie do obu i przygotuje pakiety startowe.");
+                f.Zaaw = false;
+                var chWiecej = f.Wybor("Więcej opcji (ikony, role, łańcuch ról, sesje w aplikacjach, repozytorium)", false);
+                chWiecej.CheckedChanged += delegate { f.PokazZaawansowane(chWiecej.Checked); };
+                f.Shown += delegate { f.PokazZaawansowane(chWiecej.Checked); };
                 tbM.TextChanged += delegate { tbT.Text = tbM.Text.Trim(); };
                 // przy każdym agencie: do której sesji trafi zadanie – istniejącej w module czy nowej
                 Action cele = delegate
@@ -3256,6 +3270,7 @@ namespace Ecxp
                 {
                     rCx.Enabled = chCx.Checked; rCl.Enabled = chCl.Checked;
                     tbL.Enabled = chCx.Checked && chCl.Checked;                 // łańcuch ról przechodzi przez obie strony pary
+                    chSpr.Enabled = chCx.Checked && chCl.Checked; if (!chSpr.Enabled) chSpr.Checked = false;
                     f.OkAktywny(chCx.Checked || chCl.Checked);
                     f.PrzyciskOk(Jezyk.T(chCx.Checked && chCl.Checked ? "✉  Wyślij do pary (Codex + Claude)" : chCx.Checked ? "✉  Wyślij tylko do ChatGPT/Codex" : chCl.Checked ? "✉  Wyślij tylko do Claude" : "Zaznacz co najmniej jednego agenta"));
                 };
@@ -3277,7 +3292,7 @@ namespace Ecxp
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
-                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac,
+                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     OdswiezProjekty(P.S(r, "projekt"));     // nowy projekt od razu w menu „Projekt” u góry
@@ -4579,13 +4594,20 @@ namespace Ecxp
             Controls.Add(dol);
             AcceptButton = null; CancelButton = an;
         }
+        // Wiersze dodane przy Zaaw = true trafiają do listy Zaawansowane (pokazywane po „Więcej opcji”).
+        public bool Zaaw;
+        public readonly List<Control> Zaawansowane = new List<Control>();
+        void Grupa(params Control[] c) { if (Zaaw) Zaawansowane.AddRange(c); }
         void Wiersz(string e, Control c, bool rosnie)
         {
             int r = t.RowCount++;
             t.RowStyles.Add(rosnie ? new RowStyle(SizeType.Percent, 100) : new RowStyle(SizeType.AutoSize));
-            t.Controls.Add(new Label { Text = e, AutoSize = true, Margin = new Padding(3, 7, 8, 3) }, 0, r);
+            var l = new Label { Text = e, AutoSize = true, Margin = new Padding(3, 7, 8, 3) };
+            t.Controls.Add(l, 0, r);
             t.Controls.Add(c, 1, r);
+            Grupa(l, c);
         }
+        public void PokazZaawansowane(bool tak) { t.SuspendLayout(); foreach (var c in Zaawansowane) c.Visible = tak; t.ResumeLayout(); }
         public ComboBox Combo(string e, List<string> lista, string wart)
         {
             var c = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown };
@@ -4611,6 +4633,7 @@ namespace Ecxp
             int r = t.RowCount++;
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.Controls.Add(c, 1, r);
+            Grupa(c);
             return c;
         }
 
@@ -4655,7 +4678,7 @@ namespace Ecxp
             int r = t.RowCount++;
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var l = new Label { Text = tekst, AutoSize = true, MaximumSize = new Size(680, 0), ForeColor = Color.DimGray, Margin = new Padding(3, 8, 3, 8) };
-            t.Controls.Add(l, 0, r); t.SetColumnSpan(l, 2);
+            t.Controls.Add(l, 0, r); t.SetColumnSpan(l, 2); Grupa(l);
         }
         public void Kopiuj(string e, string tekst)
         {

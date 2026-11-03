@@ -461,7 +461,7 @@ namespace Ecxp
         public static readonly string[] Ikony = { "🖥", "🛡", "📄", "🗄", "🤖", "💡" };
 
         public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true, List<string> strony = null,
-            string ikonaProjektu = null, string ikonaModulu = null, bool repozytorium = false)
+            string ikonaProjektu = null, string ikonaModulu = null, bool repozytorium = false, bool sprawdzanie = true)
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
@@ -492,7 +492,7 @@ namespace Ecxp
                 bool cxProg = roleCodex.Contains("programista"), clProg = roleClaude.Contains("programista");
                 var wykonawca = cxProg == clProg ? "codex" : cxProg ? "codex" : "claude";
                 pary[modul] = P.D("codex", strony.Contains("codex") ? codex : P.S(stara, "codex"), "claude", strony.Contains("claude") ? claude : P.S(stara, "claude"), "tytul", tytulSesji,
-                    "wykonawca", obie ? (wykonawca == "codex" ? codex : claude) : "");
+                    "wykonawca", obie && sprawdzanie ? (wykonawca == "codex" ? codex : claude) : "");
                 pr["pary"] = pary;
                 // ikony: null = bez zmian, "" = usuń, inna wartość tylko z listy Ikony
                 if (ikonaProjektu != null) { if (Ikony.Contains(ikonaProjektu)) pr["ikona"] = ikonaProjektu; else if (ikonaProjektu.Length == 0) pr.Remove("ikona"); }
@@ -516,7 +516,8 @@ namespace Ecxp
                     var partner = strona == "codex" ? claude : codex;
                     var role = strona == "codex" ? roleCodex : roleClaude;
                     var kim = strona == "codex" ? "ChatGPT/Codex" : "Claude";
-                    var rolaWParze = obie ? (strona == wykonawca ? "wykonawca" : "sprawdzajacy") : "sam";
+                    // bez sprawdzania obie strony wykonują zadanie niezależnie (szybciej – jeden przebieg zamiast dwóch)
+                    var rolaWParze = obie && sprawdzanie ? (strona == wykonawca ? "wykonawca" : "sprawdzajacy") : "sam";
                     var txt = Pakiet(tytulSesji, kim, ja, projekt, modul, role, obie ? partner : "", rolaWParze, repozytorium, opis.Trim() + Zalaczniki(czesci));
                     var sd = Path.Combine(P.Root, "stan", "start");
                     Directory.CreateDirectory(sd);

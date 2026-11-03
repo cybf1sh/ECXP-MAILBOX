@@ -223,8 +223,7 @@ namespace Ecxp
         // albo agent zadał pytanie, na które nikt jeszcze nie odpowiedział).
         public static Msg Brakujacy(string n)
         {
-            var w = P.Wszystkie(false);
-            var odp = new HashSet<string>(w.Where(x => x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
+            List<Msg> w = null; HashSet<string> odp = null;      // wszystkie wiadomości czytane dopiero przy kandydacie (pętla co 0,5 s)
             foreach (var r in Otwarte())
             {
                 var e = Wpis(r, n);
@@ -235,6 +234,7 @@ namespace Ecxp
                     if (wyk != null && P.S(wyk, "stan") != "fin") continue;
                 }
                 DateTimeOffset od; DateTimeOffset.TryParse(P.S(r, "czas"), out od);
+                if (w == null) { w = P.Wszystkie(false); odp = new HashSet<string>(w.Where(x => x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase); }
                 if (w.Any(x => x.Od == n && x.Typ == "pytanie" && x.Czas > od.LocalDateTime && !odp.Contains(x.Id))) continue;
                 var m = P.Znajdz(P.S(e, "zadanie"));
                 if (m != null) return m;
@@ -288,6 +288,12 @@ namespace Ecxp
             return al;
         }
 
+        public static string Rola(string n, string idZadania) { var r = Znajdz(idZadania); var e = r == null ? null : Wpis(r, n); return e == null ? "" : P.S(e, "rola"); }
+        public static string FinWykonawcy(string idZadania)
+        {
+            var r = Znajdz(idZadania); if (r == null) return "";
+            return string.Join("\n\n", Agenci(r).Values.Cast<Dictionary<string, object>>().Where(x => P.S(x, "rola") != "sprawdzajacy" && P.S(x, "fin").Length > 0).Select(x => P.S(x, "fin")));
+        }
         public static void Przypomniano(string n, string idZadania)
         {
             var r = Znajdz(idZadania); if (r == null) return;

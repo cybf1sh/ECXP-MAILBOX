@@ -335,6 +335,7 @@ namespace Ecxp
                 Agenci.Obsluguje = rec => false;                                    // bez nowych tur
                 for (int i = 0; i < 360 && (Agenci.UslugaStan("claude")["w_toku"] as List<object>).Count + (Agenci.UslugaStan("codex")["w_toku"] as List<object>).Count > 0; i++) Thread.Sleep(5000);
                 WygasUprawnienia(klucz, DateTime.Now - start > TimeSpan.FromHours(3) ? "limit 3 h" : "zadanie zakończone");
+                Cieply.ZamknijWszystko(); Thread.Sleep(4000);       // procesy agentów z prawami administratora nie zostają
                 return 0;
             }
         }
@@ -528,7 +529,8 @@ namespace Ecxp
                         var strony = Siec.Strony(P.L(a, "strony"));
                         if (kroki.Count > 0 && strony.Count < 2) throw new EcxpException("Łańcuch ról wymaga obu stron pary – zaznacz Codex i Claude albo wyczyść pole łańcucha.");
                         var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony,
-                            a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null, P.B(a, "repozytorium"));
+                            a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null, P.B(a, "repozytorium"),
+                            a.ContainsKey("sprawdzanie") ? P.B(a, "sprawdzanie") : true);
                         // podwyższone uprawnienia: zgoda operatora tylko dla tego zadania, klucz = obieg zadania (wygasają z jego FIN)
                         string klucz = "";
                         if (P.B(a, "podwyzszone") && P.B(a, "w_tle") && r["zadanie"] is Dictionary<string, object>)
