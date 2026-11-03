@@ -504,7 +504,10 @@ namespace Ecxp
                         "Narzędzia ecxp_* działają tylko w sesji na tym komputerze. Jeśli ich nie widzisz (np. sesja otworzyła się w chmurze), nie wykonuj zadania – od razu napisz operatorowi: „Brak narzędzi ECXP – otwórz tę sesję lokalnie, na komputerze z ECXP”.\n" +
                         (obie
                             ? "Każdą odebraną wiadomość potwierdzaj (ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na). Do drugiej strony pisz na adres " + (strona == "codex" ? "claude/" : "codex/") + modul + ", do obu i operatora – para:" + modul + " / wlasciciel.\n" +
-                              "Z drugą stroną ustalcie wspólną gałąź roboczą i commit bazowy, zanim zaczniecie zmiany; nie piszcie naraz w tych samych plikach.\n\n"
+                              "Z drugą stroną ustalcie wspólną gałąź roboczą i commit bazowy, zanim zaczniecie zmiany; nie piszcie naraz w tych samych plikach.\n" +
+                              "Druga strona może wystartować później niż Ty (nowa sesja czeka np. na uruchomienie w aplikacji). Brak jej odpowiedzi to nie porażka: " +
+                              "wyślij propozycję, zamelduj operatorowi „czekam na drugą stronę” i zakończ turę – odpowiedź przyjdzie przez ECXP (stos albo operator Cię obudzi). " +
+                              "Wynik NEGATYWNY zgłaszaj tylko wtedy, gdy zadania nie da się wykonać.\n\n"
                             : "Każdą odebraną wiadomość potwierdzaj (ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na). Wynik i pytania pisz do operatora – adres wlasciciel.\n\n") +
                         "Zadanie od operatora:\n" + opis.Trim() + Zalaczniki(czesci);
                     var sd = Path.Combine(P.Root, "stan", "start");

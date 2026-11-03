@@ -9,7 +9,7 @@
 //               zadania i pytania bez potwierdzania) uruchamia wyłącznie operator: „⏰ Obudź adresata” i test połączeń.
 //    Zadanie tury: odebrać wiadomości (ecxp_odbierz) i potwierdzić każdą. Właściwą pracę sesja wykonuje dalej u siebie.
 //  * Sesji, która właśnie pracuje (zapis rozmowy zmieniony w ostatnich 2 min), nie budzimy – odbierze sama (hook, ecxp_odbierz).
-//  * Gdy adresat nie ma znanej sesji albo trzy próby budzenia nie pomogły – od razu alarm u operatora
+//  * Gdy adresat nie ma znanej sesji (po 15 min na start nowej sesji) albo trzy próby budzenia nie pomogły – alarm u operatora
 //    (wiadomość od ecxp-straznik do wlasciciel + alarm w konsoli). Nic nie znika po cichu.
 //  * Pomijani: operator, koordynacja Codexa (automatyzacja co 10 min), agenci w tle (mają własną pętlę), kopie wpisów z czatu.
 // Stan prób: stan\doreczanie.json („wylaczone”: true wyłącza budzenie, alarmy zostają).
@@ -29,7 +29,7 @@ namespace Ecxp
         public static Action<string> Log = s => { };
         public static Action<string, string, string, string> Alarm = (id, kto, temat, opis) => { };
         public static object Blokada = new object();
-        public const int PierwszaProbaMin = 2, OdstepMin = 10, MaxProb = 3, AktywnaSesjaMin = 2, AlarmClaudeMin = 5;
+        public const int PierwszaProbaMin = 2, OdstepMin = 10, MaxProb = 3, AktywnaSesjaMin = 2, AlarmClaudeMin = 5, StartSesjiMin = 15;
         static string Plik { get { return Path.Combine(P.Root, "stan", "doreczanie.json"); } }
         static readonly HashSet<string> trwa = new HashSet<string>();
 
@@ -111,7 +111,14 @@ namespace Ecxp
 
                 var cel = Cel(kto);
                 string powodAlarmu = null;
-                if (cel == null) powodAlarmu = "adresat " + kto + " nie ma znanej sesji na tym komputerze (ostatni kontakt: " + Kontakt(kto) + ") – nikt nie odbierze tej wiadomości.";
+                if (cel == null)
+                {
+                    // nowa sesja (np. założona przez konsolę dla nowego modułu) potrzebuje chwili na start w aplikacji
+                    // (zaufanie folderu, pierwsza tura) – alarm dopiero po czasie startu, nie po pierwszej minucie
+                    if ((DateTime.Now - najstarsza).TotalMinutes < StartSesjiMin) continue;
+                    powodAlarmu = "adresat " + kto + " nie ma znanej sesji na tym komputerze (ostatni kontakt: " + Kontakt(kto) + ", czekano " + P.Wiek(DateTime.Now - najstarsza) +
+                        ") – nikt nie odbierze tej wiadomości. Jeśli sesja miała powstać w aplikacji Claude, sprawdź, czy została uruchomiona (zaufanie folderu i wysłanie pierwszej wiadomości).";
+                }
                 else if (nr >= MaxProb) powodAlarmu = "adresat " + kto + " nie odebrał wiadomości – budzenie się nie udało (" + cel.Opis + "; " + P.S(pr, "wynik") + ").";
                 else if (wylaczone)
                 {

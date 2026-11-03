@@ -674,7 +674,9 @@
   "✓ Zrzut dodany i skopiowany do schowka – możesz go wkleić np. w Paint (Ctrl+V).": "✓ Screenshot added and copied to the clipboard – you can paste it e.g. into Paint (Ctrl+V).",
   "Zrzut dodany, ale nie trafił do schowka: ": "Screenshot added, but not copied to the clipboard: ",
   "Nie udało się zrobić zrzutu ekranu: ": "Could not take a screenshot: ",
-  "Zrzut ekranu": "Screenshot"
+  "Zrzut ekranu": "Screenshot",
+  "budzę w jego wątku – odbierze wiadomości i będzie dalej pracować (zapis w katalogu projektu, reszta za Twoją zgodą)": "waking in its thread – it will receive the messages and keep working (writes in the project folder, everything else with your approval)",
+  "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "Could not wake {0} in its thread: {1}\n\nIf the thread is open in the Codex app, type “receive ECXP messages” in it."
  },
  "fr": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Nœuds ECXP. Chaque réception, envoi et confirmation via ECXP enregistre un signe de vie.",
@@ -1351,7 +1353,9 @@
   "✓ Zrzut dodany i skopiowany do schowka – możesz go wkleić np. w Paint (Ctrl+V).": "✓ Capture ajoutée et copiée dans le presse-papiers – vous pouvez la coller p. ex. dans Paint (Ctrl+V).",
   "Zrzut dodany, ale nie trafił do schowka: ": "Capture ajoutée, mais non copiée dans le presse-papiers : ",
   "Nie udało się zrobić zrzutu ekranu: ": "Impossible de faire une capture d’écran : ",
-  "Zrzut ekranu": "Capture d’écran"
+  "Zrzut ekranu": "Capture d’écran",
+  "budzę w jego wątku – odbierze wiadomości i będzie dalej pracować (zapis w katalogu projektu, reszta za Twoją zgodą)": "réveil dans son fil – il recevra les messages et continuera le travail (écriture dans le dossier du projet, le reste avec votre accord)",
+  "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "Impossible de réveiller {0} dans son fil : {1}\n\nSi le fil est ouvert dans l’application Codex, écrivez-y « recevoir les messages ECXP »."
  },
  "cs": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "Uzly ECXP. Každé přijetí, odeslání a potvrzení přes ECXP zaznamená signál aktivity.",
@@ -2028,7 +2032,9 @@
   "✓ Zrzut dodany i skopiowany do schowka – możesz go wkleić np. w Paint (Ctrl+V).": "✓ Snímek přidán a zkopírován do schránky – můžete ho vložit např. do Malování (Ctrl+V).",
   "Zrzut dodany, ale nie trafił do schowka: ": "Snímek přidán, ale nezkopírován do schránky: ",
   "Nie udało się zrobić zrzutu ekranu: ": "Snímek obrazovky se nepodařilo pořídit: ",
-  "Zrzut ekranu": "Snímek obrazovky"
+  "Zrzut ekranu": "Snímek obrazovky",
+  "budzę w jego wątku – odbierze wiadomości i będzie dalej pracować (zapis w katalogu projektu, reszta za Twoją zgodą)": "budím v jeho vlákně – přijme zprávy a bude dál pracovat (zápis ve složce projektu, ostatní s vaším souhlasem)",
+  "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "{0} se nepodařilo probudit v jeho vlákně: {1}\n\nPokud je vlákno otevřené v aplikaci Codex, napište do něj „přijmi zprávy ECXP“."
  },
  "de": {
   "Węzły ECXP. Każde odebranie, wysłanie i potwierdzenie przez narzędzia ECXP zostawia sygnał życia.": "ECXP-Knoten. Empfangen, Senden und Bestätigen über ECXP erfasst ein Lebenszeichen.",
@@ -2705,6 +2711,8 @@
   "✓ Zrzut dodany i skopiowany do schowka – możesz go wkleić np. w Paint (Ctrl+V).": "✓ Bildschirmfoto hinzugefügt und in die Zwischenablage kopiert – z. B. in Paint einfügen (Strg+V).",
   "Zrzut dodany, ale nie trafił do schowka: ": "Bildschirmfoto hinzugefügt, aber nicht in die Zwischenablage kopiert: ",
   "Nie udało się zrobić zrzutu ekranu: ": "Bildschirmfoto fehlgeschlagen: ",
-  "Zrzut ekranu": "Bildschirmfoto"
+  "Zrzut ekranu": "Bildschirmfoto",
+  "budzę w jego wątku – odbierze wiadomości i będzie dalej pracować (zapis w katalogu projektu, reszta za Twoją zgodą)": "wecke im eigenen Thread – empfängt die Nachrichten und arbeitet weiter (Schreiben im Projektordner, alles andere mit Ihrer Zustimmung)",
+  "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "{0} konnte im eigenen Thread nicht geweckt werden: {1}\n\nWenn der Thread in der Codex-App geöffnet ist, schreiben Sie dort „ECXP-Nachrichten empfangen“."
  }
 }
