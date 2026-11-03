@@ -3216,7 +3216,12 @@ namespace Ecxp
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var tbL = f.Tekst("Łańcuch ról (puste = bez):", "");
-                var chSes = f.Wybor("Załóż sesje w aplikacjach automatycznie (Codex: wątek z nazwą; Claude: nowa sesja z pakietem)", true);
+                var chTlo = f.Wybor("Agenci pracują w tle – stos sam ich uruchamia i budzi, gdy przyjdzie wiadomość (zalecane)", true);
+                var chSes = f.Wybor("Zamiast tego załóż sesje w aplikacjach (Codex: wątek z nazwą; Claude: nowa sesja z pakietem) – wymaga Twoich wpisów", false);
+                var chRepo = f.Wybor("Zadanie zmienia repozytorium (agenci najpierw uzgodnią gałąź)", false);
+                chTlo.CheckedChanged += delegate { chSes.Enabled = !chTlo.Checked; if (chTlo.Checked) chSes.Checked = false; };
+                chSes.CheckedChanged += delegate { if (chSes.Checked) chTlo.Checked = false; };
+                chSes.Enabled = false;
                 f.Uwaga("Agenci: oba zaznaczone – zadanie trafia do obu stron pary (zasada 1:1), jak dotąd. Jeden zaznaczony – zadanie dostaje tylko ten agent, druga strona nie dostaje kopii. " +
                         "Zadanie trafia do sesji, która już prowadzi moduł; gdy jej nie ma albo zaznaczysz zakładanie sesji – ECXP zakłada nową sesję i wykonuje w niej zadanie.");
                 f.Uwaga("Łańcuch, np.: programista, tester, recenzent, decyzja, integrator – stos sam przekazuje zadanie kolejnym rolom; „decyzja” czeka na Twoją podpisaną decyzję. Puste pole: zadanie trafia od razu do obu stron pary.");
@@ -3258,13 +3263,26 @@ namespace Ecxp
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
+                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     OdswiezProjekty(P.S(r, "projekt"));     // nowy projekt od razu w menu „Projekt” u góry
                     var pk = (Dictionary<string, object>)r["pakiety"];
                     Func<string, Dictionary<string, object>> pakiet = s => pk.ContainsKey(s) ? (Dictionary<string, object>)pk[s] : null;
                     UstawBiezaca(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), DateTime.Now, true, strony);
-                    if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"),
+                    if (chTlo.Checked)
+                    {
+                        var ag = P.Lista(r, "agenci_w_tle");
+                        var bl = ag.Where(x => P.S(x, "blad").Length > 0).ToList();
+                        var zap = ag.SelectMany(x => P.L(x, "zapis")).Distinct().ToList();
+                        stInfo.Text = P.S(r, "tytul_sesji") + ": " + Jezyk.T("agenci w tle uruchomieni – odpowiedzi pojawią się w Odebranych.");
+                        MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane.\n\nAgenci w tle: {1}.\nStos sam uruchamia ich tury, gdy w kolejce czeka wiadomość – nie trzeba niczego wpisywać ani klikać. Wynik przyjdzie jako odpowiedź na zadanie w Odebranych."), P.S(r, "tytul_sesji"),
+                                string.Join(", ", ag.Where(x => P.S(x, "blad").Length == 0).Select(x => P.S(x, "nazwa")))) +
+                            (zap.Count > 0 ? "\n\n" + Jezyk.T("Zapis dozwolony także w: ") + string.Join(", ", zap) : "") +
+                            (bl.Count > 0 ? "\n\n" + Jezyk.T("Nie uruchomiono: ") + string.Join("; ", bl.Select(x => P.S(x, "nazwa") + " – " + P.S(x, "blad"))) : ""),
+                            "ECXP", MessageBoxButtons.OK, bl.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+                    }
+                    else if (chSes.Checked) ZalozSesje(P.S(r, "projekt"), P.S(r, "modul"), P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"),
                         zalN.Pliki.Where(SesjeAplikacji.Obraz).ToList());
                     else PokazPakiety((strony.Count == 2 ? "Para utworzona: " : "Zadanie utworzone: ") + P.S(r, "tytul_sesji"), pakiet("codex"), pakiet("claude"));
                 }
@@ -4919,9 +4937,22 @@ namespace Ecxp
                 var zn = P.Czytaj(Path.Combine(P.Root, "stan", "znaczniki.json"));
                 ok(zn.Contains("codex-elan") && zn.Contains("claude-elan"), "znaczniki ECXP zapisane dla obu sesji");
 
-                var r2 = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "informacja", "tresc", "Uwaga tylko do Codexa."));
+                var r2 = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Zadanie tylko do Codexa."));
                 var kopie = ((System.Collections.IEnumerable)r2["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
-                ok(kopie.Count == 1 && P.S(kopie[0], "do") == "claude-elan", "zasada 1:1: wiadomość operatora do Codexa ma kopię u Claude");
+                ok(kopie.Count == 1 && P.S(kopie[0], "do") == "claude-elan", "zasada 1:1: zadanie operatora do Codexa ma kopię u Claude");
+                var r2i = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "projekt", "testowy", "modul", "elan", "typ", "informacja", "tresc", "Uwaga tylko do Codexa."));
+                ok(((System.Collections.IEnumerable)r2i["kopie_dla_pary"]).Cast<object>().Count() == 0, "informacja operatora do jednej strony – bez kopii dla drugiej");
+
+                // zasada pytanie → odpowiedź (agent): odpowiedź bez odpowiedz_na i meldunek obok nieodpowiedzianego zadania są odrzucane
+                var idZad = (string)r2["id"];
+                Func<P.Nowa, string> agentWysyla = n => { try { Siec.Wyslij(n); return ""; } catch (EcxpException ex) { return ex.Message; } };
+                ok(agentWysyla(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "x" }).Contains("odpowiedz_na"),
+                    "odpowiedź agenta bez odpowiedz_na odrzucona");
+                var bladMeld = agentWysyla(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "meldunek", Temat = "CZEKAM", Tresc = "czekam na drugą stronę" });
+                ok(bladMeld.Contains("Najpierw odpowiedz") && bladMeld.Contains("odpowiedz_na="), "meldunek pośredni obok nieodpowiedzianego zadania odrzucony z podpowiedzią");
+                var odpA = Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "Wynik POZYTYWNY.", OdpNa = idZad });
+                var kopieOdp = ((System.Collections.IEnumerable)odpA["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
+                ok(kopieOdp.Count == 1 && P.S(kopieOdp[0], "do") == "claude-elan", "końcowa odpowiedź na zadanie trafia też do drugiej strony (do sprawdzenia)");
 
                 // wybór agentów: operator może wysłać tylko do jednej strony, bez kopii dla drugiej
                 var rb = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "bez_kopii", true, "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Tylko dla Codexa, bez kopii."));
@@ -4935,7 +4966,7 @@ namespace Ecxp
                 ok(adrS.Count == 1 && adrS[0] == "claude-solo" && ((System.Collections.IEnumerable)zs["kopie_dla_pary"]).Cast<object>().Count() == 0
                     && !P.Wszystkie(false).Any(m => m.Do == "codex-solo"), "nowe zadanie tylko do Claude: dostał je wyłącznie claude-solo, bez kopii i bez lustra");
                 ok(pkS.ContainsKey("claude") && !pkS.ContainsKey("codex") && !File.Exists(Path.Combine(P.Root, "stan", "start", "codex-solo.txt"))
-                    && P.Czytaj(Path.Combine(P.Root, "stan", "start", "claude-solo.txt")).Contains("tylko do Ciebie"), "pakiet startowy tylko dla wybranego agenta, z informacją, że pracuje sam");
+                    && P.Czytaj(Path.Combine(P.Root, "stan", "start", "claude-solo.txt")).Contains("dostałeś tylko Ty"), "pakiet startowy tylko dla wybranego agenta, z informacją, że pracuje sam");
                 ok(!Siec.Trasy().Any(x => x.Aktywna && x.Nazwa == "codex-solo"), "niewybrana strona nie została zarejestrowana na zapas");
                 bool lanJeden = false;
                 try { k.Wywolaj("nowe_zadanie", P.D("projekt", "testowy", "modul", "solo2", "opis", "x", "strony", new List<string> { "codex" }, "lancuch", new List<string> { "programista", "tester" })); }

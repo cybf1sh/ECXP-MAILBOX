@@ -116,8 +116,7 @@ namespace Ecxp
                     // nowa sesja (np. założona przez konsolę dla nowego modułu) potrzebuje chwili na start w aplikacji
                     // (zaufanie folderu, pierwsza tura) – alarm dopiero po czasie startu, nie po pierwszej minucie
                     if ((DateTime.Now - najstarsza).TotalMinutes < StartSesjiMin) continue;
-                    powodAlarmu = "adresat " + kto + " nie ma znanej sesji na tym komputerze (ostatni kontakt: " + Kontakt(kto) + ", czekano " + P.Wiek(DateTime.Now - najstarsza) +
-                        ") – nikt nie odbierze tej wiadomości. Jeśli sesja miała powstać w aplikacji Claude, sprawdź, czy została uruchomiona (zaufanie folderu i wysłanie pierwszej wiadomości).";
+                    powodAlarmu = kto + " nie ma sesji na tym komputerze (czekano " + P.Wiek(DateTime.Now - najstarsza) + "; ostatni kontakt: " + Kontakt(kto) + ").";
                 }
                 else if (nr >= MaxProb) powodAlarmu = "adresat " + kto + " nie odebrał wiadomości – budzenie się nie udało (" + cel.Opis + "; " + P.S(pr, "wynik") + ").";
                 else if (wylaczone)
@@ -188,7 +187,7 @@ namespace Ecxp
                     P.Wyslij(new P.Nowa
                     {
                         Od = P.Straznik, Do = P.Wlasciciel, Projekt = m.Projekt, Modul = m.Modul, Typ = "blokada", Temat = "NIEDORECZONA",
-                        Tresc = opis + "\n\nCo możesz zrobić w ECXP-MAILBOX (prawy przycisk na wiadomości w „Wysłanych”): „↪ Wyślij ponownie…” – możesz poprawić treść i adres (np. do aktywnej sesji), „⏰ Obudź adresata” albo „⊘ Zamknij wątek…”.\nPliki: " + string.Join(", ", lista.Select(x => x.Plik)),
+                        Tresc = opis + "\nPrawy przycisk na tej wiadomości: ⏰ Obudź adresata, ↪ Wyślij ponownie albo ⊘ Zamknij wątek.",
                         OdpNa = m.Id
                     });
             }

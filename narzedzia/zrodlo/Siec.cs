@@ -355,6 +355,7 @@ namespace Ecxp
                             "'. Wiadomość trafiłaby do innej pary – popraw adres (np. para:" + n.Modul + ") albo moduł.");
                 }
                 var cele = Rozwiaz(n.Projekt, n.Do);
+                ZasadaOdpowiedzi(n, cele);
                 // para wstrzymana po rozbieżności gałęzi: agenci nie dostają nowych zadań, dopóki operator jej nie wznowi
                 if (n.Od != P.Wlasciciel && n.Typ == "zadanie")
                     foreach (var c in cele.Where(P.PoprawnyNadawca))
@@ -377,7 +378,10 @@ namespace Ecxp
                 var kopie = new List<object>();
                 var zrodlo = (string)pierwsza["id"];
                 var watek = n.Watek.Length > 0 ? n.Watek : zrodlo;
-                if (n.Od == P.Wlasciciel && !n.BezKopii)
+                // Kopie tylko tam, gdzie druga strona ich potrzebuje: zadanie operatora i końcowa odpowiedź agenta na zadanie.
+                // Meldunki pośrednie, informacje i pytania do operatora nie są powielane (mniej szumu w kolejkach).
+                var odpNaZadanie = n.OdpNa.Length > 0 && Typ(n.Typ) == "odpowiedz" && (P.Znajdz(n.OdpNa) ?? new Msg()).Typ == "zadanie";
+                if (n.Od == P.Wlasciciel && !n.BezKopii && Typ(n.Typ) == "zadanie")
                 {
                     foreach (var c in cele.Where(P.PoprawnyNadawca).ToList())
                         foreach (var t in Przynaleznosc(c).Where(x => n.Projekt.Length == 0 || x.Projekt == n.Projekt))
@@ -387,7 +391,7 @@ namespace Ecxp
                             kopie.Add(KopiaDlaPary(n, partner, t, "Operator napisał do " + P.Nazwa(c) + " (" + c + "):", zrodlo, watek));
                         }
                 }
-                else if (P.PoprawnyNadawca(n.Od) && cele.Contains(P.Wlasciciel))
+                else if (P.PoprawnyNadawca(n.Od) && cele.Contains(P.Wlasciciel) && odpNaZadanie)
                 {
                     foreach (var t in Przynaleznosc(n.Od).Where(x => n.Projekt.Length == 0 || x.Projekt == n.Projekt))
                     {
@@ -419,6 +423,30 @@ namespace Ecxp
             });
         }
 
+        static string Typ(string t) { return (t ?? "").Trim().ToLowerInvariant(); }
+
+        // Zasada „pytanie → odpowiedź” dla agentów:
+        //  * typ=odpowiedz musi wskazywać wiadomość, na którą odpowiada (odpowiedz_na);
+        //  * kto ma od adresata nieodpowiedziane pytanie albo zadanie, nie wysyła mu informacji ani meldunku obok –
+        //    odpowiada na nie (typ=odpowiedz, odpowiedz_na=<id>). Doręczenie pilnuje stos, meldunki „czekam/przyjąłem” są zbędne.
+        // Pytanie zwrotne i blokada są dozwolone (agent może czegoś potrzebować, zanim odpowie).
+        static void ZasadaOdpowiedzi(P.Nowa n, List<string> cele)
+        {
+            if (!P.PoprawnyNadawca(n.Od)) return;
+            var typ = Typ(n.Typ);
+            if (typ == "odpowiedz" && n.OdpNa.Length == 0)
+                throw new EcxpException("Odpowiedź musi wskazywać wiadomość, na którą odpowiadasz: podaj odpowiedz_na=<id tej wiadomości>.");
+            if (n.OdpNa.Length > 0 || (typ != "informacja" && typ != "meldunek")) return;
+            var wszystkie = P.Wszystkie(false);
+            var odpowiedziane = new HashSet<string>(wszystkie.Where(x => x.Od == n.Od && x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
+            var czeka = wszystkie.Where(m => m.Do == n.Od && cele.Contains(m.Od) && (m.Typ == "pytanie" || m.Typ == "zadanie") && m.KopiaDla.Length == 0
+                    && (n.Projekt.Length == 0 || m.Projekt == n.Projekt) && !odpowiedziane.Contains(m.Id))
+                .OrderBy(m => m.Czas).FirstOrDefault();
+            if (czeka != null)
+                throw new EcxpException("Najpierw odpowiedz na " + (czeka.Typ == "zadanie" ? "zadanie" : "pytanie") + " „" + czeka.Temat + "” od " + czeka.Od +
+                    ": ecxp_wyslij(do=" + czeka.Od + ", typ=odpowiedz, odpowiedz_na=" + czeka.Id + "). Meldunki pośrednie („czekam”, „przyjąłem”) nie są potrzebne – doręczenie pilnuje stos.");
+        }
+
         static object KopiaDlaPary(P.Nowa n, string partner, Trasa t, string naglowek, string zrodlo, string watek)
         {
             var r = P.Wyslij(new P.Nowa
@@ -441,7 +469,7 @@ namespace Ecxp
         public static readonly string[] Ikony = { "🖥", "🛡", "📄", "🗄", "🤖", "💡" };
 
         public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true, List<string> strony = null,
-            string ikonaProjektu = null, string ikonaModulu = null)
+            string ikonaProjektu = null, string ikonaModulu = null, bool repozytorium = false)
         {
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
             if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
@@ -492,24 +520,11 @@ namespace Ecxp
                     var partner = strona == "codex" ? claude : codex;
                     var role = strona == "codex" ? roleCodex : roleClaude;
                     var kim = strona == "codex" ? "ChatGPT/Codex" : "Claude";
-                    var txt = "Nazwa tej sesji: " + tytulSesji + "\n" +
-                        "Jeśli masz narzędzie do zmiany nazwy tej sesji (np. set_session_title), od razu nadaj jej dokładnie tę nazwę.\n\n" +
-                        (obie
-                            ? "Jesteś sesją " + kim + " w parze ECXP (zasada 1:1) projektu " + projekt + ", moduł " + modul + ".\n" +
-                              "Twoja nazwa w ECXP: " + ja + ". Druga strona pary: " + partner + ". Role: " + (role.Count > 0 ? string.Join(", ", role) : "do ustalenia przez operatora") + ".\n\n"
-                            : "Jesteś sesją " + kim + " w ECXP, projekt " + projekt + ", moduł " + modul + ".\n" +
-                              "Twoja nazwa w ECXP: " + ja + ". Role: " + (role.Count > 0 ? string.Join(", ", role) : "do ustalenia przez operatora") + ".\n" +
-                              "Operator wysłał to zadanie tylko do Ciebie – druga strona (" + partner + ") go nie dostała i nie dostaje kopii. Pracujesz sam(a).\n\n") +
-                        "Na początku: wywołaj narzędzie ecxp_przypisz (ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + ", sesja=<identyfikator TEJ sesji; jeśli go nie znasz, pomiń – nie podawaj identyfikatora innej sesji>), potem ecxp_odbierz (ja=" + ja + ").\n" +
-                        "Narzędzia ecxp_* działają tylko w sesji na tym komputerze. Jeśli ich nie widzisz (np. sesja otworzyła się w chmurze), nie wykonuj zadania – od razu napisz operatorowi: „Brak narzędzi ECXP – otwórz tę sesję lokalnie, na komputerze z ECXP”.\n" +
-                        (obie
-                            ? "Każdą odebraną wiadomość potwierdzaj (ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na). Do drugiej strony pisz na adres " + (strona == "codex" ? "claude/" : "codex/") + modul + ", do obu i operatora – para:" + modul + " / wlasciciel.\n" +
-                              "Z drugą stroną ustalcie wspólną gałąź roboczą i commit bazowy, zanim zaczniecie zmiany; nie piszcie naraz w tych samych plikach.\n" +
-                              "Druga strona może wystartować później niż Ty (nowa sesja czeka np. na uruchomienie w aplikacji). Brak jej odpowiedzi to nie porażka: " +
-                              "wyślij propozycję, zamelduj operatorowi „czekam na drugą stronę” i zakończ turę – odpowiedź przyjdzie przez ECXP (stos albo operator Cię obudzi). " +
-                              "Wynik NEGATYWNY zgłaszaj tylko wtedy, gdy zadania nie da się wykonać.\n\n"
-                            : "Każdą odebraną wiadomość potwierdzaj (ecxp_potwierdz albo odpowiedź ecxp_wyslij z odpowiedz_na). Wynik i pytania pisz do operatora – adres wlasciciel.\n\n") +
-                        "Zadanie od operatora:\n" + opis.Trim() + Zalaczniki(czesci);
+                    // w parze jedna strona wykonuje, druga sprawdza wynik: wykonawcą jest strona z rolą „programista”, inaczej Codex
+                    bool cxProg = roleCodex.Contains("programista"), clProg = roleClaude.Contains("programista");
+                    var wykonawca = cxProg == clProg ? "codex" : cxProg ? "codex" : "claude";
+                    var txt = Pakiet(tytulSesji, kim, ja, projekt, modul, role, obie ? partner : "", obie ? (strona == wykonawca ? "wykonawca" : "sprawdzajacy") : "sam",
+                        repozytorium, opis.Trim() + Zalaczniki(czesci));
                     var sd = Path.Combine(P.Root, "stan", "start");
                     Directory.CreateDirectory(sd);
                     File.WriteAllText(Path.Combine(sd, ja + ".txt"), txt, new UTF8Encoding(false));
@@ -524,6 +539,36 @@ namespace Ecxp
                 P.Zdarzenie("nowe_zadanie", P.D("projekt", projekt, "modul", modul, "codex", strony.Contains("codex") ? codex : "", "claude", strony.Contains("claude") ? claude : "", "strony", strony, "tytul", tytulSesji));
                 return P.D("projekt", projekt, "modul", modul, "tytul_sesji", tytulSesji, "para", Para(projekt, modul), "pakiety", pakiety, "strony", strony, "zadanie", w);
             });
+        }
+
+        // Pakiet startowy: kim jesteś, jak zacząć, zasada „jedno pytanie – jedna odpowiedź” i zadanie. Bez procedur, których zadanie nie wymaga.
+        //   rola w parze: "wykonawca" (robi zadanie), "sprawdzajacy" (sprawdza wynik wykonawcy), "sam" (zadanie tylko dla tej strony).
+        public static string Pakiet(string tytulSesji, string kim, string ja, string projekt, string modul, List<string> role, string partner, string rolaWParze, bool repozytorium, string zadanie)
+        {
+            var sb = new StringBuilder();
+            sb.Append("Nazwa tej sesji: " + tytulSesji + " (jeśli możesz zmienić nazwę sesji, nadaj ją).\n\n");
+            sb.Append("Jesteś " + kim + " w ECXP. Projekt " + projekt + ", moduł " + modul + ". Twoja nazwa w ECXP: " + ja + "." +
+                (role != null && role.Count > 0 ? " Role: " + string.Join(", ", role) + "." : "") + "\n");
+            sb.Append("Zacznij od: ecxp_przypisz(ja=" + ja + ", projekt=" + projekt + ", modul=" + modul + "), potem ecxp_odbierz(ja=" + ja + ").\n");
+            sb.Append("Bez narzędzi ecxp_* (np. sesja w chmurze) nie wykonuj zadania – napisz operatorowi: „Brak narzędzi ECXP”.\n\n");
+            sb.Append("Zasady komunikacji – jedno pytanie, jedna odpowiedź:\n");
+            sb.Append("- Na wiadomość odpowiadasz ecxp_wyslij(typ=odpowiedz, odpowiedz_na=<id tej wiadomości>) – to ją też potwierdza. Wiadomość, która nie wymaga odpowiedzi, potwierdzasz ecxp_potwierdz.\n");
+            sb.Append("- Nie wysyłaj meldunków pośrednich („przyjąłem”, „czekam”, „zaczynam”). Doręczenie pilnuje stos – gdy przyjdzie odpowiedź, sam Cię obudzi.\n");
+            sb.Append("- Potrzebujesz czegoś? Jedno pytanie (typ=pytanie) i zakończ turę.\n\n");
+            if (rolaWParze == "wykonawca")
+                sb.Append("Pracujesz w parze z " + partner + ". Ty wykonujesz zadanie. Po wykonaniu wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, " +
+                    "odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co zrobiłeś. Stos przekaże ją " + partner + " do sprawdzenia.\n\n");
+            else if (rolaWParze == "sprawdzajacy")
+                sb.Append("Pracujesz w parze z " + partner + ". Zadanie wykonuje " + partner + ", Ty sprawdzasz wynik. Teraz tylko potwierdź zadanie (ecxp_potwierdz, wynik=przyjeta) i zakończ turę – " +
+                    "nic nie zmieniaj. Gdy dostaniesz odpowiedź " + partner + " na zadanie, sprawdź wynik i wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, " +
+                    "odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co sprawdziłeś.\n\n");
+            else
+                sb.Append("Zadanie dostałeś tylko Ty. Po wykonaniu wyślij JEDNĄ odpowiedź na zadanie operatora: ecxp_wyslij(do=wlasciciel, typ=odpowiedz, odpowiedz_na=<id zadania>) – w treści wynik POZYTYWNY albo NEGATYWNY i co zrobiłeś.\n\n");
+            if (repozytorium)
+                sb.Append("Zadanie zmienia repozytorium: przed pierwszą zmianą " + (rolaWParze == "sam" ? "" : "uzgodnij z " + partner + " ") + "gałąź i commit bazowy (ecxp_umowa_galezi), " +
+                    "po commicie ecxp_stan_galezi. Bez push i scalenia bez decyzji operatora.\n\n");
+            sb.Append("Zadanie od operatora:\n" + zadanie);
+            return sb.ToString();
         }
 
         // Lista załączników do pakietu: nazwa i lokalna kopia (tylko do odczytu) – obrazy można od razu otworzyć.

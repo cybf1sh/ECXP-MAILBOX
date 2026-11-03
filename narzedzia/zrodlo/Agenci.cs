@@ -40,7 +40,8 @@ namespace Ecxp
             return Directory.GetFiles(Dir, "*.json").Select(Pliki.Czytaj).Where(d => P.S(d, "nazwa").Length > 0).ToList();
         }
 
-        public static Dictionary<string, object> Uruchom(string nazwa, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role, string opis, int naGodzine)
+        public static Dictionary<string, object> Uruchom(string nazwa, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role, string opis, int naGodzine,
+            string pakiet = null, List<string> katalogiZapisu = null)
         {
             nazwa = (nazwa ?? "").Trim().ToLowerInvariant();
             if (!P.PoprawnyNadawca(nazwa)) throw new EcxpException("Nazwa agenta: codex-<nazwa> albo claude-<nazwa>.");
@@ -55,9 +56,10 @@ namespace Ecxp
             var r = Siec.Przypisz(nazwa, projekt, modul, "tlo:" + nazwa, role, opis, P.Wlasciciel);
             var rec = P.D("nazwa", nazwa, "strona", strona, "projekt", r["projekt"], "modul", r["modul"], "katalog", Path.GetFullPath(katalog),
                 "model", model ?? "", "uprawnienia", uprawnienia, "na_godzine", Math.Max(1, naGodzine), "sesja", Guid.NewGuid().ToString(),
-                "sesja_zalozona", false, "aktywny", true, "uruchomienia", new List<object>(), "utworzono", P.Teraz(), "opis", opis ?? "");
+                "sesja_zalozona", false, "aktywny", true, "uruchomienia", new List<object>(), "utworzono", P.Teraz(), "opis", opis ?? "",
+                "katalogi_zapisu", (katalogiZapisu ?? new List<string>()).Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
             Pliki.Zapisz(Path.Combine(Dir, nazwa + ".json"), rec);
-            var pakiet = Pakiet(rec, role);
+            if (pakiet == null) pakiet = Pakiet(rec, role);
             File.WriteAllText(Path.Combine(Dir, nazwa + ".system.txt"), pakiet, new UTF8Encoding(false));
             P.Zdarzenie("agent_w_tle", P.D("nazwa", nazwa, "projekt", rec["projekt"], "modul", rec["modul"], "uprawnienia", uprawnienia));
             return rec;
@@ -275,8 +277,11 @@ namespace Ecxp
                 var strona = P.S(rec, "strona");
                 var prog = Program(strona);
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
-                var polecenie = "Masz nowe wiadomości w ECXP. Wywołaj ecxp_odbierz(ja=" + n + "), obsłuż je zgodnie ze swoją rolą i potwierdź każdą. " +
-                                "Na koniec krótko zamelduj operatorowi (ecxp_wyslij do=wlasciciel, typ=meldunek), co zrobiłeś i co zostało.";
+                var polecenie = "Masz nowe wiadomości w ECXP. Wywołaj ecxp_odbierz(ja=" + n + ") i obsłuż je według zasad z pakietu startowego: " +
+                                "na wiadomość, która tego wymaga, odpowiadasz typ=odpowiedz z odpowiedz_na=<jej id>, pozostałe potwierdzasz ecxp_potwierdz. " +
+                                "Nie wysyłaj meldunków pośrednich – gdy czekasz na kogoś, po prostu zakończ turę (stos obudzi Cię, gdy przyjdzie odpowiedź).";
+                var zapis = P.L(rec, "katalogi_zapisu").Where(Directory.Exists).ToList();
+                var pisze = P.S(rec, "uprawnienia") != "odczyt";
                 var sys = Path.Combine(Dir, n + ".system.txt");
                 string args;
                 if (strona == "claude")
@@ -289,14 +294,17 @@ namespace Ecxp
                     var mcpExe = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
                     File.WriteAllText(mcpCfg, P.Js().Serialize(P.D("mcpServers", P.D("ecxp", P.D("command", mcpExe, "args", new List<string> { "--root", P.Root })))), new UTF8Encoding(false));
                     args = "-p --output-format json --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --append-system-prompt-file \"" + sys + "\" --allowedTools " + string.Join(" ", narz) +
-                           (P.S(rec, "uprawnienia") != "odczyt" ? " --permission-mode acceptEdits" : "") +
+                           (pisze ? " --permission-mode acceptEdits" : "") +
+                           (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
                            (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "") +
                            (P.B(rec, "sesja_zalozona") ? " --resume " : " --session-id ") + P.S(rec, "sesja");
                 }
                 else
                 {
                     polecenie = P.Czytaj(sys) + "\n\n" + polecenie;
-                    args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" + (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
+                    args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" + (pisze ? " -s workspace-write" : " -s read-only") +
+                           (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
+                           (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
                 }
                 var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                     ? new ProcessStartInfo(prog, args)
@@ -304,6 +312,7 @@ namespace Ecxp
                 psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.WorkingDirectory = P.S(rec, "katalog");
                 psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
                 psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
+                psi.EnvironmentVariables["ECXP_DORECZANIE"] = "1";   // hook-claude.ps1: tura agenta w tle nie jest wpisem operatora (bez lustra)
                 using (var pr = Process.Start(psi))
                 {
                     lock (trwa) procesy[n] = pr;

@@ -267,6 +267,51 @@ namespace Ecxp
             return ja;
         }
 
+        // Nowe zadanie w trybie „w tle”: każda strona dostaje agenta, którego tury uruchamia stos (Agenci.Petla), gdy w kolejce
+        // czeka wiadomość – bez okien aplikacji i bez budzenia przez operatora. Katalog pracy: projekty\<projekt>; zapis także
+        // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude)
+        {
+            var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
+            var katalog = Path.Combine(P.Root, "projekty", projekt);
+            Directory.CreateDirectory(katalog);
+            var zapis = KatalogiZTresci(opis);
+            var wynik = new List<object>();
+            var pk = (Dictionary<string, object>)r["pakiety"];
+            foreach (var strona in pk.Keys.ToList())
+            {
+                var p = (Dictionary<string, object>)pk[strona];
+                try
+                {
+                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
+                        P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis);
+                    wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis));
+                }
+                catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
+            }
+            return wynik;
+        }
+
+        static readonly System.Text.RegularExpressions.Regex ReSciezka = new System.Text.RegularExpressions.Regex(@"[A-Za-z]:\\[^\r\n""„”<>|*?]+");
+        public static List<string> KatalogiZTresci(string opis)
+        {
+            var l = new List<string>();
+            foreach (System.Text.RegularExpressions.Match m in ReSciezka.Matches(opis ?? ""))
+            {
+                var s = m.Value.Trim().TrimEnd('.', ',', ')', ';', ':');
+                try
+                {
+                    string d = Directory.Exists(s) ? s : Path.GetDirectoryName(s);
+                    while (!string.IsNullOrEmpty(d) && !Directory.Exists(d)) d = Path.GetDirectoryName(d);
+                    if (string.IsNullOrEmpty(d) || Path.GetPathRoot(d) == d) continue;          // nigdy cały dysk
+                    if (d.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.Windows), StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!l.Contains(d, StringComparer.OrdinalIgnoreCase)) l.Add(d);
+                }
+                catch { }
+            }
+            return l;
+        }
+
         static void TylkoOperator(Sesja s) { if (!s.Operator) throw new EcxpException("To polecenie wydaje tylko operator z konsoli ECXP-MAILBOX."); }
 
         static List<Dictionary<string, object>> Czesci(Dictionary<string, object> a)
@@ -412,7 +457,8 @@ namespace Ecxp
                         var strony = Siec.Strony(P.L(a, "strony"));
                         if (kroki.Count > 0 && strony.Count < 2) throw new EcxpException("Łańcuch ról wymaga obu stron pary – zaznacz Codex i Claude albo wyczyść pole łańcucha.");
                         var r = Siec.NoweZadanie(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), Znacznik, Czesci(a), kroki.Count == 0, strony,
-                            a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null);
+                            a.ContainsKey("ikona_projektu") ? P.S(a, "ikona_projektu") : null, a.ContainsKey("ikona_modulu") ? P.S(a, "ikona_modulu") : null, P.B(a, "repozytorium"));
+                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"));
                         if (kroki.Count > 0) r["lancuch"] = Lancuchy.Utworz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "tytul"), P.S(a, "opis"), kroki, Czesci(a));
                         return r;
                     }
