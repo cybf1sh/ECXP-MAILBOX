@@ -247,6 +247,9 @@ namespace Ecxp
             var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
             var watek = th != null ? P.S(th, "id") : "";
             if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
+            // nazwa wątku jak przy sesjach w aplikacji („🔗ECXP …”) – wątek agenta w tle łatwo znaleźć w aplikacji Codex
+            var nazwa = P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : w.Nazwa;
+            try { Rpc(w, "thread/name/set", P.D("threadId", watek, "name", nazwa), 15000); } catch (Exception ex) { Dopisz(w, "nazwa wątku: " + ex.Message); }
             w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
             var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
                 "input", new List<object> { P.D("type", "text", "text", tekst, "text_elements", new List<object>()) });
