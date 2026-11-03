@@ -114,7 +114,9 @@ namespace Ecxp
                            // zadanie z UAC (zgoda operatora): bez pytań o zgodę – w trybie bez okna każda prośba kończyłaby się odmową
                            (Podwyzszone(rec) ? " --permission-mode bypassPermissions" : pisze ? " --permission-mode acceptEdits" : "") +
                            (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
-                           (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "");
+                           (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "") +
+                           // nazwa sesji jak przy sesjach w aplikacji („🔗ECXP …”) – widoczna na liście /resume
+                           " --name \"" + (P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : w.Nazwa).Replace("\"", "'") + "\"";
                 psi = Psi(prog, args, katalog);
             }
             else psi = Psi(prog, "app-server", katalog);
