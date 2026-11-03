@@ -5,6 +5,7 @@
 //   ECXP-Setup.exe                                   – kreator (PL, EN, FR, CS, DE; domyślnie język systemu)
 //   ECXP-Setup.exe /cicho [/katalog <dir>] [/jezyk en] [/bez-rejestracji] [/bez-autostartu] [/bez-pulpitu] [/bez-uruchomienia]
 //   ECXP-Setup.exe /odinstaluj [/cicho]               – usuwa programy, skróty i rejestracje; dane zostają
+//   ECXP-Setup.exe /reinstaluj [/cicho] [/katalog <dir>] – ponowna instalacja (naprawa, poprawki) z zachowaniem skrótów i ustawień
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -93,6 +94,9 @@ namespace EcxpSetup
                 "Désinstaller ECXP de cet ordinateur ?\n\nLes programmes, raccourcis et enregistrements dans Claude Code et Codex seront supprimés. Les messages, le journal et les projets restent dans :\n{0}",
                 "Odinstalovat ECXP z tohoto počítače?\n\nProgramy, zástupci a registrace v Claude Code a Codexu budou odstraněny. Zprávy, deník a projekty zůstanou ve složce:\n{0}",
                 "ECXP von diesem Computer deinstallieren?\n\nProgramme, Verknüpfungen und die Registrierungen in Claude Code und Codex werden entfernt. Nachrichten, Journal und Projekte bleiben in:\n{0}" } },
+            { "reinst_brak", new[] { "ECXP nie jest zainstalowany na tym komputerze – uruchom zwykłą instalację.", "ECXP is not installed on this computer – run the normal setup.", "ECXP n'est pas installé sur cet ordinateur – lancez l'installation normale.", "ECXP není na tomto počítači nainstalován – spusťte běžnou instalaci.", "ECXP ist auf diesem Computer nicht installiert – führen Sie die normale Installation aus." } },
+            { "reinst_ok", new[] { "ECXP zainstalowano ponownie w:\n{0}\n\nUstawienia, skróty i dane zostały bez zmian.", "ECXP has been reinstalled in:\n{0}\n\nSettings, shortcuts and data are unchanged.", "ECXP a été réinstallé dans :\n{0}\n\nParamètres, raccourcis et données inchangés.", "ECXP byl znovu nainstalován do:\n{0}\n\nNastavení, zástupci a data zůstala beze změny.", "ECXP wurde neu installiert in:\n{0}\n\nEinstellungen, Verknüpfungen und Daten bleiben unverändert." } },
+            { "reinst_blad", new[] { "Ponowna instalacja nie powiodła się:\n{0}", "Reinstallation failed:\n{0}", "La réinstallation a échoué :\n{0}", "Opětovná instalace selhala:\n{0}", "Neuinstallation fehlgeschlagen:\n{0}" } },
             { "skrot_odinst", new[] { "Odinstaluj ECXP", "Uninstall ECXP", "Désinstaller ECXP", "Odinstalovat ECXP", "ECXP deinstallieren" } },
             { "odinst_ok", new[] { "ECXP odinstalowano. Dane zostały w:\n{0}", "ECXP has been uninstalled. Your data is still in:\n{0}", "ECXP a été désinstallé. Vos données restent dans :\n{0}", "ECXP byl odinstalován. Data zůstala ve složce:\n{0}", "ECXP wurde deinstalliert. Ihre Daten liegen weiterhin in:\n{0}" } },
             { "odinst_brak", new[] { "Nie znaleziono instalacji ECXP.", "No ECXP installation was found.", "Aucune installation d’ECXP trouvée.", "Instalace ECXP nebyla nalezena.", "Keine ECXP-Installation gefunden." } },
@@ -211,6 +215,8 @@ namespace EcxpSetup
             s.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, s, null);
         }
 
+        public static bool MaSkrot(string kat, string katalog) { var l = Skroty(kat); return File.Exists(l) && Nasz(CelSkrotu(l), Path.Combine(katalog, "narzedzia")); }
+
         static string Skroty(string kat) { return Path.Combine(Environment.GetFolderPath(kat == "pulpit" ? Environment.SpecialFolder.Desktop : kat == "autostart" ? Environment.SpecialFolder.Startup : Environment.SpecialFolder.Programs), kat == "menu" ? @"ECXP\ECXP-MAILBOX.lnk" : "ECXP-MAILBOX.lnk"); }
 
         static string Uruchom(string exe, string args, int ms)
@@ -280,7 +286,8 @@ namespace EcxpSetup
                 k.SetValue("DisplayIcon", konsola + ",0");
                 k.SetValue("UninstallString", "\"" + setup + "\" /odinstaluj");
                 k.SetValue("QuietUninstallString", "\"" + setup + "\" /odinstaluj /cicho");
-                k.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                k.SetValue("ModifyPath", "\"" + setup + "\" /reinstaluj");      // „Modyfikuj” w Programach = ponowna instalacja
+                k.SetValue("NoModify", 0, RegistryValueKind.DWord);
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                 long kb = new DirectoryInfo(narz).GetFiles().Sum(f => f.Length) / 1024;
                 k.SetValue("EstimatedSize", (int)kb, RegistryValueKind.DWord);
@@ -518,6 +525,23 @@ namespace EcxpSetup
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Contains("/odinstaluj")) return Instalacja.Odinstaluj(cicho);
+            // ponowna instalacja (naprawa, poprawki): ten sam katalog, te same skróty i rejestracje, konsola uruchomiona ponownie
+            if (args.Contains("/reinstaluj"))
+            {
+                var katalog = arg("/katalog") ?? Instalacja.Zainstalowany();
+                if (katalog.Length == 0) { if (!cicho) MessageBox.Show(L.S("reinst_brak"), L.S("tytul")); return 1; }
+                var log = new StringBuilder();
+                try
+                {
+                    var r = Instalacja.Wykonaj(katalog, true, Instalacja.MaSkrot("autostart", katalog), Instalacja.MaSkrot("pulpit", katalog), true,
+                        (n, w) => { if (w != "…") log.AppendLine(n + ": " + w); });
+                    log.AppendLine(r);
+                    if (!cicho) MessageBox.Show(string.Format(L.S("reinst_ok"), katalog), L.S("tytul"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 0;
+                }
+                catch (Exception ex) { log.AppendLine("BŁĄD: " + ex.Message); if (!cicho) MessageBox.Show(string.Format(L.S("reinst_blad"), ex.Message), L.S("tytul"), MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
+                finally { try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "ECXP-Setup.log"), log.ToString(), new UTF8Encoding(false)); } catch { } }
+            }
             if (cicho)
             {
                 var log = new StringBuilder();
