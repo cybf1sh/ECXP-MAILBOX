@@ -4953,6 +4953,13 @@ namespace Ecxp
                 var odpA = Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "Wynik POZYTYWNY.", OdpNa = idZad });
                 var kopieOdp = ((System.Collections.IEnumerable)odpA["kopie_dla_pary"]).Cast<Dictionary<string, object>>().ToList();
                 ok(kopieOdp.Count == 1 && P.S(kopieOdp[0], "do") == "claude-elan", "końcowa odpowiedź na zadanie trafia też do drugiej strony (do sprawdzenia)");
+                // gwarancja odpowiedzi: zadanie odebrane i potwierdzone, ale bez odpowiedzi – stos je wskazuje (przypomnienie / alarm)
+                var zadL = P.Wszystkie(false).First(m => m.Do == "codex-elan" && m.Typ == "zadanie" && m.LustroId.Length > 0);
+                P.Potwierdz("codex-elan", zadL.Id, "przyjeta", "");
+                var brakO = Agenci.BezOdpowiedzi("codex-elan");
+                ok(brakO != null && brakO.Id == zadL.Id, "gwarancja odpowiedzi: przyjęte zadanie bez odpowiedzi wykryte");
+                Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "odpowiedz", Temat = "WYNIK", Tresc = "NEGATYWNY – test.", OdpNa = zadL.Id });
+                ok(Agenci.BezOdpowiedzi("codex-elan") == null, "gwarancja odpowiedzi: po odpowiedzi zadanie nie jest już wskazywane");
 
                 // wybór agentów: operator może wysłać tylko do jednej strony, bez kopii dla drugiej
                 var rb = (Dictionary<string, object>)k.Wywolaj("wyslij", P.D("do", "codex/elan", "bez_kopii", true, "projekt", "testowy", "modul", "elan", "typ", "zadanie", "tresc", "Tylko dla Codexa, bez kopii."));

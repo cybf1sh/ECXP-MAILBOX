@@ -284,7 +284,8 @@ namespace Ecxp
                 try
                 {
                     var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
-                        P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis);
+                        P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
+                        P.S(p, "tekst").Contains("Ty wykonujesz zadanie") || P.S(p, "tekst").Contains("Zadanie dostałeś tylko Ty"));
                     wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis));
                 }
                 catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }

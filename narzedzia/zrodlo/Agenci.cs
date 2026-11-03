@@ -41,7 +41,7 @@ namespace Ecxp
         }
 
         public static Dictionary<string, object> Uruchom(string nazwa, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role, string opis, int naGodzine,
-            string pakiet = null, List<string> katalogiZapisu = null)
+            string pakiet = null, List<string> katalogiZapisu = null, bool obowiazkowaOdpowiedz = false)
         {
             nazwa = (nazwa ?? "").Trim().ToLowerInvariant();
             if (!P.PoprawnyNadawca(nazwa)) throw new EcxpException("Nazwa agenta: codex-<nazwa> albo claude-<nazwa>.");
@@ -57,6 +57,7 @@ namespace Ecxp
             var rec = P.D("nazwa", nazwa, "strona", strona, "projekt", r["projekt"], "modul", r["modul"], "katalog", Path.GetFullPath(katalog),
                 "model", model ?? "", "uprawnienia", uprawnienia, "na_godzine", Math.Max(1, naGodzine), "sesja", Guid.NewGuid().ToString(),
                 "sesja_zalozona", false, "aktywny", true, "uruchomienia", new List<object>(), "utworzono", P.Teraz(), "opis", opis ?? "",
+                "obowiazkowa_odpowiedz", obowiazkowaOdpowiedz,
                 "katalogi_zapisu", (katalogiZapisu ?? new List<string>()).Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
             Pliki.Zapisz(Path.Combine(Dir, nazwa + ".json"), rec);
             if (pakiet == null) pakiet = Pakiet(rec, role);
@@ -228,12 +229,14 @@ namespace Ecxp
                 "ostatni_wynik", ost == null ? "" : P.S(ost, "wynik"));
         }
 
-        static bool MaOczekujace(string nazwa)
+        static bool MaOczekujace(string nazwa) { return Oczekujace(nazwa).Count > 0; }
+
+        static List<string> Oczekujace(string nazwa)
         {
             var dir = Path.Combine(P.Root, P.Folder(nazwa));
-            if (!Directory.Exists(dir)) return false;
+            if (!Directory.Exists(dir)) return new List<string>();
             var js = P.Js();
-            return new DirectoryInfo(dir).GetFiles("*.json").Any(f => P.DoMnie(nazwa, P.Wczytaj(f, "", js).Do));
+            return new DirectoryInfo(dir).GetFiles("*.json").Where(f => P.DoMnie(nazwa, P.Wczytaj(f, "", js).Do)).Select(f => f.Name).OrderBy(x => x).ToList();
         }
 
         // Pętla w stosie: agent z oczekującymi wiadomościami, bez trwającej tury i w granicy budżetu dostaje jedną turę.
@@ -249,7 +252,16 @@ namespace Ecxp
                         var n = P.S(rec, "nazwa");
                         if (Zatrzymana(P.S(rec, "strona"))) continue;
                         lock (trwa) if (trwa.Contains(n)) continue;
-                        if (!MaOczekujace(n)) continue;
+                        // Gwarancja odpowiedzi: wykonawca musi odpowiedzieć na każde zadanie operatora. Gdy tura się skończyła,
+                        // a odpowiedzi nie ma – tura z przypomnieniem (najwyżej MaxPrzypomnien), potem alarm u operatora.
+                        Msg brak = null;
+                        if (!MaOczekujace(n))
+                        {
+                            if (!P.B(rec, "obowiazkowa_odpowiedz") || (brak = BezOdpowiedzi(n)) == null) continue;
+                            object pv; var przyp = rec.TryGetValue("przypomnienia", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
+                            int ile; int.TryParse(P.S(przyp, brak.Id), out ile);
+                            if (ile >= MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, brak); continue; }
+                        }
                         int naGodzine; int.TryParse(P.S(rec, "na_godzine"), out naGodzine);
                         var ostatnie = P.Lista(rec, "uruchomienia").Count(u => { DateTimeOffset t; return DateTimeOffset.TryParse(P.S(u, "czas"), out t) && t > DateTimeOffset.Now.AddHours(-1); });
                         if (ostatnie >= Math.Max(1, naGodzine)) continue;
@@ -259,15 +271,55 @@ namespace Ecxp
                         if (ost != null && P.S(ost, "kod") != "0" && DateTimeOffset.TryParse(P.S(ost, "czas"), out tOst) && tOst > DateTimeOffset.Now.AddMinutes(-10)
                             && tOst > Reset(P.S(rec, "strona"))) continue;
                         lock (trwa) trwa.Add(n);
-                        var kopia = rec;
-                        new Thread(() => Tura(kopia)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
+                        var kopia = rec; var kopiaBrak = brak;
+                        new Thread(() => Tura(kopia, kopiaBrak)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
                     }
                 }
                 catch (Exception ex) { Log("agenci: " + ex.Message); }
             }
         }
 
-        static void Tura(Dictionary<string, object> rec)
+        public const int MaxPrzypomnien = 2;
+
+        // Najstarsze zadanie operatora dla agenta, na które agent nie wysłał odpowiedzi (odpowiedz_na = id zadania).
+        // Pomijane, gdy agent po zadaniu zadał pytanie, na które jeszcze nikt nie odpowiedział (czeka zasadnie).
+        public static Msg BezOdpowiedzi(string n)
+        {
+            var w = P.Wszystkie(false);
+            var odp = new HashSet<string>(w.Where(x => x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
+            var zad = w.Where(m => m.Do == n && m.Od == P.Wlasciciel && m.Typ == "zadanie" && m.KopiaDla.Length == 0 && m.Katalog != "do-codex" && m.Katalog != "do-claude"
+                    && !w.Any(x => x.Od == n && x.OdpNa == m.Id))
+                .OrderBy(m => m.Czas).FirstOrDefault();
+            if (zad == null) return null;
+            bool czekaNaOdpowiedz = w.Any(x => x.Od == n && x.Typ == "pytanie" && x.Czas > zad.Czas && !odp.Contains(x.Id));
+            return czekaNaOdpowiedz ? null : zad;
+        }
+
+        static void AlarmBrakOdpowiedzi(Dictionary<string, object> rec, Msg zad)
+        {
+            var n = P.S(rec, "nazwa");
+            try
+            {
+                P.ZBlokada(delegate
+                {
+                    var p = Path.Combine(Dir, n + ".json");
+                    var d = Pliki.Czytaj(p);
+                    var byly = P.L(d, "alarmy_odp");
+                    if (byly.Contains(zad.Id)) return 0;
+                    byly.Add(zad.Id); d["alarmy_odp"] = byly; Pliki.Zapisz(p, d);
+                    var ost = P.Lista(d, "uruchomienia").LastOrDefault();
+                    var w = ost == null ? "" : P.S(ost, "wynik");
+                    P.Wyslij(new P.Nowa { Od = P.Straznik, Do = P.Wlasciciel, Projekt = zad.Projekt, Modul = zad.Modul, Typ = "blokada", Temat = "BRAK-ODPOWIEDZI", OdpNa = zad.Id,
+                        Tresc = n + " nie odpowiedział na zadanie „" + zad.Temat + "” mimo " + MaxPrzypomnien + " przypomnień." + (w.Length > 0 ? " Ostatnia tura: " + (w.Length > 200 ? w.Substring(0, 200) : w).Trim() : "") +
+                                "\nSzczegóły: stan\\agenci\\" + n + ".log" });
+                    Log("agenci: " + n + " – brak odpowiedzi na " + zad.Id + ", alarm u operatora");
+                    return 0;
+                });
+            }
+            catch (Exception ex) { Log("agenci: alarm braku odpowiedzi " + n + ": " + ex.Message); }
+        }
+
+        static void Tura(Dictionary<string, object> rec, Msg przypomnij = null)
         {
             var n = P.S(rec, "nazwa");
             var start = DateTime.Now;
@@ -280,6 +332,11 @@ namespace Ecxp
                 var polecenie = "Masz nowe wiadomości w ECXP. Wywołaj ecxp_odbierz(ja=" + n + ") i obsłuż je według zasad z pakietu startowego: " +
                                 "na wiadomość, która tego wymaga, odpowiadasz typ=odpowiedz z odpowiedz_na=<jej id>, pozostałe potwierdzasz ecxp_potwierdz. " +
                                 "Nie wysyłaj meldunków pośrednich – gdy czekasz na kogoś, po prostu zakończ turę (stos obudzi Cię, gdy przyjdzie odpowiedź).";
+                if (przypomnij != null)
+                    polecenie = "Nie odpowiedziałeś jeszcze na zadanie operatora „" + przypomnij.Temat + "” (id " + przypomnij.Id + "). Każde zadanie wymaga odpowiedzi. " +
+                                "Dokończ je, jeśli trzeba, i wyślij teraz JEDNĄ odpowiedź: ecxp_wyslij(ja=" + n + ", do=wlasciciel, typ=odpowiedz, odpowiedz_na=" + przypomnij.Id +
+                                ", projekt=" + przypomnij.Projekt + ", modul=" + przypomnij.Modul + ") – w treści wynik POZYTYWNY albo NEGATYWNY i krótko dlaczego. " +
+                                "Jeśli zadania nie da się wykonać, odpowiedz NEGATYWNY z powodem.";
                 var zapis = P.L(rec, "katalogi_zapisu").Where(Directory.Exists).ToList();
                 var pisze = P.S(rec, "uprawnienia") != "odczyt";
                 var sys = Path.Combine(Dir, n + ".system.txt");
@@ -304,6 +361,8 @@ namespace Ecxp
                     polecenie = P.Czytaj(sys) + "\n\n" + polecenie;
                     args = "exec --skip-git-repo-check -C \"" + P.S(rec, "katalog") + "\"" + (pisze ? " -s workspace-write" : " -s read-only") +
                            (pisze ? string.Concat(zapis.Select(z => " --add-dir \"" + z.TrimEnd(Path.DirectorySeparatorChar) + "\"")) : "") +
+                           // exec działa z zasadą zgód „never”: narzędzia własnego serwera ECXP są zatwierdzone z góry (tylko w tym wywołaniu)
+                           " -c mcp_servers.ecxp.default_tools_approval_mode=\"approve\"" +
                            (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
                 }
                 var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
@@ -313,6 +372,7 @@ namespace Ecxp
                 psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
                 psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
                 psi.EnvironmentVariables["ECXP_DORECZANIE"] = "1";   // hook-claude.ps1: tura agenta w tle nie jest wpisem operatora (bez lustra)
+                var przed = Oczekujace(n);
                 using (var pr = Process.Start(psi))
                 {
                     lock (trwa) procesy[n] = pr;
@@ -326,6 +386,14 @@ namespace Ecxp
                     else kod = pr.ExitCode;
                     lock (wy) wynik = (wynik.Length > 0 ? wynik + "\n" : "") + wy.ToString();
                 }
+                // tura „udana”, a żadna z czekających wiadomości nie została odebrana – to porażka (np. narzędzia ECXP zablokowane):
+                // przerwa 10 min i alarm zamiast ponawiania tej samej pustej tury do wyczerpania limitu
+                if (kod == 0 && przed.Count > 0 && Oczekujace(n).Intersect(przed).Count() == przed.Count)
+                {
+                    kod = 2;
+                    var mz = Regex.Match(wynik, @"(MCP tool call requires approval[^\r\n]*|Brak narzędzi ECXP[^\r\n]*)");
+                    wynik = "bez postępu: tura nie odebrała żadnej z " + przed.Count + " czekających wiadomości" + (mz.Success ? " (" + mz.Value.Trim() + ")" : "") + ".\n" + wynik;
+                }
                 File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + "\n" + wynik + "\n", new UTF8Encoding(false));
             }
             catch (Exception ex) { wynik = "błąd: " + ex.Message; }
@@ -338,7 +406,12 @@ namespace Ecxp
                         var p = Path.Combine(Dir, n + ".json");
                         var d = Pliki.Czytaj(p);
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
-                        u.Add(P.D("czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
+                        if (przypomnij != null)
+                        {
+                            object pv; var przyp = d.TryGetValue("przypomnienia", out pv) && pv is Dictionary<string, object> ? (Dictionary<string, object>)pv : new Dictionary<string, object>();
+                            int ile; int.TryParse(P.S(przyp, przypomnij.Id), out ile); przyp[przypomnij.Id] = ile + 1; d["przypomnienia"] = przyp;
+                        }
+                        u.Add(P.D("czas", start.ToString("yyyy-MM-dd'T'HH:mm:sszzz"), "przypomnienie", przypomnij != null ? przypomnij.Id : "", "sekund", (int)(DateTime.Now - start).TotalSeconds, "kod", kod,
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
