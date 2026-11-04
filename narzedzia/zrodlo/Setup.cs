@@ -24,8 +24,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("EvidSec")]
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCopyright("EvidSec")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace EcxpSetup
 {
@@ -112,7 +112,7 @@ namespace EcxpSetup
 
     static class Instalacja
     {
-        public const string Wersja = "1.2";
+        public const string Wersja = "1.3";
         const string KluczApl = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ECXP";
         static readonly string[] Programy = { "ecxpd.exe", "ECXP-MAILBOX.exe", "ecxp-mcp.exe", "ECXP-MAILBOX.ico", "hook-claude.ps1" };
         static readonly string[] Logo = { "ecxp-logo-light.png", "ecxp-logo-dark.png" };
