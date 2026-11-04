@@ -70,6 +70,13 @@ namespace Ecxp
                 throw new EcxpException(strona == "codex"
                     ? "Na tym stanowisku nie ma Codex CLI (polecenie codex). Zainstaluj je albo otwórz czat Codexa i wklej pakiet startowy."
                     : "Na tym stanowisku nie ma Claude Code CLI (polecenie claude).");
+            // kontrola sesji, trasa „tlo:” i rekord agenta – jedna sekcja krytyczna z ecxp_przypisz (blokada stosu)
+            return P.ZBlokada(() => UruchomPodBlokada(nazwa, strona, projekt, modul, katalog, model, uprawnienia, role, opis, naGodzine, pakiet, katalogiZapisu, obowiazkowaOdpowiedz));
+        }
+
+        static Dictionary<string, object> UruchomPodBlokada(string nazwa, string strona, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role,
+            string opis, int naGodzine, string pakiet, List<string> katalogiZapisu, bool obowiazkowaOdpowiedz)
+        {
             if (SesjeInteraktywne().Contains(nazwa))
                 throw new EcxpException("Adres " + nazwa + " ma już sesję w aplikacji – agent w tle nie został założony. Zadanie czeka w skrzynce tej sesji; stos ją obudzi.");
             var r = Siec.Przypisz(nazwa, projekt, modul, "tlo:" + nazwa, role, opis, P.Wlasciciel);
@@ -280,6 +287,8 @@ namespace Ecxp
                 {
                     // adres z sesją w aplikacji obsługuje ta sesja – stos nie odbiera za agenta w tle o tej samej nazwie
                     var sesje = SesjeInteraktywne();
+                    // agent, którego adres przejęła sesja: praca odebrana wcześniej nie może zniknąć – jedno zgłoszenie operatorowi
+                    foreach (var prz in Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && sesje.Contains(P.S(x, "nazwa")))) PracaPrzejeta(prz);
                     var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona")) && !sesje.Contains(P.S(x, "nazwa"))).ToList();
                     Cieply.Sprzataj(lista.GroupBy(x => P.S(x, "nazwa")).ToDictionary(g => g.Key, g => g.First()));
                     Cieply.PokazOczekujace();          // „Pokaż sesje agentów”: okna Codex / Claude
@@ -315,6 +324,8 @@ namespace Ecxp
                         if (ostatnie >= Math.Max(1, naGodzine)) continue;
                         // po nieudanej turze ponowienie według przyczyny (Ponowienie): bez pętli i bez zbędnego ruchu
                         if (Ponowienie(rec) > DateTimeOffset.Now) continue;
+                        // adres mógł przejść na sesję w aplikacji po migawce – wtedy bez tury w tle; odebrana już praca do operatora
+                        if (P.ZBlokada(() => SesjeInteraktywne().Contains(n))) { PracaPrzejeta(rec); continue; }
                         lock (trwa) trwa.Add(n);
                         var kopia = rec; var kopiaPraca = praca;
                         new Thread(() => Tura(kopia, kopiaPraca)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
@@ -428,10 +439,43 @@ namespace Ecxp
             return od != P.Straznik && (typ == "pytanie" || typ == "zadanie" || typ == "recenzja" || typ == "blokada");
         }
 
+        // Praca odebrana przez agenta w tle przed przejęciem adresu przez sesję w aplikacji (pytania, zadanie bez FIN):
+        // agent jej już nie wykona (jeden właściciel), więc operator dostaje jedno zgłoszenie na każdą pozycję.
+        public static void PracaPrzejeta(Dictionary<string, object> rec)
+        {
+            var n = P.S(rec, "nazwa");
+            P.ZBlokada(delegate
+            {
+                var p = Path.Combine(Dir, n + ".json");
+                var d = Pliki.Czytaj(p);
+                var zgloszone = P.L(d, "przejete_zgloszone");
+                var ids = P.L(d, "pytania").ToList();
+                var zad = Obieg.Brakujacy(n);
+                if (zad != null)
+                {
+                    // zadanie odebrał agent tylko, jeśli doręczono je przed zgłoszeniem sesji (potem odbiera już sama sesja)
+                    var odSesji = Siec.Trasy().Where(t => t.Aktywna && t.Nazwa == n && (t.Sesja ?? "").Length > 0 && !t.Sesja.StartsWith("tlo:")).Select(t => t.Od).DefaultIfEmpty(DateTime.MaxValue).Max();
+                    string spoj; Stan s;
+                    if (P.Stany(out spoj).TryGetValue(zad.Id, out s) && s.Dostarczona.HasValue && s.Dostarczona.Value < odSesji) ids.Add(zad.Id);
+                }
+                var nowe = ids.Where(x => x.Length > 0 && !zgloszone.Contains(x)).Distinct().ToList();
+                if (nowe.Count == 0) return 0;
+                var opis = nowe.Select(id => { var m = P.Znajdz(id); return "• " + id + (m != null ? " – " + m.Temat + " (od " + m.Od + ")" : ""); });
+                P.Wyslij(new P.Nowa { Od = P.Straznik, Do = P.Wlasciciel, Projekt = P.S(d, "projekt"), Modul = P.S(d, "modul"), Typ = "blokada", Temat = "PRACA-AGENTA-W-TLE-PRZEJETA",
+                    Tresc = "Adres " + n + " obsługuje teraz sesja w aplikacji, więc agent w tle nie wykona pracy odebranej wcześniej:\n" + string.Join("\n", opis) +
+                            "\nPrzekaż ją sesji (prawy przycisk na wiadomości: ↪ Wyślij ponownie) albo odpowiedz sam. Nic nie zostało skasowane." });
+                zgloszone.AddRange(nowe); d["przejete_zgloszone"] = zgloszone; Pliki.Zapisz(p, d);
+                P.Zdarzenie("agent_praca_przejeta", P.D("nazwa", n, "ids", nowe.Cast<object>().ToList()));
+                return 0;
+            });
+        }
+
         static void Odbierz(string n)
         {
             P.ZBlokada(delegate
             {
+                // właściciel sprawdzany pod tą samą blokadą co odbiór (ACK): sesja zgłoszona po migawce pętli wygrywa
+                if (SesjeInteraktywne().Contains(n)) return 0;
                 var odebrane = P.Odbierz(n, 50);
                 var pyt = odebrane.Where(x => WymagaTury(P.S(x, "od"), P.S(x, "typ"))).Select(x => P.S(x, "id")).ToList();
                 if (pyt.Count > 0)

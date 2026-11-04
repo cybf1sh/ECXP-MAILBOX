@@ -103,6 +103,23 @@ namespace Ecxp
                     "Codex: tura = różnica licznika (wejście 200, cache 1300, wyjście 90), wątek z nazwy pliku");
                 Tury.ZdarzenieCodex(plikC, "codex-th", P.D("type", "task_complete", "turn_id", "t2"), cz);
                 Ok(Tury.Lista("codex-th").Count == 1, "Codex: koniec tury bez znanego początku – bez zgadywania");
+                // recenzja Codexa (P2): task_started bez wcześniejszego licznika nie może liczyć od zera
+                var plikB = Path.Combine(root, "rollout-bez-bazy.jsonl");
+                Tury.ZdarzenieCodex(plikB, "codex-tb", P.D("type", "task_started", "turn_id", "x"), cz);
+                Tury.ZdarzenieCodex(plikB, "codex-tb", licz(10000, 8000, 500), cz);
+                Tury.ZdarzenieCodex(plikB, "codex-tb", P.D("type", "task_complete", "turn_id", "x"), cz);
+                Ok(Tury.Lista("codex-tb").Count == 0, "Codex: tura bez licznika sprzed startu – brak danych, nie 10 500");
+
+                // recenzja Codexa (P2): sygnały Stop przetwarzane razem – każda tura do swojej granicy bajtów
+                var zapis2 = Path.Combine(root, "rozmowa-kolejka.jsonl");
+                File.WriteAllText(zapis2, "{\"type\":\"user\"}\n", new UTF8Encoding(false));
+                Tury.Sygnal("start", "claude-tk", "ses-kolejka", zapis2); System.Threading.Thread.Sleep(15);
+                File.AppendAllText(zapis2, Asystent("a", 10, 0, 0, 1), new UTF8Encoding(false)); Tury.Sygnal("stop", "claude-tk", "ses-kolejka", zapis2); System.Threading.Thread.Sleep(15);
+                File.AppendAllText(zapis2, "{\"type\":\"user\"}\n", new UTF8Encoding(false)); Tury.Sygnal("start", "claude-tk", "ses-kolejka", zapis2); System.Threading.Thread.Sleep(15);
+                File.AppendAllText(zapis2, Asystent("b", 20, 0, 0, 2), new UTF8Encoding(false)); Tury.Sygnal("stop", "claude-tk", "ses-kolejka", zapis2);
+                Tury.PrzetworzSygnaly();
+                var kol = Tury.Lista("claude-tk");
+                Ok(kol.Count == 2 && kol[0].Razem == 11 && kol[1].Razem == 22, "Claude: opóźnione sygnały – tury 11 i 22, nie jedna 33 (" + string.Join(",", kol.Select(x => x.Razem.ToString()).ToArray()) + ")");
 
                 // 6. tokeny zadania: tury adresata od doręczenia do pierwszej tury po odpowiedzi
                 var a1 = Tury.DlaOdpowiedzi("claude-th", DateTime.Now.AddHours(-1), DateTime.Now.AddMinutes(-1));

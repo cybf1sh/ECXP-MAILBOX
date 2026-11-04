@@ -92,9 +92,23 @@ namespace Ecxp
                     Ok(P.L(rec, "pytania").Contains((string)q["id"]), "pytanie partnera zapisane jako praca agenta (tura z odpowiedzią do nadawcy)");
                     Ok(!WKolejce((string)inf["id"]) && P.Znajdz((string)inf["id"]).Katalog == "przeczytane", "informacja partnera potwierdzona odbiorem (bez tury)");
                     Ok(P.Lista(rec, "uruchomienia").Count == 1, "test nie uruchomił tury agenta");
+                    // 3a. sesja przejmuje adres agenta z odebraną pracą: bez tury w tle, jedno zgłoszenie operatorowi
+                    Siec.Przypisz("claude-ttlo", "evidlockv3", "mod-d", "22222222-3333-4444-5555-666666666666", role, "", "claude-ttlo");
+                    Agenci.KrokPetli(); Agenci.KrokPetli();
+                    var alarmy = P.Wszystkie(false).Where(m => m.Do == P.Wlasciciel && m.Temat == "PRACA-AGENTA-W-TLE-PRZEJETA").ToList();
+                    Ok(alarmy.Count == 1 && alarmy[0].Uwagi.Contains((string)q["id"]), "praca przejęta przez sesję: jedno zgłoszenie z identyfikatorem pytania");
+                    Ok(P.Lista(Pliki.Czytaj(Path.Combine(root, "stan", "agenci", "claude-ttlo.json")), "uruchomienia").Count == 1, "po przejęciu adresu brak tury w tle");
                     // 4. wyłączony agent nie jest już „obsługiwany w tle” – doręczanie wraca do budzenia i alarmów
                     Agenci.Zatrzymaj("claude-ttlo");
                     Ok(!Agenci.ObslugiwaniWTle().Contains("claude-ttlo"), "wyłączony agent nie blokuje budzenia i alarmów doręczania");
+
+                    // 5. granica z recenzji Codexa (P1): migawka pętli przed zgłoszeniem sesji, odbiór po nim
+                    Agenci.Uruchom("claude-tgranica", "ecxp-test", "mod-e", katalog, "", "edycja", role, "", 12);
+                    bool przed = Agenci.ObslugiwaniWTle().Contains("claude-tgranica");
+                    Siec.Przypisz("claude-tgranica", "evidlockv3", "mod-e", "33333333-4444-5555-6666-777777777777", role, "", "claude-tgranica");
+                    var wg = P.Wyslij(new P.Nowa { Od = "codex-tgranica", Do = "claude-tgranica", Projekt = "evidlockv3", Modul = "mod-e", Typ = "informacja", Temat = "GRANICA", Tresc = "Syntetyczna: trasa zmieniona po migawce." });
+                    typeof(Agenci).GetMethod("Odbierz", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).Invoke(null, new object[] { "claude-tgranica" });
+                    Ok(przed && WKolejce((string)wg["id"]), "odbiór sprawdza właściciela pod blokadą: wiadomość zostaje dla sesji");
                 }
 
                 string spoj; P.Stany(out spoj);

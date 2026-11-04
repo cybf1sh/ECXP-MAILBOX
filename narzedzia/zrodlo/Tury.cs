@@ -123,7 +123,8 @@ namespace Ecxp
                         {
                             long od = off.ContainsKey(sesja) ? Liczba(off, sesja) : -1;
                             long nowy;
-                            var t = PrzyrostClaude(zapis, od, out nowy);
+                            // tylko do granicy zapisanej w chwili końca tury – opóźniony sygnał nie dolicza następnej tury
+                            var t = PrzyrostClaude(zapis, od, Liczba(s, "dlugosc"), out nowy);
                             off[sesja] = nowy;
                             if (t != null)
                             {
@@ -145,14 +146,17 @@ namespace Ecxp
 
         // Suma message.usage wiadomości asystenta zapisanych od offsetu (każda wiadomość raz: ostatni wpis o danym id).
         // offset < 0 (sesja bez znanego początku tury): tylko część po ostatnim wpisie operatora w ostatnich 8 MB.
-        public static Tura PrzyrostClaude(string zapis, long offset, out long nowyOffset)
+        // granica > 0: czytamy najwyżej do niej (długość pliku w chwili sygnału Stop); pusty przyrost – offset bez zmian.
+        public static Tura PrzyrostClaude(string zapis, long offset, long granica, out long nowyOffset)
         {
             nowyOffset = offset < 0 ? 0 : offset;
             string porcja;
             using (var fs = new FileStream(zapis, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
-                long dl = fs.Length;
+                long dl = granica > 0 ? Math.Min(fs.Length, granica) : fs.Length;
                 long start = offset >= 0 ? Math.Min(offset, dl) : Math.Max(0, dl - 8L * 1024 * 1024);
+                nowyOffset = start;
+                if (dl <= start) return null;
                 fs.Seek(start, SeekOrigin.Begin);
                 var bufor = new byte[dl - start];
                 int przeczytano = 0;
@@ -217,8 +221,9 @@ namespace Ecxp
                 }
                 else if (typ == "task_started")
                 {
+                    // bez znanego licznika sprzed tury (np. po starcie stosu) nie liczymy od zera – brak danych dla tej tury
                     Dictionary<string, object> l;
-                    poczatek[plik] = licznik.TryGetValue(plik, out l) ? l : new Dictionary<string, object>();
+                    if (licznik.TryGetValue(plik, out l)) poczatek[plik] = l; else poczatek.Remove(plik);
                 }
                 else if (typ == "task_complete")
                 {
