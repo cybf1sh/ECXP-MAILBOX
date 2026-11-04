@@ -443,6 +443,40 @@ namespace Ecxp
             return wynik;
         }
 
+        // Sekcja na pasku bocznym aplikacji Codex („💡 projekt”) – tak jak grupy właściciela („elzip”, „Profilowanie”).
+        // Istniejąca sekcja o tej nazwie jest używana ponownie; nowa powstaje przy pierwszym zadaniu projektu.
+        static readonly Dictionary<string, string> sekcjeCodex = new Dictionary<string, string>();
+        static string SekcjaCodex(Proc w, Dictionary<string, object> rec)
+        {
+            string ip, im; Ikony(rec, out ip, out im);
+            var nazwa = (ip.Length > 0 ? ip + " " : "") + P.S(rec, "projekt");
+            lock (sekcjeCodex) { string id; if (sekcjeCodex.TryGetValue(nazwa, out id)) return id; }
+            string wynik = "";
+            try
+            {
+                string kursor = null;
+                for (int strona = 0; strona < 20 && wynik.Length == 0; strona++)
+                {
+                    var par = P.D("limit", 200); if (kursor != null) par["cursor"] = kursor;
+                    var r = Rpc(w, "threadSection/list", par, 30000);
+                    foreach (var o in P.Lista(r, "data"))
+                        if (P.S(o, "name") == nazwa) { wynik = P.S(o, "id"); break; }
+                    kursor = P.S(r, "nextCursor");
+                    if (kursor.Length == 0) break;
+                }
+                if (wynik.Length == 0)
+                {
+                    var c = Rpc(w, "threadSection/create", P.D("name", nazwa), 30000);
+                    var s = c != null && c.ContainsKey("section") ? c["section"] as Dictionary<string, object> : null;
+                    wynik = s != null ? P.S(s, "id") : "";
+                    if (wynik.Length > 0) Log("Codex: sekcja paska „" + nazwa + "”");
+                }
+            }
+            catch (Exception ex) { Dopisz(w, "sekcja w Codex: " + ex.Message); }
+            if (wynik.Length > 0) lock (sekcjeCodex) sekcjeCodex[nazwa] = wynik;
+            return wynik;
+        }
+
         // Claude Code: folder projektu ECXP oznaczony jako zaufany (bez pytania „Do you trust this folder?”) – tylko foldery
         // założone przez ECXP (…\projekty\…), kopia ~/.claude.json raz dziennie przed zmianą. Zgoda właściciela 2026-11-04.
         public static void ZaufajClaude(string katalog)
@@ -493,6 +527,9 @@ namespace Ecxp
             // nazwa wątku jak przy sesjach w aplikacji („🔗ECXP …”) – wątek agenta w tle łatwo znaleźć w aplikacji Codex
             var nazwa = NazwaSesji(rec, w.Nazwa);
             try { Rpc(w, "thread/name/set", P.D("threadId", watek, "name", nazwa), 15000); } catch (Exception ex) { Dopisz(w, "nazwa wątku: " + ex.Message); }
+            var sekcja = SekcjaCodex(w, rec);
+            if (sekcja.Length > 0)
+                try { Rpc(w, "thread/section/move", P.D("sectionId", sekcja, "threadId", watek), 15000); } catch (Exception ex) { Dopisz(w, "wątek do sekcji: " + ex.Message); }
             ZglosPokaz(rec, "codex", watek);
             w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
             var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
