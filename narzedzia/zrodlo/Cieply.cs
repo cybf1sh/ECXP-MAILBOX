@@ -179,7 +179,7 @@ namespace Ecxp
                            " --name \"" + NazwaSesji(rec, w.Nazwa).Replace("\"", "'") + "\"";
                 psi = Psi(prog, args, katalog);
             }
-            else psi = Psi(prog, "-c thread_unload_delay_secs=0 app-server", katalog);
+            else psi = Psi(prog, BezEcxpCodex() + "-c thread_unload_delay_secs=0 app-server", katalog);
             var pr = Process.Start(psi);
             w.Pr = pr;
             w.We = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
@@ -196,6 +196,23 @@ namespace Ecxp
             w.Gotowy = true;
             w.Ostatnio = DateTime.Now;
             Log("ciepły " + w.Nazwa + ": gotowy (" + w.Strona + ")");
+        }
+
+        // Agent Codex w tle nie widzi ECXP – jak agent Claude (pusta konfiguracja MCP): stos odbiera i odpowiada za niego,
+        // a wywołanie narzędzia ECXP przy zasadzie zgód „never” kończy się odmową i mylącym komunikatem w odpowiedzi (04.11.2026).
+        // Wyłączenie tylko, gdy config.toml ma serwer ecxp – dla nieistniejącego serwera Codex nie wystartowałby
+        // („failed to load bootstrap configuration”). Konfiguracja użytkownika pozostaje bez zmian (parametr -c).
+        public static string BezEcxpCodex()
+        {
+            try
+            {
+                var dom = Environment.GetEnvironmentVariable("CODEX_HOME");
+                if (string.IsNullOrEmpty(dom)) dom = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+                var cfg = Path.Combine(dom, "config.toml");
+                if (File.Exists(cfg) && File.ReadAllLines(cfg).Any(l => l.Trim() == "[mcp_servers.ecxp]")) return "-c mcp_servers.ecxp.enabled=false ";
+            }
+            catch { }
+            return "";
         }
 
         static void Pisz(Proc w, object o) { lock (w.We) w.We.WriteLine(P.Js().Serialize(o)); }
@@ -360,7 +377,7 @@ namespace Ecxp
             else
             {
                 var tryb = Podwyzszone(rec) ? "danger-full-access" : pisze ? "workspace-write" : "read-only";
-                args = "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
+                args = BezEcxpCodex() + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
                        (pisze && tryb != "danger-full-access" ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                        " -o \"" + plikWyniku + "\"" +
                        (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
