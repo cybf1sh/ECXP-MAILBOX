@@ -89,7 +89,9 @@ namespace Ecxp
         static void KrokW()
         {
             var czeka = Nieodebrane();
-            var agenciTla = new HashSet<string>(Agenci.Lista().Select(a => P.S(a, "nazwa")));
+            // tylko agenci, za których stos naprawdę odbiera (aktywni, bez sesji w aplikacji pod tym adresem); wyłączony agent
+            // albo adres sesji – budzenie i alarm jak dla każdej sesji, inaczej wiadomości czekałyby bez śladu
+            var agenciTla = Agenci.ObslugiwaniWTle();
             if (czeka.Count == 0) return;
             var st = Pliki.Czytaj(Plik);
             bool wylaczone = P.B(st, "wylaczone");

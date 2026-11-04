@@ -235,7 +235,7 @@ namespace Ecxp
                     {
                         al = P.Straz();
                         // nadzór obiegu zadań w sesjach aplikacji (agentów w tle pilnuje Agenci.Petla)
-                        var wTle = new HashSet<string>(Agenci.Lista().Where(x => P.B(x, "aktywny")).Select(x => P.S(x, "nazwa")));
+                        var wTle = Agenci.ObslugiwaniWTle();
                         al.AddRange(P.ZBlokada(() => Obieg.Nadzor(wTle)));
                         foreach (var k in Agenci.Lista().Select(x => P.S(x, "podwyzszone_klucz")).Where(x => x.Length > 0).Distinct().ToList())
                         {

@@ -43,6 +43,20 @@ namespace Ecxp
             return Directory.GetFiles(Dir, "*.json").Select(Pliki.Czytaj).Where(d => P.S(d, "nazwa").Length > 0).ToList();
         }
 
+        // Adresy, pod którymi pracuje sesja w aplikacji (ecxp_przypisz z identyfikatorem sesji). Agent w tle ma trasę „tlo:<nazwa>”.
+        // Pod takim adresem stos nie może odbierać za agenta w tle: odbiór = ACK, więc wiadomości sesji przepadłyby (04.11.2026).
+        public static HashSet<string> SesjeInteraktywne()
+        {
+            return new HashSet<string>(Siec.Trasy().Where(t => t.Aktywna && (t.Sesja ?? "").Length > 0 && !t.Sesja.StartsWith("tlo:")).Select(t => t.Nazwa));
+        }
+
+        // Agenci, za których stos naprawdę odbiera wiadomości: aktywni i bez sesji w aplikacji pod tym samym adresem.
+        public static HashSet<string> ObslugiwaniWTle()
+        {
+            var sesje = SesjeInteraktywne();
+            return new HashSet<string>(Lista().Where(x => P.B(x, "aktywny") && !sesje.Contains(P.S(x, "nazwa"))).Select(x => P.S(x, "nazwa")));
+        }
+
         public static Dictionary<string, object> Uruchom(string nazwa, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role, string opis, int naGodzine,
             string pakiet = null, List<string> katalogiZapisu = null, bool obowiazkowaOdpowiedz = false)
         {
@@ -56,6 +70,8 @@ namespace Ecxp
                 throw new EcxpException(strona == "codex"
                     ? "Na tym stanowisku nie ma Codex CLI (polecenie codex). Zainstaluj je albo otwórz czat Codexa i wklej pakiet startowy."
                     : "Na tym stanowisku nie ma Claude Code CLI (polecenie claude).");
+            if (SesjeInteraktywne().Contains(nazwa))
+                throw new EcxpException("Adres " + nazwa + " ma już sesję w aplikacji – agent w tle nie został założony. Zadanie czeka w skrzynce tej sesji; stos ją obudzi.");
             var r = Siec.Przypisz(nazwa, projekt, modul, "tlo:" + nazwa, role, opis, P.Wlasciciel);
             var rec = P.D("nazwa", nazwa, "strona", strona, "projekt", r["projekt"], "modul", r["modul"], "katalog", Path.GetFullPath(katalog),
                 "model", model ?? "", "uprawnienia", uprawnienia, "na_godzine", Math.Max(1, naGodzine), "sesja", Guid.NewGuid().ToString(),
@@ -253,9 +269,18 @@ namespace Ecxp
             while (true)
             {
                 Thread.Sleep(500);      // szybka reakcja: zadanie trafia do agenta w ułamku sekundy
+                KrokPetli();
+            }
+        }
+
+        // Jeden obieg pętli agentów (osobno, żeby test regresyjny mógł go wywołać bez wątku stosu).
+        public static void KrokPetli()
+        {
                 try
                 {
-                    var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona"))).ToList();
+                    // adres z sesją w aplikacji obsługuje ta sesja – stos nie odbiera za agenta w tle o tej samej nazwie
+                    var sesje = SesjeInteraktywne();
+                    var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona")) && !sesje.Contains(P.S(x, "nazwa"))).ToList();
                     Cieply.Sprzataj(lista.GroupBy(x => P.S(x, "nazwa")).ToDictionary(g => g.Key, g => g.First()));
                     Cieply.PokazOczekujace();          // „Pokaż sesje agentów”: okna Codex / Claude
                     // agenci z otwartym zadaniem (bez FIN) – ich procesy są rozgrzane z wyprzedzeniem (np. sprawdzający, zanim skończy wykonawca)
@@ -296,7 +321,6 @@ namespace Ecxp
                     }
                 }
                 catch (Exception ex) { Log("agenci: " + ex.Message); }
-            }
         }
 
         public const int MaxPrzypomnien = 2;
@@ -396,12 +420,20 @@ namespace Ecxp
         class Praca { public Msg Zadanie, Pytanie; public string Tekst = ""; }
 
         // Stos odbiera wiadomości za agenta (każdy odbiór = ACK). Pytania operatora czekają w zapisie agenta na turę.
+        // Pytanie, zadanie, recenzja albo blokada od innego agenta też czeka na turę (odpowiedź do nadawcy) – odbiór
+        // nie może jej połknąć. Zadania operatora prowadzi obieg (Obieg), informacje kończą się na ACK.
+        public static bool WymagaTury(string od, string typ)
+        {
+            if (od == P.Wlasciciel) return typ == "pytanie";
+            return od != P.Straznik && (typ == "pytanie" || typ == "zadanie" || typ == "recenzja" || typ == "blokada");
+        }
+
         static void Odbierz(string n)
         {
             P.ZBlokada(delegate
             {
                 var odebrane = P.Odbierz(n, 50);
-                var pyt = odebrane.Where(x => P.S(x, "od") == P.Wlasciciel && P.S(x, "typ") == "pytanie").Select(x => P.S(x, "id")).ToList();
+                var pyt = odebrane.Where(x => WymagaTury(P.S(x, "od"), P.S(x, "typ"))).Select(x => P.S(x, "id")).ToList();
                 if (pyt.Count > 0)
                 {
                     var p = Path.Combine(Dir, n + ".json"); var d = Pliki.Czytaj(p);
@@ -417,7 +449,8 @@ namespace Ecxp
             foreach (var id in P.L(d, "pytania"))
             {
                 var q = P.Znajdz(id);
-                if (q != null) return new Praca { Pytanie = q, Tekst = q.Uwagi };
+                if (q != null) return new Praca { Pytanie = q, Tekst = q.Od == P.Wlasciciel ? q.Uwagi
+                    : "Wiadomość od " + q.Od + " (" + q.Typ + ", temat " + q.Temat + "). Odpowiedz na nią:\n\n" + q.Uwagi };
             }
             var zad = Obieg.Brakujacy(n);
             if (zad == null) return null;
@@ -470,7 +503,7 @@ namespace Ecxp
                         var d = Pliki.Czytaj(p);
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
                         var przyczyna = Przyczyna(kod, wynik);
-                        // wynik agenta zamienia stos: zadanie – FIN w obiegu, pytanie – odpowiedź do operatora
+                        // wynik agenta zamienia stos: zadanie – FIN w obiegu, pytanie – odpowiedź do nadawcy (operatora albo agenta)
                         if (odpowiedz.Length > 0)
                         {
                             try
@@ -478,7 +511,7 @@ namespace Ecxp
                                 if (praca.Zadanie != null)
                                     Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Zadanie.Projekt, Modul = praca.Zadanie.Modul, Typ = "fin", OdpNa = praca.Zadanie.Id, Tresc = odpowiedz });
                                 else if (praca.Pytanie != null)
-                                    Siec.Wyslij(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Pytanie.Projekt, Modul = praca.Pytanie.Modul, Typ = "odpowiedz", Temat = praca.Pytanie.Temat, OdpNa = praca.Pytanie.Id, Tresc = odpowiedz });
+                                    Siec.Wyslij(new P.Nowa { Od = n, Do = praca.Pytanie.Od.Length > 0 ? praca.Pytanie.Od : P.Wlasciciel, Projekt = praca.Pytanie.Projekt, Modul = praca.Pytanie.Modul, Typ = "odpowiedz", Temat = praca.Pytanie.Temat, OdpNa = praca.Pytanie.Id, Tresc = odpowiedz });
                             }
                             catch (Exception ex) { Log("agenci: " + n + " – wynik nie przekazany: " + ex.Message); }
                             if (praca.Pytanie != null) { var l = P.L(d, "pytania"); l.Remove(praca.Pytanie.Id); d["pytania"] = l; }
