@@ -946,11 +946,20 @@ namespace Ecxp
                 bool wykonawca = DoMnie(ja, m.Do), zleceniodawca = ja == m.Od;
                 if (!wykonawca && !zleceniodawca) throw new EcxpException("Stan zadania zmienia jego wykonawca (" + m.Do + ") albo zleceniodawca (" + m.Od + ").");
                 if (!wykonawca && stan != "anulowane") throw new EcxpException("Zleceniodawca może zadanie tylko anulować.");
+                // wykonawca zamyka zadanie z obiegu operatora = FIN (wcześniej obieg dalej czekał i strażnik przypominał);
+                // przed zdarzeniem – błąd obiegu (np. sprawdzający przed wykonawcą) nie zostawia połowicznego stanu
+                bool finObiegu = false;
+                if (wykonawca && (stan == "zakonczone" || stan == "nieudane" || stan == "odrzucone") && Obieg.CzekaNaFin(m.Id, ja))
+                {
+                    Obieg.ZAgenta(new Nowa { Od = ja, Do = Wlasciciel, Projekt = m.Projekt, Modul = m.Modul, Typ = "fin", OdpNa = m.Id,
+                        Tresc = (stan == "zakonczone" ? "POZYTYWNY" : "NEGATYWNY (" + stan + ")") + (string.IsNullOrEmpty(uwagi) ? "" : " – " + uwagi) });
+                    finObiegu = true;
+                }
                 Zdarzenie("zadanie", D("id", m.Id, "stan", stan, "kto", ja, "uwagi", uwagi ?? "", "artefakty", artefakty));
                 if (PoZmianieZadania != null) PoZmianieZadania(m.Id, stan, ja, uwagi ?? "");
                 var drugi = zleceniodawca ? m.Do : m.Od;
                 string powiadomienie = "";
-                if (PoprawnyAdresat(drugi) && drugi != ja)
+                if (PoprawnyAdresat(drugi) && drugi != ja && !finObiegu)
                 {
                     var czesci = new List<Dictionary<string, object>> { D("rodzaj", "dane", "schemat", "ecxp/stan-zadania", "dane", D("zadanie_id", m.Id, "stan", stan, "artefakty", artefakty)) };
                     foreach (var a in artefakty) czesci.Add(D("rodzaj", "plik", "sha256", a, "nazwa", "artefakt"));

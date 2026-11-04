@@ -111,6 +111,21 @@ namespace Ecxp
                     Ok(przed && WKolejce((string)wg["id"]), "odbiór sprawdza właściciela pod blokadą: wiadomość zostaje dla sesji");
                 }
 
+                // 6. obieg: wycofane zadanie nie czeka na FIN; ecxp_zadanie(zakonczone) wykonawcy = FIN
+                var z1 = Siec.Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "claude-tsesja", Projekt = "evidlockv3", Modul = "mod-a", Typ = "zadanie", Temat = "ZADANIE-WYCOFANE", Tresc = "Syntetyczne zadanie." });
+                var id1 = P.S(P.Lista(z1, "wyslane").FirstOrDefault() ?? z1, "id");
+                Ok(Obieg.CzekaNaFin(id1, "claude-tsesja"), "nowe zadanie operatora czeka na FIN");
+                P.Wycofaj(new List<string> { Path.GetFileName(P.Znajdz(id1).Sciezka) }, "test: wątek zamknięty");
+                Obieg.Nadzor(new HashSet<string>());
+                Ok(!Obieg.CzekaNaFin(id1, "claude-tsesja") && !P.Wszystkie(false).Any(m => m.Temat.StartsWith("PRZYPOMNIENIE") && m.Do == "claude-tsesja"),
+                    "wycofane zadanie: obieg zamknięty, bez przypomnienia FIN");
+                var z2 = Siec.Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "claude-tsesja", Projekt = "evidlockv3", Modul = "mod-a", Typ = "zadanie", Temat = "ZADANIE-ZAMKNIETE", Tresc = "Syntetyczne zadanie 2." });
+                var id2 = P.S(P.Lista(z2, "wyslane").FirstOrDefault() ?? z2, "id");
+                P.ZmienZadanie("claude-tsesja", id2, "zakonczone", "zrobione", null);
+                var finy = P.Wszystkie(false).Where(m => m.Do == P.Wlasciciel && m.OdpNa == id2).ToList();
+                Ok(!Obieg.CzekaNaFin(id2, "claude-tsesja") && finy.Count == 1 && finy[0].Typ == "fin" && finy[0].Uwagi.StartsWith("POZYTYWNY"),
+                    "ecxp_zadanie(zakonczone): jeden FIN do operatora, obieg zamknięty (" + string.Join(",", finy.Select(x => x.Typ)) + ")");
+
                 string spoj; P.Stany(out spoj);
                 Ok(spoj.StartsWith("spójny"), "dziennik po teście: " + spoj);
             }

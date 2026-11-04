@@ -155,11 +155,17 @@ namespace Ecxp
             if (ag.Values.Cast<Dictionary<string, object>>().Any(x => P.S(x, "stan") != "fin"))
                 return P.D("ack", true, "stan", "fin", "zadanie", r["klucz"], "uwagi", "FIN zapisany. Operator dostanie wspólny FIN, gdy skończy druga strona. Zakończ turę.");
 
-            // wszyscy skończyli: jeden FIN do operatora
+            return FinWspolny(r, w, n);
+        }
+
+        // Wszyscy skończyli: jeden FIN do operatora (wynik każdej strony; wycofane wpisy pominięte).
+        static Dictionary<string, object> FinWspolny(Dictionary<string, object> r, Dictionary<string, object> w, P.Nowa n)
+        {
+            var ag = Agenci(r);
             string tresc;
             if (ag.Count == 1) tresc = n.Tresc.Trim();
             else
-                tresc = string.Join("\n\n", ag.OrderBy(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca" || P.S(kv.Value as Dictionary<string, object>, "rola") == "przekazal" ? 0 : 1).Select(kv =>
+                tresc = string.Join("\n\n", ag.Where(kv => !P.B(kv.Value as Dictionary<string, object>, "wycofane")).OrderBy(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca" || P.S(kv.Value as Dictionary<string, object>, "rola") == "przekazal" ? 0 : 1).Select(kv =>
                 {
                     var x = (Dictionary<string, object>)kv.Value;
                     var rola = P.S(x, "rola") == "wykonawca" || P.S(x, "rola") == "przejal" ? "wykonał" : P.S(x, "rola") == "sprawdzajacy" ? "sprawdził" : P.S(x, "rola") == "przekazal" ? "przekazał" : "";
@@ -247,6 +253,7 @@ namespace Ecxp
         public static List<P.Alarm> Nadzor(HashSet<string> wTle)
         {
             var al = new List<P.Alarm>();
+            ZamknijWycofane();
             foreach (var r in Otwarte())
             {
                 bool zmiana = false;
@@ -286,6 +293,45 @@ namespace Ecxp
                 if (zmiana) Zapisz(r);
             }
             return al;
+        }
+
+        // Zadanie wycofane przez operatora (⊘ Zamknij wątek, ↪ Wyślij ponownie – wynik „wycofana” w dzienniku) nie czeka
+        // na FIN: wpis zamknięty bez przypomnień. Gdy wszystko wycofane – obieg zamknięty bez FIN (operator sam zdecydował);
+        // gdy któraś strona dała już FIN – operator dostaje wspólny FIN z jej wynikiem.
+        public static int ZamknijWycofane()
+        {
+            var otwarte = Otwarte();
+            if (otwarte.Count == 0) return 0;
+            string spoj; var stany = P.Stany(out spoj);
+            int ile = 0;
+            foreach (var r in otwarte)
+            {
+                bool zmiana = false;
+                foreach (var kv in Agenci(r))
+                {
+                    var e = kv.Value as Dictionary<string, object>; Stan s;
+                    if (e == null || P.S(e, "stan") == "fin" || !stany.TryGetValue(P.S(e, "zadanie"), out s) || s.Wynik != "wycofana") continue;
+                    e["stan"] = "fin"; e["fin"] = "WYCOFANE przez operatora – bez wykonania."; e["wycofane"] = true; e["zmiana"] = P.Teraz(); zmiana = true; ile++;
+                    P.Zdarzenie("obieg_wycofany", P.D("klucz", r["klucz"], "kto", kv.Key, "zadanie", P.S(e, "zadanie")));
+                }
+                if (!zmiana) continue;
+                var ag = Agenci(r);
+                if (ag.Values.Cast<Dictionary<string, object>>().All(x => P.S(x, "stan") == "fin"))
+                {
+                    var wykonane = ag.Where(kv => !P.B(kv.Value as Dictionary<string, object>, "wycofane")).ToList();
+                    if (wykonane.Count == 0) { r["zakonczone"] = true; r["zakonczone_czas"] = P.Teraz(); r["wycofane"] = true; Zapisz(r); P.Zdarzenie("obieg_zakonczony", P.D("klucz", r["klucz"], "fin", "")); }
+                    else { var w = (Dictionary<string, object>)wykonane[0].Value; FinWspolny(r, w, new P.Nowa { Od = wykonane[0].Key, Tresc = P.S(w, "fin") }); }
+                }
+                else Zapisz(r);
+            }
+            return ile;
+        }
+
+        // Czy agent jest winien FIN tego zadania (wpis w otwartym obiegu bez FIN).
+        public static bool CzekaNaFin(string idZadania, string n)
+        {
+            var r = Znajdz(idZadania); if (r == null || P.B(r, "zakonczone")) return false;
+            var e = Wpis(r, n); return e != null && P.S(e, "stan") != "fin" && P.S(e, "zadanie") == idZadania;
         }
 
         public static string Rola(string n, string idZadania) { var r = Znajdz(idZadania); var e = r == null ? null : Wpis(r, n); return e == null ? "" : P.S(e, "rola"); }
