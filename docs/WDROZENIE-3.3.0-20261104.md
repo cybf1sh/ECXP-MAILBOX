@@ -129,6 +129,19 @@ Kontrole przed wdrożeniem:
 - Zgoda na zamknięcie procesów i restart: operator („Tak, wdróż”) po
   zablokowaniu pierwszej próby przez kontrolę uprawnień.
 
+## Podmiana 2026-11-05 00:37 – `e5c52c5` (klient 3.4.0: śledzenie wysłanych)
+
+- Okno „📡 Śledzenie wysłanych…” (Ustawienia, ikona w zasobniku). Licznik „od
+  wysłania” odświeża się co sekundę. Okno pokazuje etap, oś czasu z dziennika
+  i obiegu, filtr 24 h, 3 dni, 7 dni albo tylko oczekujące. W widoku rozmowy
+  jest linia „Śledzenie: … · od wysłania: …”.
+- Paczka `builds\sledzenie-3.4.0-20261105`: `/selftest` PASS, zasoby 7/7.
+  Kopia: `narzedzia\kopie\przed-3.4.0-20261105-003711`.
+- Bezczynny ciepły Codex zamknięty. Restart: konsola 3.4.0.0 PID 47592, stos
+  PID 28304. Obserwacja skrzynki sesji działała bez przerwy.
+- Okna nie testowano na ekranie. Test wykonuje operator. Testy GUI Codexa
+  wymagają teraz pliku `Sledzenie.cs` na liście kompilacji.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
