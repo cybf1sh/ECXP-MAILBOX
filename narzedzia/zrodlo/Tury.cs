@@ -46,30 +46,50 @@ namespace Ecxp
 
         public static List<Tura> Lista(string nazwa)
         {
-            var wynik = new List<Tura>();
             var p = Plik(nazwa);
-            if (!File.Exists(p)) return wynik;
-            var js = P.Js();
-            try
+            if (!File.Exists(p)) return new List<Tura>();
+            // Dziennik tylko rośnie (dopisywanie): pamięć podręczna czyta wyłącznie dopisaną część, więc podgląd
+            // długiej historii nie czyta całego pliku przy każdym odświeżeniu okna.
+            lock (pamiec)
             {
-                using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                using (var r = new StreamReader(fs, Encoding.UTF8))
+                Pamiec pm;
+                if (!pamiec.TryGetValue(p, out pm)) pamiec[p] = pm = new Pamiec();
+                try
                 {
-                    string l;
-                    while ((l = r.ReadLine()) != null)
+                    using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     {
-                        Dictionary<string, object> d;
-                        try { d = js.Deserialize<Dictionary<string, object>>(l); } catch { continue; }
-                        DateTime cz;
-                        if (d == null || !DateTime.TryParse(P.S(d, "czas"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out cz)) continue;
-                        wynik.Add(new Tura { Nazwa = nazwa, Czas = cz.ToLocalTime(), Strona = P.S(d, "strona"), Sesja = P.S(d, "sesja"), Id = P.S(d, "tura"), Zrodlo = P.S(d, "zrodlo"),
-                            Wejscie = Liczba(d, "wejscie"), CacheOdczyt = Liczba(d, "cache_odczyt"), CacheZapis = Liczba(d, "cache_zapis"), Wyjscie = Liczba(d, "wyjscie") });
+                        if (fs.Length < pm.Offset) { pm.Offset = 0; pm.Tury.Clear(); }   // plik zastąpiony lub skrócony – od nowa
+                        if (fs.Length > pm.Offset)
+                        {
+                            fs.Seek(pm.Offset, SeekOrigin.Begin);
+                            var bufor = new byte[fs.Length - pm.Offset];
+                            int n = 0; while (n < bufor.Length) { int k = fs.Read(bufor, n, bufor.Length - n); if (k <= 0) break; n += k; }
+                            int kon = Array.LastIndexOf(bufor, (byte)'\n', Math.Max(0, n - 1));
+                            if (kon >= 0)
+                            {
+                                var js = P.Js();
+                                foreach (var l in Encoding.UTF8.GetString(bufor, 0, kon + 1).Split('\n'))
+                                {
+                                    if (l.Trim().Length == 0) continue;
+                                    Dictionary<string, object> d;
+                                    try { d = js.Deserialize<Dictionary<string, object>>(l); } catch { continue; }
+                                    DateTime cz;
+                                    if (d == null || !DateTime.TryParse(P.S(d, "czas"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out cz)) continue;
+                                    pm.Tury.Add(new Tura { Nazwa = nazwa, Czas = cz.ToLocalTime(), Strona = P.S(d, "strona"), Sesja = P.S(d, "sesja"), Id = P.S(d, "tura"), Zrodlo = P.S(d, "zrodlo"),
+                                        Wejscie = Liczba(d, "wejscie"), CacheOdczyt = Liczba(d, "cache_odczyt"), CacheZapis = Liczba(d, "cache_zapis"), Wyjscie = Liczba(d, "wyjscie") });
+                                }
+                                pm.Offset += kon + 1;
+                            }
+                        }
                     }
                 }
+                catch (IOException) { }
+                return new List<Tura>(pm.Tury);
             }
-            catch (IOException) { }
-            return wynik;
         }
+
+        class Pamiec { public long Offset; public readonly List<Tura> Tury = new List<Tura>(); }
+        static readonly Dictionary<string, Pamiec> pamiec = new Dictionary<string, Pamiec>(StringComparer.OrdinalIgnoreCase);
 
         static long Liczba(Dictionary<string, object> d, string k)
         {
@@ -114,6 +134,7 @@ namespace Ecxp
                 var off = File.Exists(PlikOffsetow) ? Pliki.Czytaj(PlikOffsetow) : new Dictionary<string, object>();
                 foreach (var f in pliki)
                 {
+                    bool gotowe = false;
                     try
                     {
                         var s = Pliki.Czytaj(f);
@@ -125,7 +146,6 @@ namespace Ecxp
                             long nowy;
                             // tylko do granicy zapisanej w chwili końca tury – opóźniony sygnał nie dolicza następnej tury
                             var t = PrzyrostClaude(zapis, od, Liczba(s, "dlugosc"), out nowy);
-                            off[sesja] = nowy;
                             if (t != null)
                             {
                                 DateTime cz; DateTime.TryParse(P.S(s, "czas"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out cz);
@@ -133,10 +153,16 @@ namespace Ecxp
                                 t.Czas = cz == DateTime.MinValue ? DateTime.Now : cz.ToLocalTime();
                                 Zapisz(t); ile++;
                             }
+                            off[sesja] = nowy;   // dopiero po zapisie tury – przy błędzie ponowienie policzy ją jeszcze raz, nie zgubi
                         }
+                        gotowe = true;
                     }
-                    catch { }
-                    try { File.Delete(f); } catch { }
+                    // zapis rozmowy albo dziennik chwilowo zajęty: sygnał zostaje, kolejne czekają (kolejność tur), ponowienie w następnym obiegu
+                    catch (IOException) { break; }
+                    catch (UnauthorizedAccessException) { break; }
+                    // uszkodzony sygnał: odkładany do „bledne”, nie blokuje kolejnych i nie znika bez śladu
+                    catch { try { var bl = Path.Combine(DirSygnaly, "bledne"); Directory.CreateDirectory(bl); File.Move(f, Path.Combine(bl, Path.GetFileName(f))); } catch { } continue; }
+                    if (gotowe) try { File.Delete(f); } catch { }
                 }
                 Directory.CreateDirectory(Dir);
                 Pliki.Zapisz(PlikOffsetow, off);

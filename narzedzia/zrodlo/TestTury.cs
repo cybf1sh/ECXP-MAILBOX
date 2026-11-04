@@ -121,6 +121,20 @@ namespace Ecxp
                 var kol = Tury.Lista("claude-tk");
                 Ok(kol.Count == 2 && kol[0].Razem == 11 && kol[1].Razem == 22, "Claude: opóźnione sygnały – tury 11 i 22, nie jedna 33 (" + string.Join(",", kol.Select(x => x.Razem.ToString()).ToArray()) + ")");
 
+                // recenzja Codexa: sygnał nie znika po błędzie odczytu zapisu rozmowy; ponowienie liczy turę raz
+                File.AppendAllText(zapis2, "{\"type\":\"user\"}\n", new UTF8Encoding(false)); Tury.Sygnal("start", "claude-tk", "ses-kolejka", zapis2); System.Threading.Thread.Sleep(15);
+                File.AppendAllText(zapis2, Asystent("c", 30, 0, 0, 3), new UTF8Encoding(false)); Tury.Sygnal("stop", "claude-tk", "ses-kolejka", zapis2);
+                using (new FileStream(zapis2, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) Tury.PrzetworzSygnaly();
+                Ok(Directory.GetFiles(Tury.DirSygnaly, "*.json").Length > 0 && Tury.Lista("claude-tk").Count == 2, "zapis rozmowy zablokowany: sygnał zostaje do ponowienia, brak fałszywej tury");
+                Tury.PrzetworzSygnaly();
+                var kol2 = Tury.Lista("claude-tk");
+                Ok(kol2.Count == 3 && kol2[2].Razem == 33 && !Directory.GetFiles(Tury.DirSygnaly, "*.json").Any(), "po zwolnieniu zapisu tura policzona raz (33), sygnały usunięte");
+
+                // pamięć podręczna dziennika: kolejne odczyty widzą dopisane tury, bez czytania całości od nowa
+                var przed = Tury.Lista("claude-tk").Count;
+                Tury.Zapisz(new Tura { Nazwa = "claude-tk", Strona = "claude", Czas = DateTime.Now, Wejscie = 1, Wyjscie = 1 });
+                Ok(Tury.Lista("claude-tk").Count == przed + 1, "dziennik tur: dopisana tura widoczna mimo pamięci podręcznej");
+
                 // 6. tokeny zadania: tury adresata od doręczenia do pierwszej tury po odpowiedzi
                 var a1 = Tury.DlaOdpowiedzi("claude-th", DateTime.Now.AddHours(-1), DateTime.Now.AddMinutes(-1));
                 Ok(a1 != null && a1.Razem == t2[0].Razem && a1.Id == "1", "zadanie: odpowiedź w turze 1 – liczy się tura, w której padła odpowiedź");

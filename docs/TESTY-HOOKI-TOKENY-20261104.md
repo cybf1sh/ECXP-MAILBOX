@@ -99,6 +99,24 @@ Weryfikacja po poprawkach:
 Ograniczenie: tura w tle, która już trwa w chwili przejęcia adresu, dokończy
 się. Odebrać nowych wiadomości jednak już nie może.
 
+### Druga recenzja `2f36d69` (wysłana przed `a82f34b`)
+
+Punkty (1) i (2) były już poprawione w `a82f34b`. Dodatkowo:
+
+- **Sygnały tur nie znikają po błędzie.** Przy zablokowanym zapisie rozmowy
+  sygnał zostaje, a kolejne sygnały czekają (kolejność tur). Offset przesuwa
+  się dopiero po zapisie tury. Uszkodzony sygnał trafia do `sygnaly\bledne`.
+- **Pamięć podręczna dziennika tur** (uwaga nieblokująca): `Tury.Lista` czyta
+  tylko dopisaną część pliku. Podgląd długiej historii nie czyta więc całego
+  dziennika przy każdym odświeżeniu okna.
+- `TestTury`: **27 PASS**. Nowe asercje: zablokowany zapis, ponowienie,
+  pamięć podręczna. `TestDoreczania`: **21 PASS**. `TestGraniceRecenzji`: **3/3**.
+- Paczka `builds\sygnaly-pamiec-20261104\narzedzia`: zasoby **7/7 zgodne**.
+  Setup `7F829853E194BBC14BD628C3666CAE8594CF413E249FA6CC695B4087B612057A`,
+  ecxpd `F809E5F80A3C406146A63029766F74ECF1550876F64E481348A3DD51DD2A3201`,
+  ecxp-mcp `3B6E6B714DC885579464A97CD7A81D2CB461BA4D68A3959DC013E8A441E6823F`,
+  klient 3.2.0.0 `CC5B1E19AEA5E956B0D416B27FD7705C27016607D90DA8CCBB765107615DE57E`.
+
 ## Ograniczenia
 
 - Tokeny podagentów Claude (osobne pliki zapisu) nie są liczone.
