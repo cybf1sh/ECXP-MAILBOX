@@ -112,6 +112,23 @@ Kontrole przed wdrożeniem:
 - Codex: aplikacja Codex nie ma sprawdzonego mechanizmu budzenia po poleceniu
   w tle. Stos nadal nie budzi Codexa przy regułach `decision="allow"`.
 
+## Podmiana 2026-11-05 00:12 – `aa58ccb` (obieg: wycofane zadania, FIN przez `ecxp_zadanie`)
+
+- Objaw: strażnik przypominał o FIN zadania z 23:47, które operator wycofał
+  przyciskiem „Wyślij ponownie”. `ecxp_zadanie(zakonczone)` nie zamykało obiegu.
+- Paczka `builds\obieg-wycofane-20261105`: `/selftest` PASS, zasoby 7/7,
+  TestDoreczania 24 PASS. Kopia: `narzedzia\kopie\przed-obieg-20261105-001209`.
+- Bezczynny ciepły Codex zamknięty. Restart: konsola PID 6948, stos PID 32888.
+  Obserwacja skrzynki sesji działała bez przerwy.
+- Efekt na żywo:
+  - zadanie 1c98 zamknięte przez `ecxp_zadanie`, obieg zakończony, operator
+    dostał wspólny FIN `20261105-001221-…-67ac`;
+  - zadania 0799 i 43df wycofane, więc obieg zamknięty bez FIN;
+  - zadanie fa93 zamknięte jako wycofane. Kopia ae14 Codexa została odebrana
+    przed wycofaniem i czeka na FIN Codexa.
+- Zgoda na zamknięcie procesów i restart: operator („Tak, wdróż”) po
+  zablokowaniu pierwszej próby przez kontrolę uprawnień.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
