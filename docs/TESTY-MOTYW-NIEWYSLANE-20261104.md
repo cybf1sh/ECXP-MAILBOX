@@ -31,7 +31,7 @@ Nie edytowano stanu orkiestracji ani rezerwacji.
 
 ## Weryfikacja autora — 2026-11-04
 
-Pakiet odizolowany: `D:\Projekty\ecxp-builds\global-theme-unsent-20261104`.
+Pakiet odizolowany: `D:\Projekty\ecxp-mailbox\builds\global-theme-unsent-20261104`.
 Kompilator systemowy: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`.
 Opcje i zasoby jak w `narzedzia/zrodlo/buduj.cmd`, wyjście do katalogu pakietu.
 Kompilacje szeregowe. Istniejące ostrzeżenia CS0649 pozostają widoczne.

@@ -32,7 +32,7 @@ Repozytorium: `D:\Projekty\ecxp-mailbox`, uzgodniona gałąź `main`, baza
 
 Kompilator: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`,
 `/optimize+ /codepage:65001`, referencje i zasoby jak w `buduj.cmd`.
-Pakiet: `D:\Projekty\ecxp-builds\reader-sessions-20261104\narzedzia`.
+Pakiet: `D:\Projekty\ecxp-mailbox\builds\reader-sessions-20261104\narzedzia`.
 Kompilacje szeregowe, bez podmiany działającej instalacji.
 
 - `TestyRozmowQA.exe <pusty katalog>`: 21 asercji GUI/eksportu, kod wyjścia 0.

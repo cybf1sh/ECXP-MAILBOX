@@ -14,6 +14,12 @@
 | [`przyklady/projekt.json`](przyklady/projekt.json) | przykładowa konfiguracja projektu |
 
 **Budowanie** (Windows, wbudowany kompilator C# z .NET Framework 4, bez dodatkowych narzędzi): `narzedzia\zrodlo\buduj.cmd`. Programy trafiają do `narzedzia\`.
+
+Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
+`narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
+weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
+Aktualny pakiet do recenzji: `builds/reinstall-802be22-20261104/narzedzia/`.
+
 **Test protokołu**: `narzedzia\ECXP-MAILBOX.exe /selftest <pusty katalog>`.
 
 **Klient 3.2 — przygotowywana aktualizacja:** filtr „Niewysłane” obok „Wszystkie”,
