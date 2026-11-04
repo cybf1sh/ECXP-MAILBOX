@@ -198,6 +198,11 @@ namespace Ecxp
             var env = Environment.GetEnvironmentVariable("ECXP_SKRZYNKA");
             if (!string.IsNullOrEmpty(env)) P.Root = env;
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--root") P.Root = Path.GetFullPath(args[i + 1]);
+            // hook Claude Code: ecxp-mcp.exe hook SessionStart | UserPromptSubmit | Stop (wejście JSON na stdin)
+            if (args.Length >= 2 && args[0] == "hook")
+                using (var hin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false)))
+                using (var hout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" })
+                    return Hooki.Uruchom(args[1], hin, hout);
 
             var input = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
             var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };

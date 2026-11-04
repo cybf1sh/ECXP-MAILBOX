@@ -89,7 +89,28 @@ namespace Ecxp
         }
         string PodpisWatku(string id)
         {
-            return P.Sha(PodpisDanych(msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas), false) + Jezyk.Kod + Motyw.Tryb);
+            var w = msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList();
+            // tokeny dochodzą po zakończeniu tury agenta – zmiana liczby odświeża podgląd
+            return P.Sha(PodpisDanych(w, false) + Jezyk.Kod + Motyw.Tryb + string.Join("|", w.Select(TokenyZadania)));
+        }
+
+        // Tokeny zadania przy odpowiedzi agenta: tury adresata od doręczenia wiadomości, na którą odpowiada, do tej odpowiedzi
+        // (stan\tury, Tury.cs). null = nie dotyczy (wiadomość operatora, strażnika albo bez odpowiedz_na).
+        string TokenyZadania(Msg m)
+        {
+            if (m.OdpNa.Length == 0 || m.Od == P.Wlasciciel || m.Od == P.Straznik || !P.PoprawnyNadawca(m.Od)) return null;
+            var org = msgs.Where(x => x.Id == m.OdpNa).OrderBy(x => x.Do == m.Od ? 0 : 1).FirstOrDefault();
+            if (org == null) return null;
+            var od = org.Dor != null && org.Dor.Dostarczona.HasValue ? org.Dor.Dostarczona.Value : org.Czas;
+            try
+            {
+                var t = Tury.DlaOdpowiedzi(m.Od, od, m.Czas);
+                if (t == null) return Jezyk.T("Tokeny zadania: ") + "—";
+                Func<long, string> n = x => x.ToString("N0", System.Globalization.CultureInfo.CurrentCulture);
+                return Jezyk.T("Tokeny zadania: ") + n(t.Razem) + "  (" + Jezyk.T("wejście ") + n(t.Wejscie) + " · cache " + n(t.CacheOdczyt + t.CacheZapis) +
+                    " · " + Jezyk.T("wyjście ") + n(t.Wyjscie) + " · " + Jezyk.T("tur: ") + t.Id + ")";
+            }
+            catch { return null; }
         }
         void SprawdzPodglad()
         {
@@ -781,6 +802,7 @@ namespace Ecxp
                 if (m.Lustro.Count > 1)
                     foreach (var kopia in w.Where(x => x.Id == m.Id || (m.LustroId.Length > 0 && x.LustroId == m.LustroId)))
                         Dopisz(NazwaW(kopia.Do) + ": " + Doreczenie(kopia, teraz) + "\n", fontS, Motyw.Slaby);
+                { var tok = TokenyZadania(m); if (tok != null) Dopisz(tok + "\n", fontS, Motyw.Slaby); }
                 Dopisz(Jezyk.T("Doręczenie: ") + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
                 wciecie = 0;
                 Dopisz("\n", fontS, Motyw.Slaby);
@@ -2181,6 +2203,7 @@ namespace Ecxp
                     if (m.Pliki.Count > 0) { dopisz("\n" + Jezyk.T("Pliki") + "\n", fontB, Motyw.Tekst); foreach (var pl in m.Pliki) dopisz("  • " + pl + "\n", fontN, Motyw.Tekst); }
                     if (m.Commit.Length > 0) dopisz("\n" + Jezyk.T("Commit: ") + m.Commit + "\n", fontN, Motyw.Slaby);
                     if (m.Ograniczenia.Length > 0) dopisz("\n" + Jezyk.T("Ograniczenia: ") + m.Ograniczenia + "\n", fontS, Motyw.Slaby);
+                    { var tok = TokenyZadania(m); if (tok != null) dopisz("\n" + tok + "\n", fontS, Motyw.Slaby); }
                     if (szczegoly)
                     {
                         dopisz("\n" + Jezyk.T("Szczegóły doręczenia") + "\n", fontB, Motyw.Slaby);
@@ -3413,7 +3436,7 @@ namespace Ecxp
                                 dodaj(cli ? 1 : 2, kto + Jezyk.T(": polecenie ") + st, cli ? Jezyk.T("jest (budzenie sesji możliwe)") : Jezyk.T("brak w PATH – stos nie obudzi tych sesji"));
                             }
                             var ust = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "settings.json");
-                            bool hook = File.Exists(ust) && P.Czytaj(ust).Contains("hook-claude.ps1");
+                            bool hook = File.Exists(ust) && (P.Czytaj(ust).Contains("hook-claude.ps1") || P.Czytaj(ust).Contains("ecxp-mcp.exe\\\" hook"));
                             if (!hook) uwagi++;
                             dodaj(hook ? 1 : 2, Jezyk.T("Claude: hook ECXP"), hook ? Jezyk.T("zarejestrowany (lustro czatu, przypomnienia)") : Jezyk.T("brak – uruchom instalator ECXP ponownie"));
                         });
@@ -4847,7 +4870,6 @@ namespace Ecxp
             var log = new StringBuilder();
             var narz = Path.Combine(P.Root, "narzedzia");
             var mcp = Path.Combine(narz, "ecxp-mcp.exe");
-            var hook = Path.Combine(narz, "hook-claude.ps1");
             var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
             Directory.CreateDirectory(Path.Combine(P.Root, "stan")); Directory.CreateDirectory(Path.Combine(P.Root, "projekty"));
@@ -4862,23 +4884,27 @@ namespace Ecxp
                 log.AppendLine(usun ? Jezyk.T("• Claude: usunięto serwer MCP ecxp.") : "• Claude: " + Uruchom(claude, "mcp add --scope user ecxp -- \"" + mcp + "\"").Split('\n')[0]);
             }
 
-            // 2. Claude Code: hook UserPromptSubmit (lustro wpisów operatora z czatu)
+            // 2. Claude Code: hooki ECXP (ecxp-mcp.exe hook …, bez PowerShella): start sesji – przypomnienie, wpis operatora –
+            //    lustro 1:1 i przypomnienie, koniec tury – tokeny i kontrola nieodebranych wiadomości. Stary hook-claude.ps1 zastąpiony.
             var sp = Path.Combine(dom, ".claude", "settings.json");
             try
             {
                 Dictionary<string, object> st = new Dictionary<string, object>();
                 if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(sp)) ?? new Dictionary<string, object>();
                 var hooks = Pliki.Slownik(st, "hooks");
-                var lista = hooks.ContainsKey("UserPromptSubmit") && hooks["UserPromptSubmit"] is System.Collections.IEnumerable
-                    ? ((System.Collections.IEnumerable)hooks["UserPromptSubmit"]).Cast<object>().ToList() : new List<object>();
-                lista = lista.Where(x => !P.Js().Serialize(x).Contains("hook-claude.ps1")).ToList();
-                if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + hook + "\"", "timeout", 15) }));
-                if (lista.Count > 0) hooks["UserPromptSubmit"] = lista; else hooks.Remove("UserPromptSubmit");
+                foreach (var zd in new[] { "SessionStart", "UserPromptSubmit", "Stop" })
+                {
+                    var lista = hooks.ContainsKey(zd) && hooks[zd] is System.Collections.IEnumerable
+                        ? ((System.Collections.IEnumerable)hooks[zd]).Cast<object>().ToList() : new List<object>();
+                    lista = lista.Where(x => { var s = P.Js().Serialize(x); return !s.Contains("hook-claude.ps1") && !s.Contains("ecxp-mcp.exe\\\" hook"); }).ToList();
+                    if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "\"" + mcp + "\" hook " + zd, "timeout", 15) }));
+                    if (lista.Count > 0) hooks[zd] = lista; else hooks.Remove(zd);
+                }
                 if (hooks.Count == 0) st.Remove("hooks");
                 Directory.CreateDirectory(Path.GetDirectoryName(sp));
                 Kopia(sp);
                 File.WriteAllText(sp, Ladnie(P.Js().Serialize(st)), new UTF8Encoding(false));
-                log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hook lustra czatu.") : Jezyk.T("• Claude: hook lustra czatu (UserPromptSubmit) w ") + sp + ".");
+                log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hooki ECXP.") : Jezyk.T("• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ") + sp + ".");
             }
             catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
 

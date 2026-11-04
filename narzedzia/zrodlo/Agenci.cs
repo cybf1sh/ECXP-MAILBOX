@@ -489,6 +489,9 @@ namespace Ecxp
                 // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
                 var cw = Cieply.Wykonaj(rec, polecenie, 30, pr => { lock (trwa) procesy[n] = pr; });
                 kod = cw.Kod; wynik = cw.Wyjscie; odpowiedz = cw.Odpowiedz;
+                // tokeny tury w tle (Claude: usage z wyniku JSON); Codex w tle – z jego zapisu rozmowy (lustro)
+                if (strona == "claude")
+                    try { var tt = Tury.ZWynikuClaude(wynik); if (tt != null) { tt.Nazwa = n; tt.Strona = "claude"; tt.Zrodlo = "tlo"; tt.Czas = DateTime.Now; Tury.Zapisz(tt); } } catch { }
                 if (kod == 0 && odpowiedz.Length == 0) { kod = 2; wynik = "bez wyniku: tura zakończona bez odpowiedzi agenta.\n" + wynik; }
                 File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + " (" + (int)(DateTime.Now - start).TotalMilliseconds + " ms)\n" + wynik + "\n", new UTF8Encoding(false));
             }
@@ -636,6 +639,7 @@ namespace Ecxp
             {
                 Thread.Sleep(3000);
                 try { Wejscia(); } catch (Exception ex) { Log("lustro claude: " + ex.Message); }
+                try { Tury.PrzetworzSygnaly(); } catch (Exception ex) { Log("tury claude: " + ex.Message); }
                 if (++obrot % 2 == 0)
                     try { if (Codex()) Pliki.Zapisz(po, offsety.ToDictionary(k => k.Key, k => (object)k.Value)); } catch (Exception ex) { Log("lustro codex: " + ex.Message); }
             }
@@ -719,6 +723,17 @@ namespace Ecxp
                     try { d = P.Js().Deserialize<Dictionary<string, object>>(linia); } catch { continue; }
                     var pl = d != null && d.ContainsKey("payload") ? d["payload"] as Dictionary<string, object> : null;
                     if (pl == null) continue;
+                    if (P.S(d, "type") == "event_msg")
+                    {
+                        // tury i tokeny Codexa (licznik narastający token_count, początek i koniec tury)
+                        var tz = P.S(pl, "type");
+                        if (tz == "token_count" || tz == "task_started" || tz == "task_complete")
+                        {
+                            string nzT; nazwy.TryGetValue(f, out nzT);
+                            DateTime czT; if (!DateTime.TryParse(P.S(d, "timestamp"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out czT)) czT = DateTime.Now;
+                            try { Tury.ZdarzenieCodex(f, nzT ?? "", pl, czT.Kind == DateTimeKind.Utc ? czT.ToLocalTime() : czT); } catch { }
+                        }
+                    }
                     if (P.S(d, "type") == "event_msg" && P.S(pl, "type") == "task_started")
                     {
                         var ta = pl.ContainsKey("turn_attribution") ? pl["turn_attribution"] as Dictionary<string, object> : null;

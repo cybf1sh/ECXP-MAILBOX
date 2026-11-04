@@ -8,13 +8,13 @@ set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:System.Security.dll /r:System.Management.dll /r:"%FW%\System.Web.Extensions.dll"
 set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html /resource:jezyki.json,jezyki.json
-set RDZEN=Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs Obieg.cs Cieply.cs CodexProjekt.cs
+set RDZEN=Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs Obieg.cs Cieply.cs CodexProjekt.cs Tury.cs
 cd /d "%~dp0"
 "%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs Doreczanie.cs Widok.cs %RDZEN% || exit /b 1
 "%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
 ..\ECXP-MAILBOX.exe /ico ..\ECXP-MAILBOX.ico || exit /b 1
 "%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe /win32icon:..\ECXP-MAILBOX.ico ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
-"%CSC%" %OPT% /target:exe /out:..\ecxp-mcp.exe Mcp.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% /target:exe /out:..\ecxp-mcp.exe Mcp.cs Hooki.cs %RDZEN% || exit /b 1
 copy /y hook-claude.ps1 ..\hook-claude.ps1 >nul || exit /b 1
 rem instalator stanowiska: jeden plik z programami jako zasobami
 "%CSC%" %OPT% /target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:..\ECXP-Setup.exe /win32icon:..\ECXP-MAILBOX.ico ^

@@ -1,5 +1,11 @@
 {
  "en": {
+  "wejście ": "input ",
+  "wyjście ": "output ",
+  "tur: ": "turns: ",
+  "Tokeny zadania: ": "Task tokens: ",
+  "• Claude: usunięto hooki ECXP.": "• Claude: removed the ECXP hooks.",
+  "• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ": "• Claude: ECXP hooks (SessionStart, UserPromptSubmit, Stop) in ",
   "Motyw: ": "Theme: ",
   "Jasny": "Light",
   "Ciemny": "Dark",
@@ -714,6 +720,12 @@
   "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "Could not wake {0} in its thread: {1}\n\nIf the thread is open in the Codex app, type “receive ECXP messages” in it."
  },
  "fr": {
+  "wejście ": "entrée ",
+  "wyjście ": "sortie ",
+  "tur: ": "tours : ",
+  "Tokeny zadania: ": "Jetons de la tâche : ",
+  "• Claude: usunięto hooki ECXP.": "• Claude : hooks ECXP supprimés.",
+  "• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ": "• Claude : hooks ECXP (SessionStart, UserPromptSubmit, Stop) dans ",
   "Motyw: ": "Thème : ",
   "Jasny": "Clair",
   "Ciemny": "Sombre",
@@ -1428,6 +1440,12 @@
   "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "Impossible de réveiller {0} dans son fil : {1}\n\nSi le fil est ouvert dans l’application Codex, écrivez-y « recevoir les messages ECXP »."
  },
  "cs": {
+  "wejście ": "vstup ",
+  "wyjście ": "výstup ",
+  "tur: ": "tahů: ",
+  "Tokeny zadania: ": "Tokeny úkolu: ",
+  "• Claude: usunięto hooki ECXP.": "• Claude: hooky ECXP odstraněny.",
+  "• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ": "• Claude: hooky ECXP (SessionStart, UserPromptSubmit, Stop) v ",
   "Motyw: ": "Motiv: ",
   "Jasny": "Světlý",
   "Ciemny": "Tmavý",
@@ -2142,6 +2160,12 @@
   "Nie udało się obudzić {0} w jego wątku: {1}\n\nJeśli wątek jest otwarty w aplikacji Codex, napisz w nim „odbierz wiadomości ECXP”.": "{0} se nepodařilo probudit v jeho vlákně: {1}\n\nPokud je vlákno otevřené v aplikaci Codex, napište do něj „přijmi zprávy ECXP“."
  },
  "de": {
+  "wejście ": "Eingabe ",
+  "wyjście ": "Ausgabe ",
+  "tur: ": "Runden: ",
+  "Tokeny zadania: ": "Tokens der Aufgabe: ",
+  "• Claude: usunięto hooki ECXP.": "• Claude: ECXP-Hooks entfernt.",
+  "• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ": "• Claude: ECXP-Hooks (SessionStart, UserPromptSubmit, Stop) in ",
   "Motyw: ": "Design: ",
   "Jasny": "Hell",
   "Ciemny": "Dunkel",
