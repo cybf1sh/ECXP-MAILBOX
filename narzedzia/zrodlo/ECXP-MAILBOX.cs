@@ -716,12 +716,14 @@ namespace Ecxp
                 (sel.Modul.Length > 0 ? Jezyk.T("   ·   moduł ") + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
             int poz = 0;
             var zal = new List<Dictionary<string, object>>();
+            var plikiRozmowy = new List<string>();
             var wyswietloneLustra = new HashSet<string>();
             foreach (var m in w)
             {
                 string lustroKlucz = m.LustroId.Length > 0 ? m.LustroId : m.Id;
                 if (m.LustroId.Length > 0 && m.Lustro.Count > 1 && !wyswietloneLustra.Add(lustroKlucz)) continue;
                 int poczatekWiadomosci = det.TextLength;
+                foreach (var pl in PlikiZWiadomosci(m)) if (!plikiRozmowy.Any(x => string.Equals(x, pl, StringComparison.OrdinalIgnoreCase))) plikiRozmowy.Add(pl);
                 if (m.Id == sel.Id || (sel.LustroId.Length > 0 && m.LustroId == sel.LustroId)) poz = det.TextLength;
                 wciecie = 0;
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
@@ -782,7 +784,21 @@ namespace Ecxp
                     pnlZal.Controls.Add(ll);
                 }
             }
-            pnlZal.Visible = zal.Count > 0;
+            if (plikiRozmowy.Count > 0)
+            {
+                pnlZal.Controls.Add(new Label { Text = Jezyk.T("Pliki z wiadomości:"), AutoSize = true, ForeColor = Motyw.Slaby, Margin = new Padding(zal.Count > 0 ? 16 : 0, 6, 8, 0) });
+                foreach (var pl in plikiRozmowy)
+                {
+                    var sc = pl;
+                    var otworz = new LinkLabel { Text = NazwaPliku(pl), AutoSize = true, Margin = new Padding(4, 6, 2, 0), LinkColor = Motyw.K(Color.FromArgb(0, 80, 200)) };
+                    otworz.LinkClicked += delegate { OtworzPlikZWiadomosci(sc); };
+                    var folder = new LinkLabel { Text = Jezyk.T("(w folderze)"), AutoSize = true, Margin = new Padding(0, 6, 10, 0), LinkColor = Motyw.Slaby };
+                    folder.LinkClicked += delegate { PokazPlikWFolderze(sc); };
+                    var tt = new ToolTip(); tt.SetToolTip(otworz, Jezyk.T("Otwórz: ") + pl); tt.SetToolTip(folder, Jezyk.T("Pokaż w folderze: ") + pl);
+                    pnlZal.Controls.Add(otworz); pnlZal.Controls.Add(folder);
+                }
+            }
+            pnlZal.Visible = zal.Count > 0 || plikiRozmowy.Count > 0;
             pnlZal.ResumeLayout();
             podpisPodgladu = podpis; watekPodgladu = sel.Watek; wybranaWiadomosc = sel.Id;
             noweWiadomosci.Visible = false;
@@ -795,6 +811,60 @@ namespace Ecxp
         }
 
         static string Rozmiar(long b) { return b >= 1048576 ? (b / 1048576.0).ToString("0.0") + " MB" : b >= 1024 ? (b / 1024) + " kB" : b + " B"; }
+
+        // Pliki utworzone przez agentów: ścieżki z treści wiadomości (`C:\…`, [tekst](</C:/…>), "C:\…") i z pola „pliki”.
+        // Pokazywane są tylko te, które istnieją na tym komputerze; ścieżki względne – względem folderu projektu.
+        static readonly Regex[] WzorceSciezek = {
+            new Regex(@"`(?<p>[A-Za-z]:[\\/][^`\r\n]+)`"),
+            new Regex(@"<\/?(?<p>[A-Za-z]:[\\/][^<>\r\n]+)>"),
+            new Regex(@"""(?<p>[A-Za-z]:[\\/][^""\r\n]+)"""),
+            new Regex(@"\]\(\/?(?<p>[A-Za-z]:[\\/][^)\s]+)\)"),
+            new Regex(@"(?<![\w/\\])(?<p>[A-Za-z]:\\[^\s`""<>|*?]+)"),
+        };
+        static List<string> PlikiZWiadomosci(Msg m)
+        {
+            var kandydaci = new List<string>();
+            var tekst = (m.Uwagi ?? "") + "\n" + string.Join("\n", m.Czesci.Where(c => P.S(c, "rodzaj") == "tekst").Select(c => P.S(c, "tekst")));
+            foreach (var wz in WzorceSciezek) foreach (Match x in wz.Matches(tekst)) kandydaci.Add(x.Groups["p"].Value);
+            string katalog = "";
+            try { if (m.Projekt.Length > 0) katalog = SesjeAplikacji.Katalog(m.Projekt); } catch { }
+            foreach (var p in m.Pliki) kandydaci.Add(Path.IsPathRooted(p) || katalog.Length == 0 ? p : Path.Combine(katalog, p));
+            var wynik = new List<string>();
+            foreach (var k in kandydaci)
+            {
+                string p = k.Trim().TrimEnd('.', ',', ';', ':', '!', '?', '*');
+                try { p = Uri.UnescapeDataString(p).Replace('/', '\\'); p = Path.GetFullPath(p).TrimEnd('\\'); } catch { continue; }
+                if (p.Length < 4 || !(File.Exists(p) || Directory.Exists(p))) continue;
+                if (!wynik.Any(w => string.Equals(w, p, StringComparison.OrdinalIgnoreCase))) wynik.Add(p);
+                if (wynik.Count >= 12) break;
+            }
+            return wynik;
+        }
+
+        // Otwiera plik wskazany w wiadomości. Typy wykonywalne nie są uruchamiane – dla nich otwiera się folder z plikiem.
+        void OtworzPlikZWiadomosci(string p)
+        {
+            try
+            {
+                if (Directory.Exists(p)) { OpenPath(p); return; }
+                if (!File.Exists(p)) { MessageBox.Show(form, Jezyk.T("Tego pliku już nie ma: ") + p, Jezyk.T("Plik")); return; }
+                var bezpieczne = new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".pdf", ".txt", ".md", ".log", ".json", ".csv", ".xml", ".html", ".htm", ".mp4", ".docx", ".xlsx" };
+                if (bezpieczne.Contains(Path.GetExtension(p).ToLowerInvariant())) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p) { UseShellExecute = true });
+                else PokazPlikWFolderze(p);
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie otworzono: ") + ex.Message, Jezyk.T("Plik")); }
+        }
+        static void PokazPlikWFolderze(string p)
+        {
+            try
+            {
+                if (Directory.Exists(p)) OpenPath(p);
+                else if (File.Exists(p)) System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + p + "\"");
+                else { var d = Path.GetDirectoryName(p); if (Directory.Exists(d)) OpenPath(d); }
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); }
+        }
+        static string NazwaPliku(string p) { var n = Path.GetFileName(p); return (Directory.Exists(p) ? "📁 " : "📄 ") + (n.Length > 0 ? n : p); }
 
         // Otwiera załącznik z magazynu kontekstu (po sprawdzeniu SHA-256). Typy wykonywalne nie są uruchamiane –
         // dla nich otwiera się tylko folder z plikiem.
@@ -1951,7 +2021,17 @@ namespace Ecxp
                     var pliki = m.Czesci.Where(c => P.S(c, "rodzaj") == "plik").ToList();
                     if (pliki.Count > 0) zal.Controls.Add(new Label { Text = Jezyk.T("Załączniki:"), AutoSize = true, Font = fontB, Margin = new Padding(0, 9, 8, 0) });
                     foreach (var c in pliki) { var copy = c; var b = Btn("📎 " + P.S(c, "nazwa")); b.Click += delegate { OtworzZalacznik(copy); }; zal.Controls.Add(b); }
-                    zal.Visible = pliki.Count > 0;
+                    var plikiAgenta = PlikiZWiadomosci(m);
+                    if (plikiAgenta.Count > 0) zal.Controls.Add(new Label { Text = Jezyk.T("Pliki:"), AutoSize = true, Font = fontB, Margin = new Padding(pliki.Count > 0 ? 16 : 0, 9, 8, 0) });
+                    foreach (var pl in plikiAgenta)
+                    {
+                        var sc = pl;
+                        var bo = Btn(NazwaPliku(pl)); bo.Click += delegate { OtworzPlikZWiadomosci(sc); };
+                        var bf = Btn(Jezyk.T("📂  Pokaż w folderze")); bf.Click += delegate { PokazPlikWFolderze(sc); };
+                        var tt = new ToolTip(); tt.SetToolTip(bo, Jezyk.T("Otwórz: ") + pl); tt.SetToolTip(bf, pl);
+                        zal.Controls.Add(bo); zal.Controls.Add(bf);
+                    }
+                    zal.Visible = pliki.Count > 0 || plikiAgenta.Count > 0;
                     meta.Text = szczegoly ? Jezyk.T("Ukryj szczegóły") : Jezyk.T("Szczegóły doręczenia");
                 }
                 finally { SendMessage(tekst.Handle, 0x000B, new IntPtr(1), IntPtr.Zero); tekst.Invalidate(); }
