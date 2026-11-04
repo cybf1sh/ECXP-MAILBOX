@@ -309,8 +309,8 @@ namespace Ecxp
                         Pliki.Zapisz(pa, d);
                         return 0;
                     });
-                    // sesja Claude widoczna od razu: folder projektu ECXP zaufany w Claude Code (bez pytania przy otwarciu okna)
-                    if (pokazSesje && strona == "claude") Cieply.ZaufajClaude(katalog);
+                    // projekt widoczny w Claude od razu: folder projektu ECXP zaufany w Claude Code (bez pytania przy otwarciu sesji)
+                    if (strona == "claude") Cieply.ZaufajClaude(katalog);
                     wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis, "podwyzszone", podwyzszone.Length > 0));
                 }
                 catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }

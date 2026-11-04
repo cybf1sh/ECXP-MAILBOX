@@ -173,7 +173,7 @@ namespace Ecxp
                            (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                            (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "") +
                            // nazwa sesji jak przy sesjach w aplikacji („🔗ECXP …”) – widoczna na liście /resume
-                           " --name \"" + (P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : w.Nazwa).Replace("\"", "'") + "\"";
+                           " --name \"" + NazwaSesji(rec, w.Nazwa).Replace("\"", "'") + "\"";
                 psi = Psi(prog, args, katalog);
             }
             else psi = Psi(prog, "app-server", katalog);
@@ -397,22 +397,50 @@ namespace Ecxp
         }
 
         // ---------- widoczność sesji w aplikacjach ----------
-        // Codex: projekt „ECXP” z folderem …\projekty (zakładany raz; klucz idempotencji chroni przed duplikatami) –
-        // wątki agentów w tle są widoczne w aplikacji Codex pod tym projektem.
-        static string projektCodex;
-        static string ProjektCodex(Proc w)
+        // Każdy projekt ECXP = osobny projekt w aplikacji Codex: folder projektu, nazwa z ikoną projektu („💡 test-pogoda”).
+        // Nowy projekt – zakładany przy pierwszym zadaniu; kolejne zadania dokładają tylko wątki (klucz idempotencji = folder).
+        static readonly Dictionary<string, string> projektyCodex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Ikony z projekt.json: projektu („ikona”) i modułu („ikony_modulow”).
+        static void Ikony(Dictionary<string, object> rec, out string projektu, out string modulu)
         {
-            if (projektCodex != null) return projektCodex;
+            projektu = ""; modulu = "";
             try
             {
-                var root = Path.Combine(P.Root, "projekty");
-                Directory.CreateDirectory(root);
-                var r = Rpc(w, "project/create", P.D("name", "ECXP", "roots", new List<object> { P.D("path", root) }, "idempotencyKey", "ecxp:" + root.ToLowerInvariant()), 30000);
-                var pr = r != null && r.ContainsKey("project") ? r["project"] as Dictionary<string, object> : null;
-                projektCodex = pr != null ? P.S(pr, "id") : "";
+                var pj = Pliki.Czytaj(Path.Combine(P.Root, "projekty", P.S(rec, "projekt"), "projekt.json"));
+                projektu = P.S(pj, "ikona");
+                object im; if (pj.TryGetValue("ikony_modulow", out im) && im is Dictionary<string, object>) modulu = P.S((Dictionary<string, object>)im, P.S(rec, "modul"));
             }
-            catch (Exception ex) { projektCodex = ""; Dopisz(w, "projekt ECXP w Codex: " + ex.Message); }
-            return projektCodex;
+            catch { }
+        }
+
+        // Nazwa sesji w oknie agenta: „🔗ECXP 💡 moduł” (ikona modułu, a gdy jej brak – projektu).
+        static string NazwaSesji(Dictionary<string, object> rec, string zapasowa)
+        {
+            var t = P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : zapasowa;
+            string ip, im; Ikony(rec, out ip, out im);
+            var ik = im.Length > 0 ? im : ip;
+            if (ik.Length == 0 || t.Contains(ik)) return t;
+            const string zn = "🔗ECXP";
+            return t.StartsWith(zn) ? zn + " " + ik + " " + t.Substring(zn.Length).TrimStart() : ik + " " + t;
+        }
+
+        static string ProjektCodex(Proc w, Dictionary<string, object> rec)
+        {
+            var kat = Path.GetFullPath(P.S(rec, "katalog")).TrimEnd(Path.DirectorySeparatorChar);
+            lock (projektyCodex) { string id; if (projektyCodex.TryGetValue(kat, out id)) return id; }
+            string wynik = "";
+            try
+            {
+                string ip, im; Ikony(rec, out ip, out im);
+                var nazwa = (ip.Length > 0 ? ip + " " : "") + P.S(rec, "projekt");
+                var r = Rpc(w, "project/create", P.D("name", nazwa, "roots", new List<object> { P.D("path", kat) }, "idempotencyKey", "ecxp:" + kat.ToLowerInvariant()), 30000);
+                var pr = r != null && r.ContainsKey("project") ? r["project"] as Dictionary<string, object> : null;
+                wynik = pr != null ? P.S(pr, "id") : "";
+            }
+            catch (Exception ex) { Dopisz(w, "projekt w Codex: " + ex.Message); }
+            lock (projektyCodex) projektyCodex[kat] = wynik;
+            return wynik;
         }
 
         // Claude Code: folder projektu ECXP oznaczony jako zaufany (bez pytania „Do you trust this folder?”) – tylko foldery
@@ -454,7 +482,7 @@ namespace Ecxp
             else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
             else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", false); }
             var parStart = P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb);
-            var projekt = ProjektCodex(w);
+            var projekt = ProjektCodex(w, rec);
             if (projekt.Length > 0) parStart["projectId"] = projekt;
             Dictionary<string, object> st;
             try { st = Rpc(w, "thread/start", parStart, 60000); }
@@ -463,7 +491,7 @@ namespace Ecxp
             var watek = th != null ? P.S(th, "id") : "";
             if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
             // nazwa wątku jak przy sesjach w aplikacji („🔗ECXP …”) – wątek agenta w tle łatwo znaleźć w aplikacji Codex
-            var nazwa = P.S(rec, "opis").Length > 0 ? P.S(rec, "opis") : w.Nazwa;
+            var nazwa = NazwaSesji(rec, w.Nazwa);
             try { Rpc(w, "thread/name/set", P.D("threadId", watek, "name", nazwa), 15000); } catch (Exception ex) { Dopisz(w, "nazwa wątku: " + ex.Message); }
             ZglosPokaz(rec, "codex", watek);
             w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
