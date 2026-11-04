@@ -94,6 +94,24 @@ Kontrole przed wdrożeniem:
 - Ograniczenie: tokenów tury Codexa w tle nie zapisano, bo lustro nie zna nazwy
   wątku `app-server` agenta w tle. To możliwe usprawnienie.
 
+## Podmiana 2026-11-05 00:06 – `66f0420` (obserwacja skrzynki sesji)
+
+- Problem operatora: zadanie wysłane z konsoli czekało, aż operator napisze
+  coś w oknie sesji Claude. Aplikacja nie pozwala ECXP zacząć tury w otwartej
+  rozmowie.
+- Rozwiązanie bez AI: `ecxp-mcp.exe czekaj <nazwa>`, uruchamiane przez sesję
+  w tle. Kończy się, gdy przyjdzie wiadomość, a zakończenie polecenia w tle
+  budzi sesję w aplikacji Claude. Hooki SessionStart i Stop pilnują, żeby
+  obserwacja działała. Lustro czatu wysyła jedną kopię na partnera.
+- Paczka `builds\czuwanie-20261105`: `/selftest` PASS, zasoby 7/7, TestTury
+  33 PASS. Kopia: `narzedzia\kopie\przed-czuwanie-20261105-000636`.
+- Bezczynny ciepły Codex (`codex-bez-modulu`) zamknięty. Restart: konsola
+  PID 36060, stos PID 28444.
+- Sesja `claude-ecxp-mailbox`: obserwacja uruchomiona (PID 31188, blokada
+  `stan\czuwanie\claude-ecxp-mailbox.lock`). Test na żywo wykonuje operator.
+- Codex: aplikacja Codex nie ma sprawdzonego mechanizmu budzenia po poleceniu
+  w tle. Stos nadal nie budzi Codexa przy regułach `decision="allow"`.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
