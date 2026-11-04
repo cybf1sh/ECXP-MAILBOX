@@ -714,10 +714,13 @@ namespace Ecxp
             if (tekst.StartsWith("[ECXP – doręczenie]")) return 0;   // polecenie tury budzenia ze stosu, nie wpis operatora
             if (tekst.Length > 20000) tekst = tekst.Substring(0, 20000) + "\n[…ucięte]";
             int ile = 0;
-            foreach (var t in Siec.Przynaleznosc(nazwa))
+            // jedna kopia na partnera: nazwa w kilku trasach (np. sesja w aplikacji i stara trasa agenta w tle) nie dubluje wpisu;
+            // pierwsza wygrywa trasa sesji w aplikacji
+            var wyslano = new HashSet<string>();
+            foreach (var t in Siec.Przynaleznosc(nazwa).OrderBy(x => (x.Sesja ?? "").StartsWith("tlo:") ? 1 : 0))
             {
                 var partner = Siec.Partner(t.Projekt, t.Modul, nazwa);
-                if (partner.Length == 0) continue;
+                if (partner.Length == 0 || !wyslano.Add(partner)) continue;
                 P.Wyslij(new P.Nowa
                 {
                     Od = P.Wlasciciel, Do = partner, Projekt = t.Projekt, Modul = t.Modul, Typ = "informacja", Temat = "CZAT-" + strona.ToUpperInvariant(),

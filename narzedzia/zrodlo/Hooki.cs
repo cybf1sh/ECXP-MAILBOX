@@ -40,6 +40,7 @@ namespace Ecxp
                         {
                             var czeka = Czekajace(nazwa);
                             if (czeka.Count > 0) wy.WriteLine(Przypomnienie(nazwa, czeka));
+                            if (!budzenie && !Czuwa(nazwa)) wy.WriteLine(PolecenieCzuwania(nazwa));
                             return 0;
                         }
                     case "UserPromptSubmit":
@@ -60,13 +61,77 @@ namespace Ecxp
                             Tury.Sygnal("stop", nazwa, sesja, zapis);
                             if (budzenie || P.B(d, "stop_hook_active")) return 0;
                             var czeka = Czekajace(nazwa);
+                            // jedna blokada na koniec tury: najpierw nieodebrane wiadomości, potem brak obserwacji skrzynki
                             if (czeka.Count > 0)
                                 wy.WriteLine(P.Js().Serialize(P.D("decision", "block", "reason", Przypomnienie(nazwa, czeka))));
+                            else if (!Czuwa(nazwa))
+                                wy.WriteLine(P.Js().Serialize(P.D("decision", "block", "reason", PolecenieCzuwania(nazwa))));
                             return 0;
                         }
                 }
             }
             catch { }
+            return 0;
+        }
+
+        // ---------- obserwacja skrzynki (ecxp-mcp.exe czekaj <nazwa>) ----------
+        // Aplikacja Claude nie pozwala zewnętrznemu programowi zacząć tury w otwartej rozmowie. Budzi ją jednak zakończenie
+        // polecenia uruchomionego przez sesję w tle – więc sesja sama uruchamia „czekaj”, które kończy się, gdy na jej adres
+        // przyjdzie wiadomość. Bez modelu AI i bez odbioru: wiadomości odbiera sama sesja (jeden właściciel adresu).
+        // Blokada pliku stan\czuwanie\<nazwa>.lock: najwyżej jedna obserwacja na adres; hooki sprawdzają po niej, czy działa.
+        static string PlikCzuwania(string nazwa) { return Path.Combine(P.Root, "stan", "czuwanie", Path.GetFileName(nazwa) + ".lock"); }
+
+        public static bool Czuwa(string nazwa)
+        {
+            var p = PlikCzuwania(nazwa);
+            if (!File.Exists(p)) return false;
+            try { using (new FileStream(p, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) return false; }
+            catch (IOException) { return true; }        // plik trzyma działająca obserwacja
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        public static string Polecenie(string nazwa)
+        {
+            var exe = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
+            return "\"" + exe + "\" czekaj " + nazwa;
+        }
+
+        static string PolecenieCzuwania(string nazwa)
+        {
+            return "[ECXP] Ta sesja (" + nazwa + ") nie ma włączonej obserwacji skrzynki – bez niej zadania z ECXP-MAILBOX czekają na wpis operatora w tym oknie. " +
+                "Uruchom teraz W TLE (run_in_background): " + Polecenie(nazwa) + " . Kończy się, gdy przyjdzie wiadomość – wtedy odbierz ją (ecxp_odbierz(ja=" + nazwa +
+                ")), wykonaj i uruchom obserwację ponownie. Nie czekaj na nią w pierwszym planie.";
+        }
+
+        public static int Czekaj(string nazwa, int maksMin, TextWriter wy)
+        {
+            nazwa = (nazwa ?? "").Trim().ToLowerInvariant();
+            if (!P.PoprawnyNadawca(nazwa)) { wy.WriteLine("[ECXP] Niepoprawna nazwa: " + nazwa); return 2; }
+            var p = PlikCzuwania(nazwa); Directory.CreateDirectory(Path.GetDirectoryName(p));
+            FileStream blokada;
+            try { blokada = new FileStream(p, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) { wy.WriteLine("[ECXP] Obserwacja skrzynki " + nazwa + " już działa – nie uruchamiaj drugiej."); return 0; }
+            var kolejka = Path.Combine(P.Root, P.Folder(nazwa)); Directory.CreateDirectory(kolejka);
+            using (blokada)
+            using (var zmiana = new System.Threading.AutoResetEvent(false))
+            using (var fsw = new FileSystemWatcher(kolejka, "*.json") { NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite })
+            {
+                fsw.Created += delegate { zmiana.Set(); }; fsw.Renamed += delegate { zmiana.Set(); }; fsw.Changed += delegate { zmiana.Set(); };
+                fsw.EnableRaisingEvents = true;
+                var koniec = DateTime.Now.AddMinutes(Math.Max(1, maksMin));
+                while (DateTime.Now < koniec)
+                {
+                    var czeka = Czekajace(nazwa);
+                    if (czeka.Count > 0)
+                    {
+                        wy.WriteLine("[ECXP] Nowe wiadomości dla " + nazwa + ": " + czeka.Count + " (" + string.Join(", ", czeka.Take(6)) + "). Odbierz je: ecxp_odbierz(ja=" + nazwa +
+                            "), wykonaj i uruchom obserwację ponownie w tle: " + Polecenie(nazwa));
+                        return 0;
+                    }
+                    zmiana.WaitOne(10000);      // zdarzenie pliku albo co 10 s (gdyby powiadomienie się zgubiło)
+                }
+            }
+            wy.WriteLine("[ECXP] Obserwacja skrzynki " + nazwa + " zakończona po " + maksMin + " min bez wiadomości. Uruchom ją ponownie w tle: " + Polecenie(nazwa));
             return 0;
         }
 

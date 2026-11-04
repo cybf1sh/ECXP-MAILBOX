@@ -203,6 +203,13 @@ namespace Ecxp
                 using (var hin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false)))
                 using (var hout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" })
                     return Hooki.Uruchom(args[1], hin, hout);
+            // obserwacja skrzynki sesji: ecxp-mcp.exe czekaj <nazwa> [minuty] – kończy się, gdy przyjdzie wiadomość (Hooki.Czekaj)
+            if (args.Length >= 2 && args[0] == "czekaj")
+            {
+                int maks = 720; if (args.Length >= 3) int.TryParse(args[2], out maks);
+                using (var cout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" })
+                    return Hooki.Czekaj(args[1], maks, cout);
+            }
 
             var input = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
             var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };

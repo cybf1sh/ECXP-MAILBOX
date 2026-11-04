@@ -53,7 +53,8 @@ namespace Ecxp
                 Ok(Hooki.Nazwa(ses, zapis, "") == "claude-th", "nazwa sesji z trasy ecxp_przypisz (bez czytania zapisu rozmowy)");
 
                 // 2. start sesji i wpis operatora: przypomnienie tylko, gdy coś czeka; lustro wpisu do stan\wejscia
-                Ok(Hook("SessionStart", we).Length == 0, "start sesji bez oczekujących wiadomości – brak przypomnienia");
+                var s0 = Hook("SessionStart", we);
+                Ok(!s0.Contains("czeka nieodebranych") && s0.Contains("czekaj claude-th"), "start sesji bez wiadomości: bez przypomnienia, z poleceniem obserwacji skrzynki");
                 var w1 = P.Wyslij(new P.Nowa { Od = "codex-th", Do = "claude-th", Projekt = "test", Modul = "hooki", Typ = "pytanie", Temat = "PYTANIE-TESTOWE", Tresc = "Syntetyczne pytanie." });
                 var s1 = Hook("SessionStart", we);
                 Ok(s1.Contains("[ECXP]") && s1.Contains("PYTANIE-TESTOWE"), "start sesji: przypomnienie z tematem oczekującej wiadomości");
@@ -84,7 +85,26 @@ namespace Ecxp
                 P.Odbierz("claude-th", 10);
                 Hook("UserPromptSubmit", P.D("session_id", ses, "transcript_path", zapis, "prompt", "Drugi wpis."));
                 File.AppendAllText(zapis, Asystent("msg_C", 1, 100, 0, 9), new UTF8Encoding(false));
-                Ok(Hook("Stop", P.D("session_id", ses, "transcript_path", zapis, "stop_hook_active", false)).Length == 0, "koniec tury bez oczekujących wiadomości – bez blokady");
+                var st2 = Hook("Stop", P.D("session_id", ses, "transcript_path", zapis, "stop_hook_active", false));
+                Ok(st2.Contains("\"decision\":\"block\"") && st2.Contains("czekaj claude-th"), "koniec tury bez wiadomości i bez obserwacji: jedna blokada z poleceniem uruchomienia obserwacji");
+
+                // obserwacja skrzynki: blokada pliku, druga kopia odmawia, wiadomość kończy czekanie, hook nie blokuje, gdy czuwa
+                Ok(!Hooki.Czuwa("claude-th"), "przed uruchomieniem obserwacja nie działa");
+                var wyCz = new StringWriter(); int kodCz = -1;
+                var watek = new System.Threading.Thread(() => { kodCz = Hooki.Czekaj("claude-th", 2, wyCz); });
+                watek.Start();
+                var dl = DateTime.Now.AddSeconds(5); while (!Hooki.Czuwa("claude-th") && DateTime.Now < dl) System.Threading.Thread.Sleep(50);
+                Ok(Hooki.Czuwa("claude-th"), "obserwacja działa (blokada pliku)");
+                var wy2 = new StringWriter(); Hooki.Czekaj("claude-th", 1, wy2);
+                Ok(wy2.ToString().Contains("już działa"), "druga obserwacja tego adresu odmawia");
+                Ok(Hook("Stop", P.D("session_id", ses, "transcript_path", zapis, "stop_hook_active", false)).Length == 0, "koniec tury przy działającej obserwacji i bez wiadomości – bez blokady");
+                var sw0 = System.Diagnostics.Stopwatch.StartNew();
+                var wObs = P.Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "claude-th", Projekt = "test", Modul = "hooki", Typ = "zadanie", Temat = "ZADANIE-OBSERWACJI", Tresc = "Syntetyczne zadanie." });
+                watek.Join(15000);
+                Ok(!watek.IsAlive && kodCz == 0 && wyCz.ToString().Contains("ZADANIE-OBSERWACJI") && P.Znajdz((string)wObs["id"]).Katalog == "do-claude",
+                    "wiadomość kończy obserwację w " + sw0.ElapsedMilliseconds + " ms; bez odbioru za sesję (zostaje w kolejce)");
+                Ok(!Hooki.Czuwa("claude-th"), "po zakończeniu blokada zwolniona");
+                P.Odbierz("claude-th", 10);
                 Tury.PrzetworzSygnaly();
                 var t2 = Tury.Lista("claude-th");
                 Ok(t2.Count == 2 && t2[1].Razem == 110 && t2[0].Razem == t1[0].Razem, "tura po odebraniu: tylko przyrost (110 tokenów), poprzednia bez zmian");
