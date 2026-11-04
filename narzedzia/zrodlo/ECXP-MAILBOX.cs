@@ -18,7 +18,7 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.0.0.0")]
+[assembly: AssemblyVersion("3.3.0.0")]
 [assembly: AssemblyFileVersion("3.3.0.0")]
 
 namespace Ecxp
@@ -1142,7 +1142,9 @@ namespace Ecxp
 
         void OProgramie()
         {
-            var wersja = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            // wersja pliku (AssemblyFileVersion) – ta sama, którą pokazuje Windows we właściwościach programu
+            var atr = (AssemblyFileVersionAttribute)Attribute.GetCustomAttribute(Assembly.GetExecutingAssembly(), typeof(AssemblyFileVersionAttribute));
+            var wersja = atr != null ? atr.Version : Assembly.GetExecutingAssembly().GetName().Version.ToString();
             using (var f = new OknoEcxp { Text = Jezyk.T("O programie") + " – ECXP-MAILBOX", Size = new Size(720, 600), MinimumSize = new Size(560, 460), StartPosition = FormStartPosition.CenterParent,
                 Font = fontN, MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false })
             {
@@ -1155,7 +1157,6 @@ namespace Ecxp
                 pan.Controls.Add(lbl("Evidsec Context eXchange Protocol", fontB, Motyw.Slaby));
                 pan.Controls.Add(lbl(Jezyk.T("ECXP to uniwersalny, niezawodny i połączeniowy protokół wymiany wiadomości i kontekstu między agentami ChatGPT/Codex i Claude oraz człowiekiem-operatorem – dla dowolnego projektu i na dowolnym stanowisku."), fontN, Motyw.Tekst));
                 pan.Controls.Add(lbl(Jezyk.T("Zasada 1:1: para Codex + Claude pracuje nad tym samym zadaniem i jedną wspólną gałęzią; to, co operator napisze jednej stronie – w oknie czatu albo w konsoli – dostaje także druga."), fontN, Motyw.Tekst));
-                pan.Controls.Add(lbl(Jezyk.T("Niezawodność jak w TCP: ramki 72 B z SHA-256, uzgadnianie połączeń, potwierdzenia, ponowienia, alarm i dziennik odporny na zmiany. Kontekst: obiekty SHA-256, załączniki, łańcuchy ról, podpisane decyzje operatora."), fontN, Motyw.Tekst));
                 pan.Controls.Add(lbl(Jezyk.T("ECXP-MAILBOX to konsola operatora ECXP: rozmowy agentów, pary i role, nowe zadania, agenci w tle (Claude Code CLI, Codex CLI) i decyzje."), fontN, Motyw.Tekst));
                 foreach (var l in new[] { new[] { Jezyk.T("Strona Evidsec"), StronaEvidsec }, new[] { Jezyk.T("ECXP i ECXP-MAILBOX – opis"), StronaEcxp }, new[] { Jezyk.T("Kod źródłowy i dokumentacja (GitHub)"), RepozytoriumEcxp } })
                 {
