@@ -3312,7 +3312,7 @@ namespace Ecxp
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var chSpr = f.Wybor("Druga strona sprawdza wynik (dwa przebiegi – wolniej)", false);
-                var chPokaz = f.Wybor("Pokaż sesje agentów – okna Codex i Claude otworzą się automatycznie", false);
+                var chPokaz = f.Wybor("Pokaż sesje agentów – Codex w pasku aplikacji Codex, Claude jako sesja w aplikacji Claude", false);
                 var chUac = f.Wybor("Podwyższone uprawnienia (UAC, administrator)", false);
                 f.Uwaga(TekstZgodyUac);
                 f.Zaaw = true;
@@ -3381,7 +3381,8 @@ namespace Ecxp
                     var r = (Dictionary<string, object>)Stos("nowe_zadanie", P.D("projekt", cbP.Text, "modul", tbM.Text, "tytul", tbT.Text, "opis", tbO.Text,
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
-                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "pokaz_sesje", chPokaz.Checked && chTlo.Checked, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
+                        "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "pokaz_sesje", chPokaz.Checked && chTlo.Checked,
+                        "claude_w_aplikacji", chPokaz.Checked && chTlo.Checked && chCl.Checked, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
                     OdswiezProjekty(P.S(r, "projekt"));     // nowy projekt od razu w menu „Projekt” u góry
@@ -3395,9 +3396,16 @@ namespace Ecxp
                         var ag = P.Lista(r, "agenci_w_tle");
                         var bl = ag.Where(x => P.S(x, "blad").Length > 0).ToList();
                         var zap = ag.SelectMany(x => P.L(x, "zapis")).Distinct().ToList();
+                        // „Pokaż sesje agentów”: Claude pracuje w sesji aplikacji Claude (widocznej na pasku), nie w tle
+                        string wAplikacji = "";
+                        foreach (var x in ag.Where(x => P.B(x, "w_aplikacji")))
+                        {
+                            try { SesjeAplikacji.OtworzClaude(P.S(x, "katalog"), P.S(pakiet("claude"), "tekst")); wAplikacji = "\n\n" + Jezyk.T("Claude: sesja otwiera się w aplikacji Claude – naciśnij w niej Enter, a sama odbierze zadanie i odeśle wynik."); }
+                            catch (Exception ex) { Bledy.Wyjatek(ex); wAplikacji = "\n\n" + Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message; }
+                        }
                         stInfo.Text = P.S(r, "tytul_sesji") + ": " + Jezyk.T("agenci w tle uruchomieni – odpowiedzi pojawią się w Odebranych.");
                         MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane.\n\nAgenci w tle: {1}.\nStos sam uruchamia ich tury, gdy w kolejce czeka wiadomość – nie trzeba niczego wpisywać ani klikać. Wynik przyjdzie jako odpowiedź na zadanie w Odebranych."), P.S(r, "tytul_sesji"),
-                                string.Join(", ", ag.Where(x => P.S(x, "blad").Length == 0).Select(x => P.S(x, "nazwa")))) +
+                                string.Join(", ", ag.Where(x => P.S(x, "blad").Length == 0 && !P.B(x, "w_aplikacji")).Select(x => P.S(x, "nazwa")))) + wAplikacji +
                             (zap.Count > 0 ? "\n\n" + Jezyk.T("Zapis dozwolony także w: ") + string.Join(", ", zap) : "") +
                             (bl.Count > 0 ? "\n\n" + Jezyk.T("Nie uruchomiono: ") + string.Join("; ", bl.Select(x => P.S(x, "nazwa") + " – " + P.S(x, "blad"))) : "") +
                             (uacInfo.Length > 0 ? "\n\n" + uacInfo : ""),

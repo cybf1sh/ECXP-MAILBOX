@@ -284,7 +284,9 @@ namespace Ecxp
         // Nowe zadanie w trybie „w tle”: każda strona dostaje agenta, którego tury uruchamia stos (Agenci.Petla), gdy w kolejce
         // czeka wiadomość – bez okien aplikacji i bez budzenia przez operatora. Katalog pracy: projekty\<projekt>; zapis także
         // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
-        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false)
+        // claudeWAplikacji: strona Claude nie pracuje w tle – konsola otwiera dla niej sesję w aplikacji Claude (widoczną na pasku),
+        // która sama odbiera zadanie i daje FIN przez MCP ECXP.
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false)
         {
             var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
             var katalog = Path.Combine(P.Root, "projekty", projekt);
@@ -295,6 +297,12 @@ namespace Ecxp
             foreach (var strona in pk.Keys.ToList())
             {
                 var p = (Dictionary<string, object>)pk[strona];
+                if (strona == "claude" && claudeWAplikacji)
+                {
+                    Cieply.ZaufajClaude(katalog);
+                    wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis, "w_aplikacji", true));
+                    continue;
+                }
                 try
                 {
                     var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
@@ -543,7 +551,7 @@ namespace Ecxp
                             var zd = (Dictionary<string, object>)r["zadanie"];
                             klucz = P.S(zd, "lustro_id").Length > 0 ? P.S(zd, "lustro_id") : P.S(zd, "id");
                         }
-                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), klucz, P.B(a, "pokaz_sesje"));
+                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), klucz, P.B(a, "pokaz_sesje"), P.B(a, "claude_w_aplikacji"));
                         if (klucz.Length > 0)
                         {
                             r["podwyzszone_klucz"] = klucz;
