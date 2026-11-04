@@ -186,7 +186,7 @@ namespace Ecxp
             new Thread(() => Czytaj(w)) { IsBackground = true, Name = "ecxp-cieply-czyt-" + w.Nazwa }.Start();
             if (w.Strona == "codex")
             {
-                Rpc(w, "initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP", "version", "1.2")), 120000);
+                Rpc(w, "initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP", "version", "1.2"), "capabilities", P.D("experimentalApi", true)), 120000);
                 Pisz(w, P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
             }
             w.Gotowy = true;
@@ -396,6 +396,56 @@ namespace Ecxp
             return wy;
         }
 
+        // ---------- widoczność sesji w aplikacjach ----------
+        // Codex: projekt „ECXP” z folderem …\projekty (zakładany raz; klucz idempotencji chroni przed duplikatami) –
+        // wątki agentów w tle są widoczne w aplikacji Codex pod tym projektem.
+        static string projektCodex;
+        static string ProjektCodex(Proc w)
+        {
+            if (projektCodex != null) return projektCodex;
+            try
+            {
+                var root = Path.Combine(P.Root, "projekty");
+                Directory.CreateDirectory(root);
+                var r = Rpc(w, "project/create", P.D("name", "ECXP", "roots", new List<object> { P.D("path", root) }, "idempotencyKey", "ecxp:" + root.ToLowerInvariant()), 30000);
+                var pr = r != null && r.ContainsKey("project") ? r["project"] as Dictionary<string, object> : null;
+                projektCodex = pr != null ? P.S(pr, "id") : "";
+            }
+            catch (Exception ex) { projektCodex = ""; Dopisz(w, "projekt ECXP w Codex: " + ex.Message); }
+            return projektCodex;
+        }
+
+        // Claude Code: folder projektu ECXP oznaczony jako zaufany (bez pytania „Do you trust this folder?”) – tylko foldery
+        // założone przez ECXP (…\projekty\…), kopia ~/.claude.json raz dziennie przed zmianą. Zgoda właściciela 2026-11-04.
+        public static void ZaufajClaude(string katalog)
+        {
+            try
+            {
+                var root = Path.GetFullPath(Path.Combine(P.Root, "projekty")).TrimEnd(Path.DirectorySeparatorChar);
+                var kat = Path.GetFullPath(katalog).TrimEnd(Path.DirectorySeparatorChar);
+                if (!kat.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return;
+                var plik = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude.json");
+                if (!File.Exists(plik)) return;
+                var js = P.Js(); js.MaxJsonLength = int.MaxValue;
+                var d = js.Deserialize<Dictionary<string, object>>(File.ReadAllText(plik, Encoding.UTF8));
+                if (d == null) return;
+                object po; var proj = d.TryGetValue("projects", out po) && po is Dictionary<string, object> ? (Dictionary<string, object>)po : new Dictionary<string, object>();
+                object wo; var wpis = proj.TryGetValue(kat, out wo) ? wo as Dictionary<string, object> : null;
+                if (wpis != null && P.B(wpis, "hasTrustDialogAccepted")) return;
+                if (wpis == null) wpis = P.D("allowedTools", new List<object>(), "mcpContextUris", new List<object>(), "enabledMcpjsonServers", new List<object>(),
+                    "disabledMcpjsonServers", new List<object>(), "hasClaudeMdExternalIncludesApproved", false, "hasClaudeMdExternalIncludesWarningShown", false);
+                wpis["hasTrustDialogAccepted"] = true;
+                proj[kat] = wpis; d["projects"] = proj;
+                var kopia = plik + ".przed-ecxp-" + DateTime.Now.ToString("yyyyMMdd") + ".bak";
+                if (!File.Exists(kopia)) File.Copy(plik, kopia);
+                var tmp = plik + ".ecxp-" + DateTime.Now.Ticks + ".tmp";
+                File.WriteAllText(tmp, js.Serialize(d), new UTF8Encoding(false));
+                File.Replace(tmp, plik, null);
+                Log("Claude: folder " + kat + " oznaczony jako zaufany");
+            }
+            catch (Exception ex) { Log("Claude – zaufanie folderu: " + ex.Message); }
+        }
+
         static void WykonajCodex(Proc w, Dictionary<string, object> rec, string tekst, int limitMin, Wynik wy)
         {
             var katalog = P.S(rec, "katalog");
@@ -403,7 +453,12 @@ namespace Ecxp
             if (Podwyzszone(rec)) { tryb = "danger-full-access"; polityka = P.D("type", "dangerFullAccess"); }      // zgoda operatora + UAC, do FIN tego zadania
             else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
             else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", false); }
-            var st = Rpc(w, "thread/start", P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb), 60000);
+            var parStart = P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb);
+            var projekt = ProjektCodex(w);
+            if (projekt.Length > 0) parStart["projectId"] = projekt;
+            Dictionary<string, object> st;
+            try { st = Rpc(w, "thread/start", parStart, 60000); }
+            catch (EcxpException) { if (!parStart.ContainsKey("projectId")) throw; parStart.Remove("projectId"); st = Rpc(w, "thread/start", parStart, 60000); }
             var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
             var watek = th != null ? P.S(th, "id") : "";
             if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
