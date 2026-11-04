@@ -58,6 +58,18 @@ Kontrole przed wdrożeniem:
   zawiera prawdziwą turę sesji.
 - Agent w tle `claude-ecxp-mailbox` pozostaje wyłączony (`aktywny=false`).
 
+## Podmiana 23:20 – `c4dcca8` („O programie”)
+
+- Okno „O programie” pokazuje wersję pliku 3.3.0.0, a akapit o TCP jest
+  usunięty. Stos ma wersję 1.1.0.0, a `ecxp-mcp` wersję 1.2.0.0.
+- Paczka `builds\o-programie-3.3.0-20261104`: `/selftest` PASS, zasoby 7/7.
+  Klient `1AE3FF96…`, ecxpd `4CB37A53…`, ecxp-mcp `8320F6E6…`, Setup `FDEDB611…`.
+- Kopia poprzedniej kompilacji: `narzedzia\kopie\przed-o-programie-20261104-232029`.
+- Ta sama procedura: 0 agentów pod stosem, zmiana nazwy i kopia, restart
+  (konsola PID 38548, stos PID 42844). Hooki bez zmian (te same ścieżki).
+- Test: `TEST-PODMIANY-C4DCCA8` czekała w skrzynce, hook o niej przypomniał,
+  a sesja ją odebrała.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
