@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.0.0.0")]
-[assembly: AssemblyFileVersion("3.2.0.0")]
+[assembly: AssemblyFileVersion("3.2.1.0")]
 
 namespace Ecxp
 {
@@ -465,7 +465,27 @@ namespace Ecxp
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));
             };
-            headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, ustawienia });
+            // „Pomoc”: informacje o programie i strony ECXP zawsze na wierzchu, nie tylko w menu Ustawień
+            var pomoc = Btn("ⓘ  Pomoc");
+            var menuPomocy = new ContextMenuStrip();
+            pomoc.ContextMenuStrip = menuPomocy;
+            form.Disposed += delegate { menuPomocy.Dispose(); };
+            pomoc.Click += delegate {
+                var menu = menuPomocy;
+                foreach (ToolStripItem item in menu.Items.Cast<ToolStripItem>().ToList()) item.Dispose();
+                menu.Items.Clear();
+                menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
+                menu.Items.Add(new ToolStripSeparator());
+                foreach (var l in new[] { new[] { Jezyk.T("ECXP i ECXP-MAILBOX – opis"), StronaEcxp }, new[] { Jezyk.T("Kod źródłowy i dokumentacja (GitHub)"), RepozytoriumEcxp },
+                    new[] { Jezyk.T("Strona Evidsec"), StronaEvidsec } })
+                {
+                    var adres = l[1];
+                    menu.Items.Add(l[0] + "  ↗", null, delegate { try { System.Diagnostics.Process.Start(adres); } catch (Exception ex) { Bledy.Wyjatek(ex); } });
+                }
+                menu.Show(pomoc, new Point(0, pomoc.Height));
+            };
+            new ToolTip().SetToolTip(pomoc, Jezyk.T("O programie, wersja, strona ECXP i kod źródłowy."));
+            headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, ustawienia, pomoc });
             head.Controls.Add(headerRow);
 
             pnlBiez = new Panel { Dock = DockStyle.Top, Height = 46, Visible = false, Padding = new Padding(8, 4, 8, 4) };
