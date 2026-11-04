@@ -28,6 +28,8 @@ class TestyRozmow {
       ((System.Windows.Forms.Timer)Field(app,"timer")).Stop();
       var form=(Form)Field(app,"form"); form.Text="ECXP — TESTY SYNTETYCZNE"; form.Show();
       var lv=(ListView)Field(app,"lv"); var det=(RichTextBox)Field(app,"det");
+      Action run = delegate {
+        try {
       Application.DoEvents();
       var row=lv.Items.Cast<ListViewItem>().Single(x=>((Msg)x.Tag).Uwagi==body); row.Selected=true;
       Application.DoEvents();
@@ -49,9 +51,40 @@ class TestyRozmow {
       Call(app,"OtworzWiadomosc",longMessage); Call(app,"OtworzWiadomosc",longMessage);
       var windows=(Dictionary<string,Form>)Field(app,"oknaWiadomosci");
       Check(windows.Count==1,"same message reuses its window");
-      var reader=windows.Values.Single().Controls.OfType<RichTextBox>().Single(); string snapshot=reader.Text;
+      var readerForm=windows.Values.Single();
+      var reader=Descendants(readerForm).OfType<RichTextBox>().Single(); string snapshot=reader.Text;
       reader.Select(400,20); Call(app,"Skanuj");
       Check(reader.Text==snapshot && reader.SelectionStart==400 && reader.SelectionLength==20,"message window stable during mailbox scan");
+      var zoom=Descendants(readerForm).OfType<TrackBar>().Single(x=>x.Name=="rozmiarTekstu");
+      reader.Select(450,30); reader.ScrollToCaret(); Application.DoEvents();
+      int anchor=reader.GetCharIndexFromPosition(new Point(1,1)); int anchorY=reader.GetPositionFromCharIndex(anchor).Y;
+      zoom.Value=150; Application.DoEvents();
+      Check(Math.Abs(reader.ZoomFactor-1.5f)<.01f && reader.Text==snapshot && reader.SelectionStart==450 && reader.SelectionLength==30,"reader slider scales without changing text or selection");
+      Check(Math.Abs(reader.GetPositionFromCharIndex(anchor).Y-anchorY)<=Math.Ceiling(reader.Font.GetHeight()*reader.ZoomFactor)+3,"zoom retains visible reading anchor");
+      Descendants(readerForm).OfType<Button>().Single(x=>x.Text=="Odśwież").PerformClick();
+      Check(Math.Abs(reader.ZoomFactor-1.5f)<.01f,"explicit reader refresh retains zoom");
+      var theme=Descendants(readerForm).OfType<ComboBox>().Single(x=>x.Name=="motywCzytania");
+      string stable=reader.Text; theme.SelectedIndex=2;
+      reader.Select(450,1);
+      Check(reader.BackColor==Color.Black && reader.SelectionColor==Color.White && reader.Text==stable,"console theme has black background and white text");
+      var family=Descendants(readerForm).OfType<ComboBox>().Single(x=>x.Name=="czcionkaCzytania"); family.SelectedIndex=1;
+      reader.Select(450,1);
+      Check(reader.SelectionFont.Name=="Consolas" && Math.Abs(reader.ZoomFactor-1.5f)<.01f,"console font preserves current zoom");
+      theme.SelectedIndex=1;
+      Check(reader.BackColor==Color.White && reader.Text==stable,"reader can restore light background");
+      var previewZoom=Descendants(form).OfType<TrackBar>().Single(x=>x.Name=="rozmiarTekstu");
+      string previewText=det.Text; previewZoom.Value=125;
+      Check(Math.Abs(det.ZoomFactor-1.25f)<.01f && det.Text==previewText,"preview has working independent text slider");
+      string evil="<script>alert(1)</script>\nZażółć gęślą jaźń & test";
+      string html=Czytnik.Html("Tytuł <test>",evil);
+      Check(html.Contains("&lt;script&gt;") && !html.Contains("<script>") && html.Contains("Zażółć") && html.Contains("Content-Security-Policy"),"HTML escapes message content and preserves Unicode");
+      string htmlPath=Path.Combine(root,"message.html"); Czytnik.Zapisz(htmlPath,"Tytuł",evil,false);
+      Czytnik.Zapisz(htmlPath,"Nowy tytuł",evil+" KONIEC",false);
+      Check(File.ReadAllText(htmlPath).Contains("KONIEC") && !Directory.GetFiles(root,".ecxp-*").Any(),"HTML export atomically replaces chosen file without temporary leftovers");
+      Czytnik.ProgramPdf=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"narzedzia","ECXP-MAILBOX.exe");
+      string pdfPath=Path.Combine(root,"message.pdf"); Czytnik.Zapisz(pdfPath,"Syntetyczny PDF",body+"\nOSTATNI ZNAK ŻÓŁĆ",true);
+      Check(File.Exists(pdfPath) && new FileInfo(pdfPath).Length>1000,"multi-page PDF export creates a nonempty verified PDF");
+      Console.WriteLine("PDF_PATH: "+pdfPath);
       foreach(var w in windows.Values.ToList()) w.Close();
       var settings=Descendants(form).OfType<Button>().Single(x=>x.Text=="Ustawienia…");
       settings.PerformClick(); Application.DoEvents();
@@ -68,8 +101,20 @@ class TestyRozmow {
       form.Size=new Size(1240,820); Application.DoEvents();
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
-      if(args.Contains("--stay")) Application.Run(form);
-      ((NotifyIcon)Field(app,"tray")).Visible=false;
+        }
+        catch(Exception ex) { Check(false,"unhandled GUI test exception: "+ex); }
+        finally {
+          ((FileSystemWatcher)Field(app,"fsw")).EnableRaisingEvents=false;
+          if(!args.Contains("--stay")) app.ExitThread();
+        }
+      };
+      form.BeginInvoke(run);
+      Application.Run(app); // pełna pętla WinForms i prawidłowe zamknięcie dostawców okien/COM
+      ((System.Windows.Forms.Timer)Field(app,"timer")).Dispose();
+      ((FileSystemWatcher)Field(app,"fsw")).Dispose();
+      var connection=Field(app,"klient") as IDisposable; if(connection!=null) connection.Dispose();
+      foreach(var open in Application.OpenForms.Cast<Form>().ToList()) open.Dispose();
+      app.Dispose();
       return failed==0?0:1;
     }
 }}

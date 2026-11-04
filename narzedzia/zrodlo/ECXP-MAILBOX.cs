@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.0.0.0")]
-[assembly: AssemblyFileVersion("3.0.0.0")]
+[assembly: AssemblyFileVersion("3.1.0.0")]
 
 namespace Ecxp
 {
@@ -508,6 +508,7 @@ namespace Ecxp
             split.Panel1.Controls.Add(pasekKier);
             split.Panel1.Controls.Add(Naglowek("TYTUŁ"));
             split.Panel2.Controls.Add(det);
+            split.Panel2.Controls.Add(Czytnik.Pasek(det, () => { var m = Wybrana(); if (m != null) { podpisPodgladu = ""; PokazWatek(m, true); } }));
             noweWiadomosci = Btn("Nowe wiadomości lub statusy — pokaż");
             noweWiadomosci.Dock = DockStyle.Bottom; noweWiadomosci.Visible = false;
             noweWiadomosci.Click += delegate { var m = Wybrana(); if (m != null) PokazWatek(m, true); };
@@ -679,7 +680,7 @@ namespace Ecxp
         void Dopisz(string t, Font f, Color c)
         {
             det.SelectionStart = det.TextLength; det.SelectionLength = 0;
-            det.SelectionFont = f; det.SelectionColor = c; det.SelectionIndent = wciecie;
+            det.SelectionFont = Czytnik.Czcionka(det, f); det.SelectionColor = Czytnik.Kolor(det, c); det.SelectionIndent = wciecie;
             det.AppendText(t);
         }
 
@@ -701,6 +702,7 @@ namespace Ecxp
             bool utrzymaj = zachowaj && sel.Watek == watekPodgladu;
             Point przewiniecie = new Point();
             int start = det.SelectionStart, dlugosc = det.SelectionLength;
+            float skalaTekstu = det.ZoomFactor;
             if (utrzymaj) SendPoint(det.Handle, 0x04DD, IntPtr.Zero, ref przewiniecie);
             SendMessage(det.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
             try {
@@ -762,6 +764,8 @@ namespace Ecxp
                 Dopisz("\n", fontS, Motyw.Slaby);
                 zakresyWiadomosci.Add(Tuple.Create(poczatekWiadomosci, det.TextLength, m));
             }
+            Czytnik.Tlo(det);
+            det.ZoomFactor = 1f; det.ZoomFactor = skalaTekstu;
             det.SelectionStart = poz; det.SelectionLength = 0;
             if (utrzymaj)
             {
@@ -1940,8 +1944,8 @@ namespace Ecxp
         {
             Form istnieje;
             if (oknaWiadomosci.TryGetValue(m.Id, out istnieje) && !istnieje.IsDisposed) { istnieje.Show(); istnieje.Activate(); return; }
-            var f = new Form { Text = P.Baza(m.Temat) + " — " + NazwaW(m.Od), Size = new Size(920, 720), MinimumSize = new Size(620, 440), StartPosition = FormStartPosition.CenterParent, Font = fontN };
-            var nagl = new Panel { Dock = DockStyle.Top, Height = 168, Padding = new Padding(18, 12, 18, 8) };
+            var f = new Form { Text = P.Baza(m.Temat) + " — " + Jezyk.T("Czytnik wiadomości"), Size = new Size(1060, 820), MinimumSize = new Size(720, 540), StartPosition = FormStartPosition.CenterParent, Font = fontN };
+            var nagl = new Panel { Dock = DockStyle.Top, Height = 148, Padding = new Padding(18, 12, 18, 8) };
             var lTytul = new Label { Dock = DockStyle.Top, Font = fontTytul, AutoEllipsis = true, Height = 36, UseMnemonic = false };
             var znaczki = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 32, WrapContents = false, Padding = new Padding(0, 2, 0, 2) };
             var siatka = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2, Padding = new Padding(0, 6, 0, 0) };
@@ -1959,12 +1963,16 @@ namespace Ecxp
             var kopiuj = Btn("📋  Kopiuj");
             var odswiez = Btn("Odśwież");
             var meta = Btn("Szczegóły doręczenia");
-            actions.Controls.AddRange(new Control[] { odpowiedz, kopiuj, odswiez, meta });
-            var ramka = new Panel { Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 10) };
+            var pdf = Btn("Zapisz jako PDF…");
+            var html = Btn("Zapisz jako HTML…");
+            actions.Controls.AddRange(new Control[] { odpowiedz, kopiuj, pdf, html, odswiez, meta });
+            var ramka = new Panel { Name = "ramkaCzytnika", Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 10) };
             var tekst = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, Font = fontTresc, DetectUrls = true, BorderStyle = BorderStyle.None };
             ramka.Controls.Add(tekst);
             var zal = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(12, 6, 12, 8) };
-            f.Controls.Add(ramka); f.Controls.Add(zal); f.Controls.Add(actions); f.Controls.Add(nagl);
+            Action zmienStyl = null;
+            var skala = Czytnik.Pasek(tekst, () => { if (zmienStyl != null) zmienStyl(); });
+            f.Controls.Add(ramka); f.Controls.Add(zal); f.Controls.Add(skala); f.Controls.Add(actions); f.Controls.Add(nagl);
             Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
             // kolory po motywie (motyw ustawia własne tła i kolory etykiet)
             nagl.BackColor = Akcent; znaczki.BackColor = Akcent; siatka.BackColor = Akcent;
@@ -1973,11 +1981,12 @@ namespace Ecxp
             ramka.BackColor = Motyw.Pole; tekst.BackColor = Motyw.Pole;
 
             bool szczegoly = false;
-            Action<string, Font, Color> dopisz = (t, ft, kol) => { tekst.SelectionStart = tekst.TextLength; tekst.SelectionLength = 0; tekst.SelectionFont = ft; tekst.SelectionColor = kol; tekst.AppendText(t); };
+            Action<string, Font, Color> dopisz = (t, ft, kol) => { tekst.SelectionStart = tekst.TextLength; tekst.SelectionLength = 0; tekst.SelectionFont = Czytnik.Czcionka(tekst, ft); tekst.SelectionColor = Czytnik.Kolor(tekst, kol); tekst.AppendText(t); };
             Func<string, Color, Color, Label> znaczek = (t, tlo, kol) => new Label { Text = t, AutoSize = true, Font = fontB, Padding = new Padding(8, 3, 8, 3), Margin = new Padding(0, 0, 8, 0), BackColor = tlo, ForeColor = kol, UseMnemonic = false };
             Action<bool> render = zachowaj =>
             {
                 int start = tekst.SelectionStart, length = tekst.SelectionLength; Point scroll = new Point();
+                float skalaTekstu = tekst.ZoomFactor;
                 if (zachowaj) SendPoint(tekst.Handle, 0x04DD, IntPtr.Zero, ref scroll);
                 SendMessage(tekst.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
                 try
@@ -2015,6 +2024,8 @@ namespace Ecxp
                         foreach (var k in Kopie(m, w)) dopisz("  " + NazwaW(k.Do) + ": " + Doreczenie(k, DateTime.Now) + "\n", fontS, Motyw.Slaby);
                         dopisz("  ID: " + m.Id + (m.Seq > 0 ? "  ·  seq " + m.Seq : "") + "\n  " + Jezyk.T("Wątek: ") + m.Watek + "\n  " + Jezyk.T("Plik: ") + m.Sciezka + "\n", fontS, Motyw.Slaby);
                     }
+                    Czytnik.Tlo(tekst);
+                    tekst.ZoomFactor = 1f; tekst.ZoomFactor = skalaTekstu;
                     if (zachowaj) { tekst.Select(Math.Min(start, tekst.TextLength), Math.Min(length, Math.Max(0, tekst.TextLength - start))); SendPoint(tekst.Handle, 0x04DE, IntPtr.Zero, ref scroll); }
                     else tekst.Select(0, 0);
                     zal.Controls.Clear();
@@ -2036,6 +2047,7 @@ namespace Ecxp
                 }
                 finally { SendMessage(tekst.Handle, 0x000B, new IntPtr(1), IntPtr.Zero); tekst.Invalidate(); }
             };
+            zmienStyl = () => render(true);
             kopiuj.Click += delegate
             {
                 try
@@ -2049,12 +2061,36 @@ namespace Ecxp
                 catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(f, Jezyk.T("Nie skopiowano: ") + ex.Message, Jezyk.T("Kopiuj")); }
             };
             new ToolTip().SetToolTip(kopiuj, Jezyk.T("Kopiuje całą wiadomość (nagłówek, treść, kontrole, załączniki) jako tekst do wklejenia."));
+            pdf.Click += delegate { ZapiszCzytnik(f, m, true); };
+            html.Click += delegate { ZapiszCzytnik(f, m, false); };
             odswiez.Click += delegate { var aktualna = msgs.FirstOrDefault(x => x.Id == m.Id); if (aktualna != null) m = aktualna; render(true); };
             meta.Click += delegate { szczegoly = !szczegoly; render(true); };
             f.KeyPreview = true;
             f.KeyDown += (s2, e2) => { if (e2.Control && e2.Shift && e2.KeyCode == Keys.C) { e2.Handled = true; kopiuj.PerformClick(); } };
             oknaWiadomosci[m.Id] = f; f.FormClosed += delegate { oknaWiadomosci.Remove(m.Id); };
             f.Show(); render(false); MarkRead(new List<Msg> { m });
+        }
+
+        void ZapiszCzytnik(Form okno, Msg m, bool pdf)
+        {
+            string tytul = P.Baza(m.Temat);
+            string nazwa = string.Concat(tytul.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            if (nazwa.Length > 100) nazwa = nazwa.Substring(0, 100);
+            if (string.IsNullOrWhiteSpace(nazwa)) nazwa = "ECXP";
+            using (var wybor = new SaveFileDialog { Title = Jezyk.T(pdf ? "Zapisz jako PDF…" : "Zapisz jako HTML…"),
+                Filter = pdf ? "PDF (*.pdf)|*.pdf" : "HTML (*.html)|*.html", DefaultExt = pdf ? "pdf" : "html",
+                AddExtension = true, OverwritePrompt = true, FileName = nazwa })
+            {
+                if (wybor.ShowDialog(okno) != DialogResult.OK) return;
+                try
+                {
+                    okno.UseWaitCursor = true;
+                    Czytnik.Zapisz(wybor.FileName, tytul, TekstDoSchowka(m), pdf);
+                    MessageBox.Show(okno, Jezyk.T("Zapisano wiadomość: ") + wybor.FileName, Jezyk.T("Czytnik wiadomości"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(okno, Jezyk.T("Nie zapisano wiadomości: ") + ex.Message, Jezyk.T("Czytnik wiadomości"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                finally { okno.UseWaitCursor = false; }
+            }
         }
 
         // Wiadomość jako zwykły tekst do schowka (do wklejenia w czat, e-mail albo notatkę).
@@ -3468,9 +3504,10 @@ namespace Ecxp
             var katalog = SesjeAplikacji.Katalog(projekt);
             stInfo.Text = tytul + ": " + Jezyk.T(pkCodex != null && pkClaude != null ? "zakładam sesje – Codex w tle, Claude otwiera się w aplikacji…" :
                 pkCodex != null ? "zakładam wątek Codex w tle…" : "sesja Claude otwiera się w aplikacji…");
+            string wynikClaude = "";
             if (pkClaude != null)
-                try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); }
-                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message, "Claude", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                try { SesjeAplikacji.OtworzClaude(katalog, P.S(pkClaude, "tekst")); wynikClaude = Jezyk.T("Claude: otwarto przygotowaną sesję. Sprawdź katalog, wybierz This computer i kliknij Wyślij. Jeżeli aplikacja pyta o dostęp do folderu, decyzję podejmujesz w oknie Claude."); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); wynikClaude = Jezyk.T("Nie otwarto sesji Claude: ") + ex.Message; }
             if (pkCodex != null) new Thread(() =>
             {
                 string wynik;
@@ -3478,25 +3515,15 @@ namespace Ecxp
                 {
                     var w = SesjeAplikacji.ZalozCodex(tytul, katalog, P.S(pkCodex, "tekst"), obrazy, 10, s => { try { form.BeginInvoke((Action)(() => stInfo.Text = s)); } catch { } }, true,
                         (metoda, par) => ZgodaCodex(tytul, metoda, par));
-                    wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” założony i zgłoszony do ECXP (") + w + ").";
+                    wynik = Jezyk.T("Codex: wątek „") + tytul + Jezyk.T("” utworzony (") + w + ").";
                 }
-                catch (Exception ex) { Bledy.Wyjatek(ex); wynik = Jezyk.T("Codex: nie założono wątku – ") + ex.Message; }
+                catch (Exception ex) { Bledy.Wyjatek(ex); wynik = Jezyk.T("Codex: nie przygotowano sesji – ") + ex.Message; }
                 try { form.BeginInvoke((Action)(() => { stInfo.Text = wynik; Skanuj(); })); } catch { }
             }) { IsBackground = true, Name = "ecxp-sesja-codex" }.Start();
-            if (pkClaude == null)
-            {
-                MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane tylko do ChatGPT/Codex.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude nie dostał zadania ani kopii."), tytul),
-                    "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            if (pkCodex == null)
-            {
-                MessageBox.Show(form, string.Format(Jezyk.T("Zadanie „{0}” wysłane tylko do Claude.\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP).\n\nChatGPT/Codex nie dostał zadania ani kopii."), tytul),
-                    "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            MessageBox.Show(form, string.Format(Jezyk.T("Para „{0}” utworzona.\n\nCodex: wątek o tej nazwie zakłada się w tle i sam zgłosi do ECXP – po pierwszej odpowiedzi otworzy się w aplikacji Codex (lista „Najnowsze”).\n\nClaude: aplikacja Claude otworzyła nową sesję z wpisanym pakietem. Sesja powstanie dopiero po dwóch kliknięciach w oknie Claude:\n  1) „Trust workspace” (pytanie o folder – tylko pierwszy raz dla tego folderu),\n  2) przycisk ze strzałką ↵ w prawym dolnym rogu pola wiadomości (nie Enter – może trafić w menu wyboru środowiska).\nZostaw „This computer” (nie chmurę – tam nie ma ECXP). Sesja sama nada sobie nazwę.\n\nStan obu stron widać na pasku „Bieżąca sesja” w oknie ECXP-MAILBOX."), tytul),
-                "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var opis = new List<string>();
+            if (pkCodex != null) opis.Add(Jezyk.T("Codex: przygotowuję wątek w wybranym projekcie. Po pierwszej odpowiedzi zwolnię wątek i otworzę go w aplikacji. Postęp i błędy są widoczne na pasku stanu konsoli."));
+            if (wynikClaude.Length > 0) opis.Add(wynikClaude);
+            MessageBox.Show(form, string.Join("\n\n", opis), tytul, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // Sesja w aplikacji Codex / Claude dla pary z listy agentów – widoczna rozmowa zamiast agenta w tle.
@@ -3931,6 +3958,7 @@ namespace Ecxp
         [STAThread]
         static int Main(string[] args)
         {
+            if (args.Length == 3 && args[0] == "/eksport-pdf") return Czytnik.ProcesPdf(args[1], args[2]);
             if (args.Length == 2 && args[0] == "/ico") { WriteIco(args[1]); return 0; }
             var exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             P.Root = Path.GetDirectoryName(exeDir);   // program leży w <skrzynka>\narzedzia
@@ -4340,7 +4368,7 @@ namespace Ecxp
         // Pokazuje wątek w aplikacji Codex (link codex://threads/<id>).
         public static void OtworzCodex(string watek)
         {
-            try { if (Regex.IsMatch(watek ?? "", "^[0-9a-f-]{36}$")) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("codex://threads/" + watek) { UseShellExecute = true }); } catch { }
+            CodexProjekt.OtworzWatek(watek);
         }
 
         // zgoda: pytanie operatora o prośbę Codexa (polecenie, zmiana plików, uprawnienia); null = odmowa bez pytania (testy).
@@ -4351,15 +4379,15 @@ namespace Ecxp
             var prog = Agenci.Program("codex");
             if (prog.Length == 0) throw new EcxpException("Na tym stanowisku nie ma Codex CLI (polecenie codex).");
             var psi = prog.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                ? new System.Diagnostics.ProcessStartInfo(prog, "app-server")
-                : new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" app-server\"");
+                ? new System.Diagnostics.ProcessStartInfo(prog, "-c thread_unload_delay_secs=0 app-server")
+                : new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /s /c \"\"" + prog + "\" -c thread_unload_delay_secs=0 app-server\"");
             psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.WorkingDirectory = katalog;
             psi.RedirectStandardInput = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
             psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
             var js = P.Js(); js.MaxJsonLength = int.MaxValue;
             var odp = new Dictionary<int, Dictionary<string, object>>();
             var koniecTury = new ManualResetEvent(false);
-            string watek = null; string bladTury = null;
+            string watek = null; string bladTury = null, statusTury = null;
             using (var pr = System.Diagnostics.Process.Start(psi))
             {
                 var we = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
@@ -4395,10 +4423,12 @@ namespace Ecxp
                         {
                             var pa = m.ContainsKey("params") ? m["params"] as Dictionary<string, object> : null;
                             var tu = pa != null && pa.ContainsKey("turn") ? pa["turn"] as Dictionary<string, object> : null;
+                            if (tu != null) statusTury = P.S(tu, "status");
                             if (tu != null && P.S(tu, "status") == "failed") bladTury = P.Js().Serialize(tu.ContainsKey("error") ? tu["error"] : tu);
                             koniecTury.Set();
                         }
                     }
+                    if (statusTury == null) bladTury = "Połączenie z Codex przerwano przed zakończeniem tury.";
                     koniecTury.Set();
                 }) { IsBackground = true };
                 czytnik.Start();
@@ -4421,7 +4451,7 @@ namespace Ecxp
                 };
                 try
                 {
-                    rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "1.1")), 120000);
+                    var init = rpc("initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP-MAILBOX", "version", "3.1"), "capabilities", P.D("experimentalApi", true)), 120000);
                     pisz(P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
                     // zapis w katalogu roboczym projektu; poza nim (np. pulpit) i polecenia – za zgodą operatora
                     if (!string.IsNullOrEmpty(istniejacy))
@@ -4432,7 +4462,8 @@ namespace Ecxp
                     }
                     else
                     {
-                        var st = rpc("thread/start", P.D("cwd", katalog, "approvalPolicy", "on-request", "sandbox", "workspace-write"), 120000);
+                        var projekt = CodexProjekt.Zapewnij(P.S(init, "codexHome"), katalog, rpc, CodexProjekt.OtworzProjekt, log);
+                        var st = rpc("thread/start", P.D("cwd", katalog, "projectId", projekt, "approvalPolicy", "on-request", "sandbox", "workspace-write"), 120000);
                         var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
                         watek = th != null ? P.S(th, "id") : "";
                         if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
@@ -4442,12 +4473,20 @@ namespace Ecxp
                     }
                     var wejscie = new List<object> { P.D("type", "text", "text", pakiet, "text_elements", new List<object>()) };
                     foreach (var o in (obrazy ?? new List<string>()).Where(File.Exists).Take(8)) wejscie.Add(P.D("type", "localImage", "path", o));
-                    rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", wejscie), 120000);
+                    var startTury = rpc("turn/start", P.D("threadId", watek, "approvalPolicy", "on-request", "input", wejscie), 120000);
                     log("Codex: polecenie wysłane, trwa tura…");
-                    if (!koniecTury.WaitOne(TimeSpan.FromMinutes(maxMinut))) log("Codex: tura trwa dłużej niż " + maxMinut + " min – wątek zostaje, kontynuuj w aplikacji Codex.");
-                    else log(bladTury == null ? "Codex: tura zakończona." : "Codex: tura nieudana: " + bladTury);
-                    if (bladTury != null && !string.IsNullOrEmpty(istniejacy)) throw new EcxpException("tura nieudana: " + bladTury);
-                    if (otworz) OtworzCodex(watek);
+                    if (!koniecTury.WaitOne(TimeSpan.FromMinutes(maxMinut)))
+                    {
+                        var tu = startTury != null && startTury.ContainsKey("turn") ? startTury["turn"] as Dictionary<string, object> : null;
+                        log("Codex: przekroczono czas przygotowania; przerywam turę przed przekazaniem do aplikacji.");
+                        rpc("turn/interrupt", P.D("threadId", watek, "turnId", P.S(tu, "id")), 15000);
+                        if (!koniecTury.WaitOne(10000)) throw new EcxpException("Codex nie potwierdził przerwania tury wątku " + watek);
+                    }
+                    CodexProjekt.CzekajNaZapis(watek, rpc);
+                    CodexProjekt.OddajWatek(watek, rpc);
+                    log("Codex: zwolniono wątek dla aplikacji.");
+                    if (bladTury != null) throw new EcxpException("Wątek " + watek + ": tura nieudana: " + bladTury);
+                    log(statusTury == "completed" ? "Codex: tura zakończona." : "Codex: tura przerwana; sesja gotowa do kontynuacji w aplikacji.");
                 }
                 finally
                 {
@@ -4455,19 +4494,34 @@ namespace Ecxp
                     try { if (!pr.WaitForExit(5000)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pr.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true }).WaitForExit(10000); } catch { }
                 }
             }
+            // Desktop wznawia wątek dopiero po zwolnieniu zewnętrznego właściciela zapisu.
+            if (otworz && !string.IsNullOrEmpty(watek)) OtworzCodex(watek);
             return watek;
         }
 
         // Otwiera w aplikacji Claude nową sesję z wpisanym pakietem i katalogiem pracy.
         public static string LinkClaude(string katalog, string pakiet)
         {
-            var q = pakiet.Length > 12000 ? pakiet.Substring(0, 12000) : pakiet;
-            return "claude://code/new?folder=" + Uri.EscapeDataString(katalog) + "&q=" + Uri.EscapeDataString(q);
+            return "claude://code/new?folder=" + Uri.EscapeDataString(katalog) + "&q=" + Uri.EscapeDataString(pakiet);
+        }
+
+        public static string PrzygotujLinkClaude(string katalog, string pakiet)
+        {
+            katalog = Path.GetFullPath(katalog);
+            if (!Directory.Exists(katalog)) throw new EcxpException("Katalog projektu nie istnieje: " + katalog);
+            // Bez cichego obcinania pakietu do 12000 znaków. Długie pakiety przekazujemy jako pełną migawkę.
+            if (pakiet.Length <= 8000 && Encoding.UTF8.GetByteCount(pakiet) * 3 + Uri.EscapeDataString(katalog).Length < 28000)
+                return LinkClaude(katalog, pakiet);
+            var dir = Path.Combine(P.Root, "stan", "start", "pakiety"); Directory.CreateDirectory(dir);
+            var plik = Path.Combine(dir, "claude-" + Guid.NewGuid().ToString("N") + ".txt");
+            File.WriteAllText(plik, pakiet, new UTF8Encoding(false));
+            return LinkClaude(katalog, "Pełny pakiet startowy tej sesji znajduje się w lokalnym pliku: " + plik +
+                "\nOdczytaj cały plik przed rozpoczęciem pracy. Zawiera nazwę sesji, przypisanie ECXP i zadanie operatora.");
         }
 
         public static void OtworzClaude(string katalog, string pakiet)
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LinkClaude(katalog, pakiet)) { UseShellExecute = true });
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(PrzygotujLinkClaude(katalog, pakiet)) { UseShellExecute = true });
         }
     }
 

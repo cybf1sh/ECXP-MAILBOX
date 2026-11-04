@@ -30,7 +30,8 @@ namespace Ecxp
             // Codex: odpowiedzi JSON-RPC i stan tury
             public int Nr;
             public readonly Dictionary<int, Dictionary<string, object>> Odp = new Dictionary<int, Dictionary<string, object>>();
-            public string Ost = "", StatusTury, BladTury;
+            public string Ost = "", StatusTury, BladTury, CodexHome;
+            public bool BladProjektu, TuraWystartowala;
             public readonly ManualResetEvent KoniecTury = new ManualResetEvent(false);
         }
 
@@ -66,8 +67,10 @@ namespace Ecxp
                 try { d = Pliki.Czytaj(f); File.Move(f, f + ".pokazane"); } catch { continue; }
                 try
                 {
-                    if (P.S(d, "strona") == "codex")
-                        Process.Start(new ProcessStartInfo("codex://threads/" + P.S(d, "id")) { UseShellExecute = true });
+                    if (P.S(d, "strona") == "codex-projekt")
+                        CodexProjekt.OtworzProjekt(P.S(d, "katalog"));
+                    else if (P.S(d, "strona") == "codex")
+                        CodexProjekt.OtworzWatek(P.S(d, "id"));
                     else
                     {
                         var prog = Agenci.Program("claude");
@@ -176,7 +179,7 @@ namespace Ecxp
                            " --name \"" + NazwaSesji(rec, w.Nazwa).Replace("\"", "'") + "\"";
                 psi = Psi(prog, args, katalog);
             }
-            else psi = Psi(prog, "app-server", katalog);
+            else psi = Psi(prog, "-c thread_unload_delay_secs=0 app-server", katalog);
             var pr = Process.Start(psi);
             w.Pr = pr;
             w.We = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
@@ -186,7 +189,8 @@ namespace Ecxp
             new Thread(() => Czytaj(w)) { IsBackground = true, Name = "ecxp-cieply-czyt-" + w.Nazwa }.Start();
             if (w.Strona == "codex")
             {
-                Rpc(w, "initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP", "version", "1.2"), "capabilities", P.D("experimentalApi", true)), 120000);
+                var init = Rpc(w, "initialize", P.D("clientInfo", P.D("name", "ecxp", "title", "ECXP", "version", "1.2"), "capabilities", P.D("experimentalApi", true)), 120000);
+                w.CodexHome = P.S(init, "codexHome");
                 Pisz(w, P.D("jsonrpc", "2.0", "method", "initialized", "params", P.D()));
             }
             w.Gotowy = true;
@@ -282,6 +286,8 @@ namespace Ecxp
         // Rozpoznanie „ten tryb nie działa na tym stanowisku” (a nie zwykły błąd zadania).
         static string NieDziala(Proc w, Wynik wy, bool wystartowal)
         {
+            if (w.TuraWystartowala) return null; // nie powtarzaj wykonanej pracy po błędzie oddawania sesji
+            if (w.BladProjektu) return null; // błąd projektu nie może uruchomić drugiej, nieprzypisanej sesji
             if (!wystartowal) return "proces nie wystartował: " + Dziennik(w);
             if (wy.Kod == 0) return null;
             var t = (wy.Wyjscie ?? "") + "\n" + Dziennik(w);
@@ -297,7 +303,7 @@ namespace Ecxp
             Rozgrzej(rec);
             Proc w;
             lock (procesy) w = procesy[n];
-            w.Zajety = true;
+            w.Zajety = true; w.TuraWystartowala = false;
             var wy = new Wynik();
             bool wystartowal = false;
             try
@@ -399,7 +405,6 @@ namespace Ecxp
         // ---------- widoczność sesji w aplikacjach ----------
         // Każdy projekt ECXP = osobny projekt w aplikacji Codex: folder projektu, nazwa z ikoną projektu („💡 test-pogoda”).
         // Nowy projekt – zakładany przy pierwszym zadaniu; kolejne zadania dokładają tylko wątki (klucz idempotencji = folder).
-        static readonly Dictionary<string, string> projektyCodex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Ikony z projekt.json: projektu („ikona”) i modułu („ikony_modulow”).
         static void Ikony(Dictionary<string, object> rec, out string projektu, out string modulu)
@@ -425,56 +430,11 @@ namespace Ecxp
             return t.StartsWith(zn) ? zn + " " + ik + " " + t.Substring(zn.Length).TrimStart() : ik + " " + t;
         }
 
-        static string ProjektCodex(Proc w, Dictionary<string, object> rec)
+        static void ZglosProjektCodex(string katalog)
         {
-            var kat = Path.GetFullPath(P.S(rec, "katalog")).TrimEnd(Path.DirectorySeparatorChar);
-            lock (projektyCodex) { string id; if (projektyCodex.TryGetValue(kat, out id)) return id; }
-            string wynik = "";
-            try
-            {
-                string ip, im; Ikony(rec, out ip, out im);
-                var nazwa = (ip.Length > 0 ? ip + " " : "") + P.S(rec, "projekt");
-                var r = Rpc(w, "project/create", P.D("name", nazwa, "roots", new List<object> { P.D("path", kat) }, "idempotencyKey", "ecxp:" + kat.ToLowerInvariant()), 30000);
-                var pr = r != null && r.ContainsKey("project") ? r["project"] as Dictionary<string, object> : null;
-                wynik = pr != null ? P.S(pr, "id") : "";
-            }
-            catch (Exception ex) { Dopisz(w, "projekt w Codex: " + ex.Message); }
-            lock (projektyCodex) projektyCodex[kat] = wynik;
-            return wynik;
-        }
-
-        // Sekcja na pasku bocznym aplikacji Codex („💡 projekt”) – tak jak grupy właściciela („elzip”, „Profilowanie”).
-        // Istniejąca sekcja o tej nazwie jest używana ponownie; nowa powstaje przy pierwszym zadaniu projektu.
-        static readonly Dictionary<string, string> sekcjeCodex = new Dictionary<string, string>();
-        static string SekcjaCodex(Proc w, Dictionary<string, object> rec)
-        {
-            string ip, im; Ikony(rec, out ip, out im);
-            var nazwa = (ip.Length > 0 ? ip + " " : "") + P.S(rec, "projekt");
-            lock (sekcjeCodex) { string id; if (sekcjeCodex.TryGetValue(nazwa, out id)) return id; }
-            string wynik = "";
-            try
-            {
-                string kursor = null;
-                for (int strona = 0; strona < 20 && wynik.Length == 0; strona++)
-                {
-                    var par = P.D("limit", 200); if (kursor != null) par["cursor"] = kursor;
-                    var r = Rpc(w, "threadSection/list", par, 30000);
-                    foreach (var o in P.Lista(r, "data"))
-                        if (P.S(o, "name") == nazwa) { wynik = P.S(o, "id"); break; }
-                    kursor = P.S(r, "nextCursor");
-                    if (kursor.Length == 0) break;
-                }
-                if (wynik.Length == 0)
-                {
-                    var c = Rpc(w, "threadSection/create", P.D("name", nazwa), 30000);
-                    var s = c != null && c.ContainsKey("section") ? c["section"] as Dictionary<string, object> : null;
-                    wynik = s != null ? P.S(s, "id") : "";
-                    if (wynik.Length > 0) Log("Codex: sekcja paska „" + nazwa + "”");
-                }
-            }
-            catch (Exception ex) { Dopisz(w, "sekcja w Codex: " + ex.Message); }
-            if (wynik.Length > 0) lock (sekcjeCodex) sekcjeCodex[nazwa] = wynik;
-            return wynik;
+            Directory.CreateDirectory(DirPokaz);
+            Pliki.Zapisz(Path.Combine(DirPokaz, "projekt-" + Guid.NewGuid().ToString("N") + ".json"),
+                P.D("strona", "codex-projekt", "katalog", katalog, "nazwa", "projekt Codex"));
         }
 
         // Claude Code: folder projektu ECXP oznaczony jako zaufany (bez pytania „Do you trust this folder?”) – tylko foldery
@@ -516,27 +476,47 @@ namespace Ecxp
             else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
             else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", false); }
             var parStart = P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb);
-            var projekt = ProjektCodex(w, rec);
-            if (projekt.Length > 0) parStart["projectId"] = projekt;
-            Dictionary<string, object> st;
-            try { st = Rpc(w, "thread/start", parStart, 60000); }
-            catch (EcxpException) { if (!parStart.ContainsKey("projectId")) throw; parStart.Remove("projectId"); st = Rpc(w, "thread/start", parStart, 60000); }
+            w.BladProjektu = false;
+            string projekt;
+            try
+            {
+                if (P.B(rec, "pokaz_sesje"))
+                    projekt = CodexProjekt.Zapewnij(w.CodexHome, katalog, (m, p, ms) => Rpc(w, m, p, ms), ZglosProjektCodex, t => Dopisz(w, t));
+                else
+                {
+                    // Praca w tle nie otwiera okien aplikacji. Projekt backendu nadal jest przypisany do katalogu.
+                    var r = Rpc(w, "project/create", P.D("name", P.S(rec, "projekt"), "roots", new object[] { P.D("path", Path.GetFullPath(katalog)) },
+                        "idempotencyKey", "ecxp:" + CodexProjekt.Normalizuj(katalog).ToLowerInvariant()), 30000);
+                    var pr = r != null && r.ContainsKey("project") ? r["project"] as Dictionary<string, object> : null;
+                    projekt = pr != null ? P.S(pr, "id") : "";
+                    if (projekt.Length == 0) throw new EcxpException("Codex nie zwrócił projektu agenta w tle.");
+                }
+            }
+            catch { w.BladProjektu = true; throw; }
+            parStart["projectId"] = projekt;
+            var st = Rpc(w, "thread/start", parStart, 60000);
             var th = st != null && st.ContainsKey("thread") ? st["thread"] as Dictionary<string, object> : null;
             var watek = th != null ? P.S(th, "id") : "";
             if (watek.Length == 0) throw new EcxpException("Codex nie zwrócił identyfikatora wątku.");
             // nazwa wątku jak przy sesjach w aplikacji („🔗ECXP …”) – wątek agenta w tle łatwo znaleźć w aplikacji Codex
             var nazwa = NazwaSesji(rec, w.Nazwa);
             try { Rpc(w, "thread/name/set", P.D("threadId", watek, "name", nazwa), 15000); } catch (Exception ex) { Dopisz(w, "nazwa wątku: " + ex.Message); }
-            var sekcja = SekcjaCodex(w, rec);
-            if (sekcja.Length > 0)
-                try { Rpc(w, "thread/section/move", P.D("sectionId", sekcja, "threadId", watek), 15000); } catch (Exception ex) { Dopisz(w, "wątek do sekcji: " + ex.Message); }
-            ZglosPokaz(rec, "codex", watek);
             w.Ost = ""; w.StatusTury = null; w.BladTury = null; w.KoniecTury.Reset();
             var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
                 "input", new List<object> { P.D("type", "text", "text", tekst, "text_elements", new List<object>()) });
             if (P.S(rec, "model").Length > 0) par["model"] = P.S(rec, "model");
-            Rpc(w, "turn/start", par, 60000);
-            if (!w.KoniecTury.WaitOne(TimeSpan.FromMinutes(limitMin))) { wy.Kod = -1; wy.Wyjscie = "przerwano po " + limitMin + " min"; return; }
+            var startTury = Rpc(w, "turn/start", par, 60000);
+            w.TuraWystartowala = true;
+            bool zakonczona = w.KoniecTury.WaitOne(TimeSpan.FromMinutes(limitMin));
+            if (!zakonczona)
+            {
+                var tu = startTury != null && startTury.ContainsKey("turn") ? startTury["turn"] as Dictionary<string, object> : null;
+                Rpc(w, "turn/interrupt", P.D("threadId", watek, "turnId", P.S(tu, "id")), 15000);
+                if (!w.KoniecTury.WaitOne(10000)) throw new EcxpException("Codex nie potwierdził przerwania tury.");
+            }
+            CodexProjekt.OddajWatek(watek, (m, p, ms) => Rpc(w, m, p, ms));
+            ZglosPokaz(rec, "codex", watek);
+            if (!zakonczona) { wy.Kod = -1; wy.Wyjscie = "przerwano po " + limitMin + " min"; return; }
             if (w.StatusTury == "completed") { wy.Kod = 0; wy.Odpowiedz = (w.Ost ?? "").Trim(); wy.Wyjscie = "wątek " + watek + "\n" + wy.Odpowiedz; }
             else { wy.Kod = 1; wy.Wyjscie = "tura " + (w.StatusTury ?? "przerwana") + ": " + (w.BladTury ?? "") + "\n" + Dziennik(w); }
         }
