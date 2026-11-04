@@ -286,7 +286,7 @@ namespace Ecxp
         {
             if (okno != null && !okno.IsDisposed) { okno.Show(); okno.WindowState = FormWindowState.Normal; okno.Activate(); Obejrzano(); return; }
             font = font ?? new Font("Segoe UI", 10);
-            var f = okno = new Form { Text = "Logi ECXP-MAILBOX – błędy i ostrzeżenia", Size = new Size(1150, 760), MinimumSize = new Size(700, 450),
+            var f = okno = new OknoEcxp { Text = "Logi ECXP-MAILBOX – błędy i ostrzeżenia", Size = new Size(1150, 760), MinimumSize = new Size(700, 450),
                 StartPosition = rodzic != null ? FormStartPosition.CenterParent : FormStartPosition.CenterScreen, Font = font, ShowIcon = false };
             var gora = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 2), WrapContents = true };
             var cbDzien = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, Margin = new Padding(3, 6, 10, 3) };

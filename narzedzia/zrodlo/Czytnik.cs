@@ -22,15 +22,51 @@ namespace Ecxp
         [DllImport("user32.dll", EntryPoint = "SendMessage")]
         static extern IntPtr Msg(IntPtr h, int msg, IntPtr wp, IntPtr lp);
 
+        public sealed class Preferencje
+        {
+            readonly string plik;
+            public int Motyw { get; private set; }
+            public int Czcionka { get; private set; }
+            public event Action Zmieniono;
+            public Preferencje(string sciezka, int domyslnyMotyw = 0)
+            {
+                plik = Path.GetFullPath(sciezka); Motyw = domyslnyMotyw;
+                if (!File.Exists(plik)) return;
+                try
+                {
+                    var d = P.Js().Deserialize<Dictionary<string, object>>(File.ReadAllText(plik, Encoding.UTF8));
+                    int m, f;
+                    if (!int.TryParse(P.S(d, "motyw"), out m) || m < 0 || m > 2 ||
+                        !int.TryParse(P.S(d, "czcionka"), out f) || f < 0 || f > 1)
+                        throw new InvalidDataException("Niepoprawne ustawienia wyglądu ECXP.");
+                    Motyw = m; Czcionka = f;
+                }
+                catch (Exception ex) { Bledy.Wyjatek(ex); }
+            }
+            public void Ustaw(int motyw, int czcionka)
+            {
+                if (motyw < 0 || motyw > 2 || czcionka < 0 || czcionka > 1) throw new ArgumentOutOfRangeException();
+                if (Motyw == motyw && Czcionka == czcionka) return;
+                Directory.CreateDirectory(Path.GetDirectoryName(plik));
+                string tmp = plik + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.WriteAllText(tmp, P.Js().Serialize(P.D("wersja", 1, "motyw", motyw, "czcionka", czcionka)), new UTF8Encoding(false));
+                    if (File.Exists(plik)) File.Replace(tmp, plik, null); else File.Move(tmp, plik);
+                }
+                finally { if (File.Exists(tmp)) File.Delete(tmp); }
+                Motyw = motyw; Czcionka = czcionka;
+                if (Zmieniono != null) Zmieniono();
+            }
+        }
         class Styl
         {
-            public int Motyw, Czcionka;
+            public int Czcionka;
             public readonly Dictionary<Font, Font> Konsole = new Dictionary<Font, Font>();
         }
         static readonly ConditionalWeakTable<RichTextBox, Styl> style = new ConditionalWeakTable<RichTextBox, Styl>();
         static Styl Dla(RichTextBox tekst) { return style.GetValue(tekst, t => new Styl()); }
-        public static Color Kolor(RichTextBox tekst, Color oryginal)
-        { return Dla(tekst).Motyw == 2 ? Color.White : Dla(tekst).Motyw == 1 ? Color.Black : oryginal; }
+        public static Color Kolor(RichTextBox tekst, Color oryginal) { return Motyw.Konsolowy ? Color.White : oryginal; }
         public static Font Czcionka(RichTextBox tekst, Font oryginal)
         {
             var st = Dla(tekst); if (st.Czcionka == 0) return oryginal;
@@ -40,12 +76,12 @@ namespace Ecxp
         }
         public static void Tlo(RichTextBox tekst)
         {
-            tekst.BackColor = Dla(tekst).Motyw == 2 ? Color.Black : Dla(tekst).Motyw == 1 ? Color.White : Motyw.Pole;
-            tekst.ForeColor = Kolor(tekst, Motyw.Tekst);
+            tekst.BackColor = Motyw.Pole; tekst.ForeColor = Motyw.Tekst;
             if (tekst.Parent != null && tekst.Parent.Name == "ramkaCzytnika") tekst.Parent.BackColor = tekst.BackColor;
         }
-        public static FlowLayoutPanel Pasek(RichTextBox tekst, Action przerysuj = null)
+        public static FlowLayoutPanel Pasek(RichTextBox tekst, Preferencje preferencje, Action przerysuj = null)
         {
+            Dla(tekst).Czcionka = preferencje.Czcionka;
             var panel = new FlowLayoutPanel { Name = "pasekCzytania", Dock = DockStyle.Top, AutoSize = true,
                 WrapContents = true, Padding = new Padding(12, 4, 12, 4) };
             var nazwa = new Label { Text = Jezyk.T("Rozmiar tekstu"), AutoSize = true, Margin = new Padding(0, 7, 8, 0) };
@@ -58,28 +94,46 @@ namespace Ecxp
             suwak.ValueChanged += delegate { Skala(tekst, suwak.Value / 100f); procent.Text = suwak.Value + "%"; };
             reset.Click += delegate { suwak.Value = 100; };
             var motyw = new ComboBox { Name = "motywCzytania", DropDownStyle = ComboBoxStyle.DropDownList, Width = 160,
-                Margin = new Padding(12, 3, 0, 0), AccessibleName = Jezyk.T("Motyw czytania") };
-            motyw.Items.AddRange(new object[] { Jezyk.T("Motyw aplikacji"), Jezyk.T("Jasny"), Jezyk.T("Ciemny konsolowy") });
-            motyw.SelectedIndex = 0;
+                Margin = new Padding(12, 3, 0, 0), AccessibleName = Jezyk.T("Motyw całej aplikacji") };
+            motyw.Items.AddRange(new object[] { Jezyk.T("Jasny"), Jezyk.T("Ciemny"), Jezyk.T("Ciemny konsolowy") });
+            motyw.SelectedIndex = preferencje.Motyw;
             var czcionka = new ComboBox { Name = "czcionkaCzytania", DropDownStyle = ComboBoxStyle.DropDownList, Width = 110,
                 Margin = new Padding(8, 3, 0, 0), AccessibleName = Jezyk.T("Czcionka") };
-            czcionka.Items.AddRange(new object[] { "Segoe UI", "Consolas" }); czcionka.SelectedIndex = 0;
-            Action zmiana = () =>
+            czcionka.Items.AddRange(new object[] { "Segoe UI", "Consolas" }); czcionka.SelectedIndex = preferencje.Czcionka;
+            bool synchronizacja = false;
+            Action synchronizuj = () =>
             {
+                if (tekst.IsDisposed || panel.IsDisposed) return;
                 int start = tekst.SelectionStart, len = tekst.SelectionLength;
                 int kotwica = tekst.GetCharIndexFromPosition(new Point(1, 1));
                 int y = tekst.GetPositionFromCharIndex(kotwica).Y;
-                var st = Dla(tekst); st.Motyw = motyw.SelectedIndex; st.Czcionka = czcionka.SelectedIndex;
-                if (przerysuj != null) przerysuj();
-                Tlo(tekst);
-                tekst.Select(Math.Min(start, tekst.TextLength), Math.Min(len, Math.Max(0, tekst.TextLength - start)));
-                var scroll = new Point(); PointMsg(tekst.Handle, 0x04DD, IntPtr.Zero, ref scroll);
-                scroll.Y = Math.Max(0, scroll.Y + tekst.GetPositionFromCharIndex(Math.Min(kotwica, tekst.TextLength)).Y - y);
-                PointMsg(tekst.Handle, 0x04DE, IntPtr.Zero, ref scroll);
+                synchronizacja = true;
+                try
+                {
+                    motyw.SelectedIndex = preferencje.Motyw; czcionka.SelectedIndex = preferencje.Czcionka;
+                    Dla(tekst).Czcionka = preferencje.Czcionka;
+                    if (przerysuj != null) przerysuj();
+                    Tlo(tekst);
+                    tekst.Select(Math.Min(start, tekst.TextLength), Math.Min(len, Math.Max(0, tekst.TextLength - start)));
+                    var scroll = new Point(); PointMsg(tekst.Handle, 0x04DD, IntPtr.Zero, ref scroll);
+                    scroll.Y = Math.Max(0, scroll.Y + tekst.GetPositionFromCharIndex(Math.Min(kotwica, tekst.TextLength)).Y - y);
+                    PointMsg(tekst.Handle, 0x04DE, IntPtr.Zero, ref scroll);
+                }
+                finally { synchronizacja = false; }
             };
-            motyw.SelectedIndexChanged += delegate { zmiana(); };
-            czcionka.SelectedIndexChanged += delegate { zmiana(); };
-            tekst.Disposed += delegate { foreach (var f in Dla(tekst).Konsole.Values) f.Dispose(); style.Remove(tekst); };
+            Action zmiana = () =>
+            {
+                if (synchronizacja || motyw.SelectedIndex < 0 || czcionka.SelectedIndex < 0) return;
+                try { preferencje.Ustaw(motyw.SelectedIndex, czcionka.SelectedIndex); }
+                catch (Exception ex)
+                {
+                    Bledy.Wyjatek(ex); synchronizuj();
+                    MessageBox.Show(tekst.FindForm(), Jezyk.T("Nie zapisano ustawień wyglądu: ") + ex.Message, "ECXP", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+            motyw.SelectedIndexChanged += delegate { zmiana(); }; czcionka.SelectedIndexChanged += delegate { zmiana(); };
+            preferencje.Zmieniono += synchronizuj;
+            tekst.Disposed += delegate { preferencje.Zmieniono -= synchronizuj; foreach (var f in Dla(tekst).Konsole.Values) f.Dispose(); style.Remove(tekst); };
             panel.Controls.AddRange(new Control[] { nazwa, suwak, procent, reset, motyw, czcionka });
             return panel;
         }

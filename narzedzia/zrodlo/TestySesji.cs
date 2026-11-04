@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -55,7 +55,7 @@ class TestySesji {
         Check(File.ReadAllText(packet)==large && longLink.Contains(Uri.EscapeDataString(packet)),"Claude long startup packet is preserved in a complete local snapshot");
         foreach(string lang in new[]{"en","fr","cs","de"}) {
             Jezyk.Kod=lang;
-            Check(new[]{"Czytnik wiadomości","Rozmiar tekstu","Ciemny konsolowy","Czcionka","Zapisz jako PDF…","Zapisz jako HTML…"}.All(x=>Jezyk.T(x)!=x),"new reader controls translated: "+lang);
+            Check(new[]{"Czytnik wiadomości","Rozmiar tekstu","Ciemny konsolowy","Czcionka","Zapisz jako PDF…","Zapisz jako HTML…","Niewysłane","Szkic","Błąd wysyłki","Motyw całej aplikacji","Zapisz szkic i zamknij"}.All(x=>Jezyk.T(x)!=x),"new reader controls translated: "+lang);
         }
         Jezyk.Kod="pl";
         if(args.Length==2 && args[0]=="--live-codex") {

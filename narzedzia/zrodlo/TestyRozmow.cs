@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Drawing;
@@ -70,11 +70,29 @@ class TestyRozmow {
       var family=Descendants(readerForm).OfType<ComboBox>().Single(x=>x.Name=="czcionkaCzytania"); family.SelectedIndex=1;
       reader.Select(450,1);
       Check(reader.SelectionFont.Name=="Consolas" && Math.Abs(reader.ZoomFactor-1.5f)<.01f,"console font preserves current zoom");
-      theme.SelectedIndex=1;
+      theme.SelectedIndex=0;
       Check(reader.BackColor==Color.White && reader.Text==stable,"reader can restore light background");
       var previewZoom=Descendants(form).OfType<TrackBar>().Single(x=>x.Name=="rozmiarTekstu");
       string previewText=det.Text; previewZoom.Value=125;
       Check(Math.Abs(det.ZoomFactor-1.25f)<.01f && det.Text==previewText,"preview has working independent text slider");
+      var mainTheme=Descendants(form).OfType<ComboBox>().Single(x=>x.Name=="motywCzytania");
+      mainTheme.SelectedIndex=2; Application.DoEvents();
+      Check(form.BackColor==Color.Black && readerForm.BackColor==Color.Black && det.BackColor==Color.Black && reader.BackColor==Color.Black && theme.SelectedIndex==2,"theme is global across main window and existing reader");
+      string appearance=Path.Combine(root,"narzedzia","ustawienia-wygladu.json");
+      var restartPrefs=new Czytnik.Preferencje(appearance);
+      Check(restartPrefs.Motyw==2 && restartPrefs.Czcionka==1,"theme and font survive reloading preferences");
+      readerForm.Close(); Call(app,"OtworzWiadomosc",longMessage);
+      readerForm=windows.Values.Single(); reader=Descendants(readerForm).OfType<RichTextBox>().Single();
+      Check(readerForm.BackColor==Color.Black && reader.BackColor==Color.Black && Descendants(readerForm).OfType<ComboBox>().Single(x=>x.Name=="motywCzytania").SelectedIndex==2,"new reader inherits saved global console theme");
+      Call(app,"RefreshView");
+      Check(form.BackColor==Color.Black && det.BackColor==Color.Black && new Czytnik.Preferencje(appearance).Motyw==2,"mailbox refresh does not reset console theme");
+      using(var compose=new PiszForm(new List<string>{"codex-demo"},new List<string>{"demo"},new List<string>{"rozmowy"},form.Font,form.Font)) {
+        compose.Show(form); Application.DoEvents();
+        Check(compose.BackColor==Color.Black && compose.tbTresc.BackColor==Color.Black && compose.tbTresc.ForeColor==Color.White,"new compose window inherits global console theme");
+        compose.Close();
+      }
+      mainTheme.SelectedIndex=0; Application.DoEvents();
+      Check(det.BackColor==Color.White && reader.BackColor==Color.White && new Czytnik.Preferencje(appearance).Motyw==0,"explicit light selection applies to all windows and persists");
       string evil="<script>alert(1)</script>\nZażółć gęślą jaźń & test";
       string html=Czytnik.Html("Tytuł <test>",evil);
       Check(html.Contains("&lt;script&gt;") && !html.Contains("<script>") && html.Contains("Zażółć") && html.Contains("Content-Security-Policy"),"HTML escapes message content and preserves Unicode");
@@ -86,6 +104,61 @@ class TestyRozmow {
       Check(File.Exists(pdfPath) && new FileInfo(pdfPath).Length>1000,"multi-page PDF export creates a nonempty verified PDF");
       Console.WriteLine("PDF_PATH: "+pdfPath);
       foreach(var w in windows.Values.ToList()) w.Close();
+      var store=(MagazynSzkicow)Field(app,"magazynSzkicow");
+      var quick=(TextBox)Field(app,"szybkaTresc"); quick.Text="NIEWYSŁANY SZKIC Żółć — pełna treść";
+      Call(app,"ZapiszSzybkiSzkic");
+      string draftsPath=Path.Combine(root,"narzedzia","niewyslane-wlasciciela.json");
+      var reload=new MagazynSzkicow(draftsPath);
+      Check(reload.Lista.Count==1 && reload.Lista[0].Tresc==quick.Text,"quick reply persists unsent Unicode text across store reload");
+      string attachment=Path.Combine(root,"syntetyczny-zalacznik.txt");File.WriteAllText(attachment,"syntetyczny zalacznik");
+      string formId;
+      using(var compose=new PiszForm(new List<string>{"codex/rozmowy"},new List<string>{"demo"},new List<string>{"rozmowy"},form.Font,form.Font)) {
+        compose.UstawAdresata("codex/rozmowy");compose.chCodex.Checked=true;compose.chClaude.Checked=false;
+        compose.cbProjekt.Text="demo";compose.cbModul.Text="rozmowy";compose.tbTemat.Text="Niewysłana wiadomość";
+        compose.tbTresc.Text="Zachowaj całość bez wysyłania.";compose.OdpNa=longMessage.Id;compose.zal.UstawPliki(new[]{attachment});
+        formId=compose.SzkicId;Call(app,"PodlaczZapisSzkicu",compose);compose.Show(form);Application.DoEvents();compose.Close();
+      }
+      var saved=store.Znajdz(formId);
+      Check(saved!=null && saved.Tresc=="Zachowaj całość bez wysyłania." && saved.Pliki.Single()==attachment,"closing composer saves complete unsent content and attachments");
+      saved.Blad="Syntetyczna odmowa transportu";store.Zapisz(saved);
+      var failedDraft=new MagazynSzkicow(draftsPath).Znajdz(formId);
+      Check(failedDraft!=null && failedDraft.Blad==saved.Blad && failedDraft.Tresc==saved.Tresc,"failed-send draft retains error and content across reload");
+      using(var resume=new PiszForm(new List<string>{"codex/rozmowy"},new List<string>{"demo"},new List<string>{"rozmowy"},form.Font,form.Font)) {
+        MagazynSzkicow.DoFormularza(resume,failedDraft);
+        Check(resume.AdresatDoWyslania=="codex/rozmowy" && resume.chCodex.Checked && !resume.chClaude.Checked && resume.OdpNa==longMessage.Id && resume.tbTresc.Text==saved.Tresc && resume.zal.Pliki.Single()==attachment,"resumed draft restores routing, one-agent choice, reply link and attachment");
+      }
+      var wire=P.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="codex-demo",Projekt="demo",Modul="rozmowy",Temat="Syntetyczny błąd doręczenia",Tresc="Próba testowa",Watek="test-failed-delivery"});
+      Call(app,"Skanuj");
+      var failedWire=((List<Msg>)Field(app,"msgs")).Single(x=>x.Id==P.S(wire,"id"));
+      failedWire.Dor=new Stan{Id=P.S(wire,"id"),Eskalacja=true,Ponowienia=1,Dostarczona=DateTime.Now};
+      ((RadioButton)Field(app,"rbNiewyslane")).Checked=true;Application.DoEvents();
+      var unsent=(ListView)Field(app,"lvNiewyslane");
+      Check(unsent.Visible && !lv.Visible && !((Panel)Field(app,"szybkiPanel")).Visible && unsent.Items.Count==3,"unsent filter lists drafts and failed deliveries together");
+      int readCount=((HashSet<string>)Field(app,"read")).Count;
+      unsent.Items.Cast<ListViewItem>().Single(x=>x.Tag is SzkicWiadomosci && ((SzkicWiadomosci)x.Tag).Id==formId).Selected=true;Application.DoEvents();
+      Check(det.Text.Contains(saved.Tresc) && det.Text.Contains(saved.Blad) && ((HashSet<string>)Field(app,"read")).Count==readCount,"unsent preview reads local draft without acknowledging a wire message");
+      string draftSnapshot=det.Text;int draftSelection=det.SelectionStart;
+      Call(app,"RefreshView");
+      Check(det.Text==draftSnapshot && det.SelectionStart==draftSelection,"unchanged unsent refresh preserves reading snapshot");
+      failedWire.Dor.Potwierdzona=DateTime.Now;Call(app,"OdswiezNiewyslane");
+      Check(unsent.Items.Count==2 && !unsent.Items.Cast<ListViewItem>().Any(x=>x.Tag is Msg),"acknowledged delivery disappears from unsent filter");
+      store.Usun(formId);Call(app,"OdswiezNiewyslane");
+      Check(unsent.Items.Count==1 && new MagazynSzkicow(draftsPath).Znajdz(formId)==null,"draft removal is durable and preserves another unsent draft");
+      ((RadioButton)Field(app,"rbWsz")).Checked=true;Application.DoEvents();
+      Check(lv.Visible && !unsent.Visible,"normal conversation list returns after leaving unsent filter");
+      var quickId="quick-"+(string)Field(app,"draftWatek");
+      ((HashSet<string>)Field(app,"edytowaneSzkice")).Add(quickId);
+      var edited=store.Znajdz(quickId);edited.Tresc="Treść poprawiona w osobnym edytorze";store.Zapisz(edited);
+      Call(app,"ZapiszSzybkiSzkic");
+      Check(store.Znajdz(quickId).Tresc==edited.Tresc,"background quick reply cannot overwrite a draft being edited in its own window");
+      ((HashSet<string>)Field(app,"edytowaneSzkice")).Remove(quickId);Call(app,"SynchronizujSzybkiSzkic",quickId);
+      Check(quick.Text==edited.Tresc,"closing draft editor synchronizes quick reply with edited content");
+      using(var sent=new PiszForm(new List<string>{"codex/rozmowy"},new List<string>{"demo"},new List<string>{"rozmowy"},form.Font,form.Font)) {
+        MagazynSzkicow.DoFormularza(sent,edited);Call(app,"PodlaczZapisSzkicu",sent);sent.Show(form);Application.DoEvents();
+        Call(app,"OznaczSzkicWyslany",sent);sent.Close();
+      }
+      Call(app,"ZapiszSzybkiSzkic");
+      Check(quick.Text.Length==0 && store.Znajdz(quickId)==null && new MagazynSzkicow(draftsPath).Znajdz(quickId)==null,"accepted send stays removed after composer closes and quick autosave runs");
       var settings=Descendants(form).OfType<Button>().Single(x=>x.Text=="Ustawienia…");
       settings.PerformClick(); Application.DoEvents();
       settings.ContextMenuStrip.Close(ToolStripDropDownCloseReason.AppClicked); Application.DoEvents();

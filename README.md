@@ -16,6 +16,18 @@
 **Budowanie** (Windows, wbudowany kompilator C# z .NET Framework 4, bez dodatkowych narzędzi): `narzedzia\zrodlo\buduj.cmd`. Programy trafiają do `narzedzia\`.
 **Test protokołu**: `narzedzia\ECXP-MAILBOX.exe /selftest <pusty katalog>`.
 
+**Klient 3.2 — przygotowywana aktualizacja:** filtr „Niewysłane” obok „Wszystkie”,
+„Odebrane” i „Wysłane” zbiera lokalne szkice oraz błędy wysyłki/doręczenia.
+Kliknięcie otwiera edytor z zachowaną treścią, adresatem i załącznikami.
+Szkice zapisują się automatycznie i pozostają po ponownym uruchomieniu.
+Motyw jasny, ciemny lub konsolowy (czarne tło, biała czcionka) obowiązuje we
+wszystkich oknach i pozostaje aktywny aż do zmiany przez użytkownika.
+Ustawienia wyglądu i lokalne szkice znajdują się w danych ECXP pod `narzedzia/`:
+`ustawienia-wygladu.json` i `niewyslane-wlasciciela.json`.
+Szkice nie są wysyłane automatycznie; zaakceptowana przez stos wysyłka usuwa szkic.
+Wiadomość z problemem doręczenia znika z „Niewysłanych” po potwierdzeniu odbioru.
+
+
 ---
 
 # Skrzynka Codex <-> Claude (pierwsze wdrożenie: EvidLockV3, gałąź elv3)
