@@ -166,6 +166,17 @@ class TestyRozmow {
       settings.PerformClick(); Application.DoEvents();
       settings.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
       Check(!form.IsDisposed && !settings.ContextMenuStrip.IsDisposed,"settings menu can reopen and close by keyboard");
+      var help=Descendants(form).OfType<Button>().Single(x=>x.Text=="ⓘ  Pomoc");
+      Check(help.Visible && help.Parent==settings.Parent,"help button sits in the header next to settings");
+      help.PerformClick(); Application.DoEvents();
+      var helpItems=help.ContextMenuStrip.Items.Cast<ToolStripItem>().ToList();
+      Check(helpItems.Count==5 && helpItems[0].Text=="O programie" && helpItems[1] is ToolStripSeparator
+        && helpItems.Skip(2).All(x=>x.Text.EndsWith("↗")) && helpItems.Any(x=>x.Text.StartsWith("ECXP i ECXP-MAILBOX")) && helpItems.Any(x=>x.Text.Contains("GitHub")),"help menu offers About and ECXP links");
+      help.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
+      form.Size=new Size(900,560); Application.DoEvents();
+      var hb=form.RectangleToClient(help.RectangleToScreen(help.ClientRectangle));
+      Check(hb.Right<=form.ClientSize.Width && hb.Bottom<=form.ClientSize.Height,"help button stays visible at minimum window size");
+      form.Size=new Size(1240,820); Application.DoEvents();
       det.Select(0,0);
       typeof(Control).GetMethod("OnMouseUp",Flags).Invoke(det,new object[]{new MouseEventArgs(MouseButtons.Left,1,30,30,0)});
       Check(windows.Count==0,"click in preview does not open a message window");
