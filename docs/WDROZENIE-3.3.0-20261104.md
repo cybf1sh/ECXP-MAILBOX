@@ -70,6 +70,30 @@ Kontrole przed wdrożeniem:
 - Test: `TEST-PODMIANY-C4DCCA8` czekała w skrzynce, hook o niej przypomniał,
   a sesja ją odebrała.
 
+## Podmiana 23:42 – `b47f532` (Codex w tle bez serwera ECXP)
+
+- Zgłoszenie operatora: zadanie w tle dla Codexa („odbierz wiadomość i odpisz
+  jaki dzis dzień”) zwróciło poprawną odpowiedź, ale z dopiskiem, że narzędzie
+  ECXP wymaga zgody, a polityka blokuje jej udzielenie.
+- Przyczyna: Codex w tle (`app-server`, zasada zgód „never”) wczytywał
+  `config.toml` z serwerem `ecxp`. Agent Claude w tle miał już pustą
+  konfigurację MCP.
+- Poprawka: `-c mcp_servers.ecxp.enabled=false` dla Codexa w tle, tylko gdy
+  `config.toml` ma `[mcp_servers.ecxp]`. Dla nieistniejącego serwera ten sam
+  parametr powoduje błąd startu Codexa (sprawdzone).
+- Paczka `builds\codex-bez-ecxp-20261104`: `/selftest` PASS, zasoby 7/7.
+  Kopia poprzedniej kompilacji: `narzedzia\kopie\przed-codex-bez-ecxp-20261104-234244`.
+- Bezczynny ciepły proces Codexa (start bez parametru) zamknięty. Restart:
+  konsola PID 34516, stos PID 10236.
+- Test na żywo: pytanie od `claude-ecxp-mailbox` do agenta w tle
+  `codex-bez-modulu` („Odbierz wiadomość i odpisz jednym zdaniem…”):
+  - ciepły Codex wystartował z `-c mcp_servers.ecxp.enabled=false`;
+  - tura trwała 14 s;
+  - odpowiedź brzmiała „Dziś jest środa.”, bez komunikatu o zgodzie;
+  - stos zwrócił ją nadawcy (praca z pytania agenta, `43be1e9`).
+- Ograniczenie: tokenów tury Codexa w tle nie zapisano, bo lustro nie zna nazwy
+  wątku `app-server` agenta w tle. To możliwe usprawnienie.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
