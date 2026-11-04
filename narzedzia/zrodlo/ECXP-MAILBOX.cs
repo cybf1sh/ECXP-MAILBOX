@@ -18,12 +18,12 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.3.0.0")]
-[assembly: AssemblyFileVersion("3.3.0.0")]
+[assembly: AssemblyVersion("3.4.0.0")]
+[assembly: AssemblyFileVersion("3.4.0.0")]
 
 namespace Ecxp
 {
-    class App : ApplicationContext
+    partial class App : ApplicationContext
     {
         readonly string Stan, ReadFile;
         readonly HashSet<string> read = new HashSet<string>();
@@ -91,7 +91,9 @@ namespace Ecxp
         {
             var w = msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList();
             // tokeny dochodzą po zakończeniu tury agenta – zmiana liczby odświeża podgląd
-            return P.Sha(PodpisDanych(w, false) + Jezyk.Kod + Motyw.Tryb + string.Join("|", w.Select(TokenyZadania)));
+            // wysłane przez operatora: „od wysłania” w podglądzie odświeżane co minutę
+            return P.Sha(PodpisDanych(w, false) + Jezyk.Kod + Motyw.Tryb + string.Join("|", w.Select(TokenyZadania)) +
+                (w.Any(Wyslana) ? DateTime.Now.ToString("yyyyMMddHHmm") : ""));
         }
 
         // Tokeny zadania przy odpowiedzi agenta: tury adresata od doręczenia wiadomości, na którą odpowiada, do tej odpowiedzi
@@ -461,6 +463,7 @@ namespace Ecxp
                 menu.Items.Clear();
                 menu.Items.Add(NapisMotywu(), null, delegate { PrzelaczMotyw(); });
                 foreach (var j in Jezyk.Dostepne) { string kod = j[0]; menu.Items.Add(new ToolStripMenuItem(j[1], null, delegate { ZmienJezyk(kod); }) { Checked = Jezyk.Kod == kod }); }
+                menu.Items.Add(Jezyk.T("📡  Śledzenie wysłanych…"), null, delegate { SledzenieWyslanych(); });
                 menu.Items.Add(Jezyk.T("⬇  Pobierz dane o projektach, sesjach i agentach…"), null, delegate { PobieranieDanych(false); });
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));
@@ -823,6 +826,8 @@ namespace Ecxp
                     foreach (var kopia in w.Where(x => x.Id == m.Id || (m.LustroId.Length > 0 && x.LustroId == m.LustroId)))
                         Dopisz(NazwaW(kopia.Do) + ": " + Doreczenie(kopia, teraz) + "\n", fontS, Motyw.Slaby);
                 { var tok = TokenyZadania(m); if (tok != null) Dopisz(tok + "\n", fontS, Motyw.Slaby); }
+                // wysłane przez operatora: etap i czas od wysłania (pełna oś czasu – Ustawienia → Śledzenie wysłanych)
+                if (Wyslana(m) && P.PoprawnyNadawca(m.Do)) { Color ke; var et = Etap(m, teraz, out ke); Dopisz(Jezyk.T("Śledzenie: ") + et + "   ·   " + Jezyk.T("od wysłania: ") + P.Wiek(teraz - m.Czas) + "\n", fontS, ke); }
                 Dopisz(Jezyk.T("Doręczenie: ") + Doreczenie(m, teraz) + "   ·   id " + m.Id + (m.Seq > 0 ? " · seq " + m.Seq : "") + "\n", fontS, Motyw.Slaby);
                 wciecie = 0;
                 Dopisz("\n", fontS, Motyw.Slaby);
@@ -4105,6 +4110,7 @@ namespace Ecxp
             }
             menu.Items.Add(mJezyk);
             menu.Items.Add(Poz(NapisMotywu(), delegate { PrzelaczMotyw(); }));
+            menu.Items.Add(Poz(Jezyk.T("📡  Śledzenie wysłanych…"), delegate { ShowWindow(); SledzenieWyslanych(); }));
             menu.Items.Add(Poz(Jezyk.T("O programie"), delegate { ShowWindow(); OProgramie(); }));
             menu.Items.Add(Poz(Jezyk.T("Zainstaluj / napraw rejestrację ECXP"), delegate { MessageBox.Show(form, Instalator.Wykonaj(false), Jezyk.T("Instalacja ECXP")); }));
             menu.Items.Add(Poz(Jezyk.T("Otwórz folder skrzynki"), delegate { OpenPath(P.Root); }));
