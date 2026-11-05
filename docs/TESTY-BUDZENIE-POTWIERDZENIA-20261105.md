@@ -40,7 +40,7 @@ Wersja klienta 3.5.0.0; wersja instalatora 1.4.0.0.
 Pakiet roboczy: builds/budzenie-potwierdzenia-20261105, kompilator systemowy
 Framework64/v4.0.30319/csc.exe, opcje i zasoby z buduj.cmd.
 
-- TestPotwierdzen: 21 PASS — odbiór, częściowy i wspólny FIN, idempotencja,
+- TestPotwierdzen: 25 PASS — odbiór, częściowy i wspólny FIN, idempotencja,
   zgodność starych wiadomości, zadanie pojedynczego agenta, argumenty natywnej kolejki.
 - TestyRozmowQA: 43 PASS — w tym Pomoc, trwały motyw, szkice, eksporty i stabilność.
 - TestySesji: 17 PASS.
@@ -49,7 +49,7 @@ Framework64/v4.0.30319/csc.exe, opcje i zasoby z buduj.cmd.
 - TestSledzenia: PASS (głębokość 1, zachowane zaznaczenie).
 - /selftest: 21 PASS.
 - /selftest-stos: 43 PASS, prawdziwy transport na odizolowanej skrzynce.
-- Kod procesu każdego testu: 0. Ostrzeżenia CS0649 nie były wyciszane.
+- Łącznie 207 kontroli PASS. Kod procesu każdego testu 0. Ostrzeżenia CS0649 nie były wyciszane.
 - Native queue: znacznik QUEUE-20261105-A przyjęty przez CLI jako
   01a1ace8-2615-77f2-9fe0-e6107886a952 i rzeczywiście dotarł jako wiadomość
   do TEGO samego czatu bez wpisu operatora.
@@ -86,3 +86,40 @@ Odtworzenie testu potwierdzeń (z narzedzia/zrodlo; CSC = systemowy csc.exe):
 2. CSC z opcjami RDZEN z buduj.cmd oraz TestPotwierdzen.cs,
    /target:exe /main:Ecxp.TestPotwierdzen /out:<builds>/TestPotwierdzen.exe
 3. TestPotwierdzen.exe <pusty katalog> <builds>/AtrapaKolejkiCodex.exe
+
+## Wdrożenie zatwierdzone przez operatora
+
+Operator w tym czacie wybrał „Tak, włącz i przetestuj” dla poprawki
+43d2658736048877e2d6ff0eb89bd57643269cc8 i uruchomienia lokalnej usługi Codexa.
+Niezależna recenzja Claude 20261105-194135-ecxp-mailbox-RECENZJA-43D2658-PO-E776-1dc0
+zatwierdziła kod po usunięciu P2 z potwierdzeniem odbioru.
+
+Wdrożono 2026-11-05 o 19:53 czasu Europe/Warsaw. Zaktualizowano pliki
+w narzedzia repozytorium oraz w C:\Users\user\AppData\Local\ECXP\narzedzia.
+Wykonano kontrolowaną podmianę binariów z kopią poprzedniej wersji.
+Restart objął wyłącznie procesy klienta 6464 i stosu 28304.
+Nowy klient ma PID 11912, nowy stos PID 13508. Łączność MCP działa po restarcie.
+Ustawienia klienta, konfiguracja Codexa i pliki reguł zachowały sumy SHA-256.
+
+- Klient 3.5.0.0 ma SHA-256
+  CCF1708FC7E07121B42D401589CF1322E3141AE30385D2879C84676E32DD4636.
+- Instalator 1.4.0.0 ma SHA-256
+  5566BE7B34A22687D6634E05BD6ADFACA1412302327BC8F981A9975CE10C3087.
+- Wszystkie 7 zasobów instalatora porównano z plikami wejściowymi. Wynik PASS.
+- Kopia 12 wcześniejszych plików jest w
+  builds/budzenie-potwierdzenia-20261105/backup-przed-3.5-20261105-195256.
+- Działający adapter MCP korzysta jeszcze z poprzedniego obrazu. Windows wymagał
+  przeniesienia zajętego pliku na nazwę ecxp-mcp.exe.stary-20261105-195316.
+  Nowe uruchomienia korzystają ze zaktualizowanego ecxp-mcp.exe.
+- Oficjalne codex app-server daemon start uruchomiło lokalną usługę 0.166.0.
+  Polecenie daemon version potwierdziło running. Logi są w katalogu testu.
+- QUEUE-20261105-B rzeczywiście dotarł do tego czatu automatycznie o 19:47.
+  Wiadomość dodano wcześniej podczas aktywnej pracy. Osobny test wiadomości
+  wysłanej dopiero podczas bezczynności pozostaje do wykonania.
+
+Manifest wdrożenia deployment.json i porównanie zasobów installer-resources.json
+znajdują się w builds/budzenie-potwierdzenia-20261105.
+Przygotowano z Claude test IDLE-43D2658-20261105. Po zakończeniu tury Claude
+wyśle syntetyczne pytanie ECXP. Codex ma odebrać je automatycznie, utworzyć
+E2E-CODEX-OK.txt w katalogu testu i odesłać powiązaną odpowiedź przez ECXP.
+Wynik tego testu będzie dopisany po faktycznym odbiorze.
