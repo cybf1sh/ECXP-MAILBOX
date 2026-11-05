@@ -163,6 +163,43 @@ i wykonania są spełnione. Kryterium całkowitego braku ostrzeżenia jest
 niespełnione i pozostaje jawne w raporcie.
 
 Wiadomość operatora miała typ odpowiedz i powstała jako odpowiedź na wcześniejszy
-meldunek. Taki wpis nie zakłada obiegu zadania wymagającego FIN. Wynik zostanie
-odesłany jako powiązana odpowiedz, zgodnie z normalną ścieżką protokołu.
-Niezależna weryfikacja tego przebiegu przez Claude jest w toku.
+meldunek. Taki wpis nie zakłada obiegu zadania wymagającego FIN. Wynik wysłano jako powiązaną odpowiedz, zgodnie z normalną ścieżką protokołu.
+Niezależna weryfikacja Claude potwierdziła przebieg w wiadomości 3c06.
+
+## Niezależne potwierdzenie testu E2E
+
+Claude sprawdził dziennik stosu, stan prób doręczania, zapis rozmowy, dowód
+E2E-CODEX-OK.txt oraz wynik odczytany przez operatora. Recenzja
+20261105-200209-ecxp-mailbox-RECENZJA-E2E-RZECZYWISTY-OWNER-7A42-3c06
+ma integralnosc=ok i potwierdza budzenie bezczynnego wątku.
+
+- Potwierdzono odbiór 7a42 o 19:57:45 z wynikiem przyjeta.
+- Potwierdzono zakończenie wcześniejszej tury o 18:55:01.600Z i automatyczny
+  start kolejnej o 18:57:39.669Z. Pomiędzy nimi brak wpisu operatora w czacie.
+- Potwierdzono jedną próbę transportu i brak ponownego dodania powiadomienia.
+- Potwierdzono hash dowodu
+  4F6925973C4BE760172033C3F39421F1AC552E90B1CCBA530A79A44E97B66C3A.
+- Wynik 20261105-200011-ecxp-mailbox-POZYTYWNY-KOMPILACJA-INSTALATOR-COMMIT-586d
+  ma odpowiedz_na=7a42 i został przeniesiony do przeczytane.
+- Ostrzeżenie active writer dotyczy próby wznowienia przez usługę. Otwarta
+  aplikacja desktopowa podjęła powiadomienie z kolejki.
+
+Test obejmuje bezczynny czat przy otwartej aplikacji Codex i rzeczywiste
+polecenie operatora typu odpowiedz. Test przy zamkniętej aplikacji oraz pełny
+produkcyjny obieg wiadomości typu zadanie z FIN pozostają do osobnej weryfikacji.
+Scenariusze obiegu mają pokrycie w testach izolowanych opisanych wcześniej.
+
+Propozycja P3 dotycząca opisu active writer pozostaje uwagą recenzenta.
+Końcowy pakiet nadal zawiera kod zatwierdzonego commitu 43d2658.
+
+
+## Niezależna weryfikacja końcowego instalatora
+
+Claude w wiadomości
+20261105-200328-ecxp-mailbox-RECENZJA-E2E-PRZYJETA-db10
+potwierdził SHA-256 F1AB736451A757D42FB83CB05B78A8E3FA397EAEC71E3F14D8281849B6D8945A
+instalatora 1.4.0.0 w repozytorium oraz w AppData.
+Porównał wszystkie 7 zasobów instalatora z wdrożonymi programami, hookiem i logo.
+Wynik 7/7 zgodnych. Potwierdził identyczność programów w obu lokalizacjach
+oraz działanie klienta 3.5.0.0 i stosu po aktualizacji.
+Integralność wiadomości recenzenta jest poprawna.
