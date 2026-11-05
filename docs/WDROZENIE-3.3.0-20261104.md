@@ -142,6 +142,21 @@ Kontrole przed wdrożeniem:
 - Okna nie testowano na ekranie. Test wykonuje operator. Testy GUI Codexa
   wymagają teraz pliku `Sledzenie.cs` na liście kompilacji.
 
+## Podmiana 2026-11-05 18:49 – `453f837` (klient 3.4.1: awaria okna śledzenia)
+
+- Zgłoszenie operatora: konsola wyłączyła się sama. Dziennik Windows:
+  ECXP-MAILBOX 3.4.0.0, 00:54:06, wyjątek `0xc00000fd` (przepełnienie stosu).
+- Przyczyna: przebudowa listy w oknie śledzenia przy zaznaczonym wierszu
+  przywracała zaznaczenie, a to od razu uruchamiało kolejną przebudowę, bez
+  końca. Poprawka: blokada ponownego wejścia. `TestSledzenia.cs`: stary schemat
+  kończy się przepełnieniem stosu, nowy przechodzi (PASS).
+- Paczka `builds\sledzenie-3.4.1-20261105`: `/selftest` PASS, zasoby 7/7.
+  Kopia: `narzedzia\kopie\przed-3.4.1-20261105-184854`.
+- Podmienione tylko `ECXP-MAILBOX.exe` (3.4.1.0) i `ECXP-Setup.exe`. Kod stosu
+  i `ecxp-mcp` się nie zmienił, więc stos (PID 28304) działał bez restartu.
+  Nowa konsola: PID 6464.
+- Nie sprawdzano okna na ekranie i nie było recenzji Codexa.
+
 ## Wycofanie
 
 1. Zamknij konsolę i proces `ecxpd`.
