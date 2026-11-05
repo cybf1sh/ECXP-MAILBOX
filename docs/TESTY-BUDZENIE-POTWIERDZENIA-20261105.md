@@ -123,3 +123,46 @@ Przygotowano z Claude test IDLE-43D2658-20261105. Po zakończeniu tury Claude
 wyśle syntetyczne pytanie ECXP. Codex ma odebrać je automatycznie, utworzyć
 E2E-CODEX-OK.txt w katalogu testu i odesłać powiązaną odpowiedź przez ECXP.
 Wynik tego testu będzie dopisany po faktycznym odbiorze.
+
+
+## Test rzeczywistego zadania po bezczynności
+
+Poprzednia tura tego czatu zakończyła się 2026-11-05 o 19:55:01.
+Operator wysłał przez klienta ECXP polecenie „skompiluj, podmień instalator i commit”
+o 19:57:34.821, identyfikator
+20261105-195734-ecxp-mailbox-KOMPILACJA-ZWOLNIONA-E346856-7a42.
+Wiadomość nadeszła po 2 min 33 s bezczynności.
+
+Stos dodał powiadomienie do natywnej kolejki o 19:57:35.099,
+identyfikator 01a1ad12-d534-70b2-8194-96b3e0528885.
+Tura 01a1ad12-e740-7821-bf32-69e1d8e7cbe2 rozpoczęła się o 19:57:39,
+około 5 s po wysłaniu. Jej pierwszym wejściem było automatyczne powiadomienie ECXP.
+Odbiór ecxp_odbierz nastąpił najpóźniej o 19:57:45 i zwrócił integralnosc=ok.
+Brak dodatkowego wpisu operatora w czacie między zakończeniem poprzedniej
+tury a automatycznym powiadomieniem. Czasy sprawdzono przez read_thread
+i dziennik działającego ecxpd.
+
+W tej automatycznie uruchomionej turze ponownie skompilowano instalator
+na polecenie operatora, porównano 7 osadzonych zasobów i podmieniono obie
+kopie w narzedzia repozytorium i instalacji AppData. Klient pozostał 3.5.0.0.
+Końcowy instalator 1.4.0.0 ma SHA-256
+F1AB736451A757D42FB83CB05B78A8E3FA397EAEC71E3F14D8281849B6D8945A.
+Ta kompilacja zastępuje wcześniejszą kompilację instalatora z godziny 19:53.
+Kompilator Framework generuje nowy obraz PE przy ponownym budowaniu.
+
+Dowód wykonania E2E-CODEX-OK.txt zawiera marker IDLE-43D2658-20261105,
+identyfikator rzeczywistej wiadomości operatora, granicę czasu odbioru i hash
+instalatora. Plik jest w builds/budzenie-potwierdzenia-20261105.
+Zachowano również native-delivery-owner-7a42.json i build-setup-owner-7a42.log.
+
+Ograniczenie diagnostyczne pozostaje widoczne. Stan transportu zawiera
+kolejka_codex=true i ostrzezenie_wznowienia=true. Lokalny daemon zgłosił
+active writer dla wątku otwartego w desktopie. Mimo ostrzeżenia desktop
+rzeczywiście uruchomił turę z natywnej kolejki. Kryteria obudzenia, odbioru
+i wykonania są spełnione. Kryterium całkowitego braku ostrzeżenia jest
+niespełnione i pozostaje jawne w raporcie.
+
+Wiadomość operatora miała typ odpowiedz i powstała jako odpowiedź na wcześniejszy
+meldunek. Taki wpis nie zakłada obiegu zadania wymagającego FIN. Wynik zostanie
+odesłany jako powiązana odpowiedz, zgodnie z normalną ścieżką protokołu.
+Niezależna weryfikacja tego przebiegu przez Claude jest w toku.
