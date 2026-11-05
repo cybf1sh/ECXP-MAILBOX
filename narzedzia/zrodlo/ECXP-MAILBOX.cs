@@ -18,8 +18,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.4.0.0")]
-[assembly: AssemblyFileVersion("3.4.0.0")]
+[assembly: AssemblyVersion("3.4.1.0")]
+[assembly: AssemblyFileVersion("3.4.1.0")]
 
 namespace Ecxp
 {

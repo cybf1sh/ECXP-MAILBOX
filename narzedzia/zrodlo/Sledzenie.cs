@@ -145,8 +145,42 @@ namespace Ecxp
             split.Panel1.Controls.Add(lista); split.Panel2.Controls.Add(os);
             f.Controls.Add(split); f.Controls.Add(gora);
             string podpis = ""; string wybrany = ""; string osPodpis = "";
+            // Przebudowa listy i przywrócenie zaznaczenia wywołują SelectedIndexChanged od razu (wewnątrz Items.Clear
+            // i it.Selected). Bez tej blokady obsługa zdarzenia przebudowywała listę od nowa – rekurencja bez końca
+            // i przepełnienie stosu (awaria konsoli 3.4.0.0, 2026-11-05 00:54).
+            bool budowanie = false;
             Action odswiez = () =>
             {
+                if (budowanie) return;
+                budowanie = true;
+                try { OdswiezSledzenie(lista, os, zakres, ref podpis, ref osPodpis, wybrany); }
+                finally { budowanie = false; }
+            };
+            lista.SelectedIndexChanged += delegate
+            {
+                if (budowanie) return;
+                wybrany = lista.SelectedItems.Count > 0 ? ((Msg)lista.SelectedItems[0].Tag).Id : ""; osPodpis = ""; odswiez();
+            };
+            lista.DoubleClick += delegate { if (lista.SelectedItems.Count > 0) OtworzWiadomosc((Msg)lista.SelectedItems[0].Tag); };
+            zakres.SelectedIndexChanged += delegate { podpis = ""; odswiez(); };
+            var zegar = new Timer { Interval = 1000 };
+            int tik = 0;
+            zegar.Tick += delegate
+            {
+                // licznik co sekundę; oś czasu (czytanie dziennika) co 5 s
+                if (++tik % 5 != 0) { var teraz = DateTime.Now; foreach (ListViewItem it in lista.Items) it.SubItems[1].Text = CzasOd(teraz - ((Msg)it.Tag).Czas); return; }
+                odswiez();
+            };
+            f.Shown += delegate { odswiez(); zegar.Start(); };
+            f.FormClosed += delegate { zegar.Stop(); zegar.Dispose(); };
+            Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
+            os.BackColor = Motyw.Pole; os.ForeColor = Motyw.Tekst;
+            f.Show(form);
+        }
+
+        // Jedno odświeżenie okna śledzenia. Wywołujący pilnuje, by nie było zagnieżdżone (blokada „budowanie”).
+        void OdswiezSledzenie(ListView lista, RichTextBox os, ComboBox zakres, ref string podpis, ref string osPodpis, string wybrany)
+        {
                 var teraz = DateTime.Now;
                 var granica = zakres.SelectedIndex == 0 ? teraz.AddDays(-1) : zakres.SelectedIndex == 1 ? teraz.AddDays(-3) : zakres.SelectedIndex == 2 ? teraz.AddDays(-7) : DateTime.MinValue;
                 var wyslane = msgs.Where(m => Wyslana(m) && m.Czas >= granica && P.PoprawnyNadawca(m.Do)).OrderByDescending(m => m.Czas).ToList();
@@ -183,23 +217,6 @@ namespace Ecxp
                     if (t != osPodpis) { os.Text = t; osPodpis = t; }
                 }
                 else if (os.TextLength > 0 && wybrany.Length == 0) { os.Clear(); osPodpis = ""; }
-            };
-            lista.SelectedIndexChanged += delegate { wybrany = lista.SelectedItems.Count > 0 ? ((Msg)lista.SelectedItems[0].Tag).Id : ""; osPodpis = ""; odswiez(); };
-            lista.DoubleClick += delegate { if (lista.SelectedItems.Count > 0) OtworzWiadomosc((Msg)lista.SelectedItems[0].Tag); };
-            zakres.SelectedIndexChanged += delegate { podpis = ""; odswiez(); };
-            var zegar = new Timer { Interval = 1000 };
-            int tik = 0;
-            zegar.Tick += delegate
-            {
-                // licznik co sekundę; oś czasu (czytanie dziennika) co 5 s
-                if (++tik % 5 != 0) { var teraz = DateTime.Now; foreach (ListViewItem it in lista.Items) it.SubItems[1].Text = CzasOd(teraz - ((Msg)it.Tag).Czas); return; }
-                odswiez();
-            };
-            f.Shown += delegate { odswiez(); zegar.Start(); };
-            f.FormClosed += delegate { zegar.Stop(); zegar.Dispose(); };
-            Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
-            os.BackColor = Motyw.Pole; os.ForeColor = Motyw.Tekst;
-            f.Show(form);
         }
     }
 }
