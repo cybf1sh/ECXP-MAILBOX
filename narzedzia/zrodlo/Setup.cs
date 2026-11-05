@@ -1,4 +1,4 @@
-// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
+﻿// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
 // adapter MCP dla agentów Claude Code i ChatGPT/Codex oraz hook lustra czatu.
 // Jeden plik: programy są zasobami tego exe. Instalacja dla bieżącego użytkownika, bez uprawnień administratora.
 //

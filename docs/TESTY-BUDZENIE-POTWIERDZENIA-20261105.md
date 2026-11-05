@@ -60,3 +60,29 @@ Test całego zadania wysłanego z ECXP-MAILBOX na żywo jest jeszcze do wykonani
 Nie traktujemy samego znacznika transportu jako zakończonego testu zadania.
 Nie przebudowano jeszcze instalatora ani nie podmieniono działającej instalacji.
 Brak push/merge/USER_ACCEPTED. Stan orkiestracji nie był ręcznie edytowany.
+
+
+## Poprawki po recenzji Claude e776
+
+- Potwierdzenie odbioru nie wykonuje ACK-przy-okazji. W dzienniku zadanie pozostaje
+  przyjęte (przyjeta), a wykonanie odnotowuje dopiero obieg_fin. Test obejmuje
+  zarówno ecxp_odbierz, jak i jawny w_trakcie.
+- Ostrzeżenie could not resume jest jawnie pokazywane. Potwierdzenie dodania
+  do kolejki oznacza poprawny transport, nie udane wykonanie lub odbiór zadania.
+  Po dodaniu powiadomienia stos nie dodaje następnych kopii; po 5 min bez ACK
+  alarmuje. Aktywna sesja ma 2 min na samodzielny odbiór. Przy starcie wrócił
+  okres 20 s na rejestrację sesji.
+- Atrapa CLI jest w repo (AtrapaKolejkiCodex.cs). Test bez argumentów zwraca
+  instrukcję użycia i kod 2 zamiast wyjątku.
+- Marker QUEUE-B z --resume wykazał rzeczywiste zachowanie na stanowisku:
+  dodano wiadomość, lecz CLI ostrzegło, że lokalny daemon nie działa. To jest
+  dowód dodania do kolejki, nadal nie jest dowodem obudzenia bezczynnej sesji.
+- Uruchomienie automatycznego budzenia przy obecnych regułach zgód pozostaje
+  decyzją operatora wskazaną w recenzji. Do tej decyzji i pozytywnej recenzji
+  poprawki nie są wdrażane.
+
+Odtworzenie testu potwierdzeń (z narzedzia/zrodlo; CSC = systemowy csc.exe):
+1. CSC /target:exe /out:<builds>/AtrapaKolejkiCodex.exe AtrapaKolejkiCodex.cs
+2. CSC z opcjami RDZEN z buduj.cmd oraz TestPotwierdzen.cs,
+   /target:exe /main:Ecxp.TestPotwierdzen /out:<builds>/TestPotwierdzen.exe
+3. TestPotwierdzen.exe <pusty katalog> <builds>/AtrapaKolejkiCodex.exe

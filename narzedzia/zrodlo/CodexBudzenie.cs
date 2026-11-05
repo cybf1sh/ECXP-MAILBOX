@@ -8,6 +8,11 @@ namespace Ecxp
 {
     static class CodexBudzenie
     {
+        const string KolejkaPrefix = "powiadomienie w natywnej kolejce Codexa: ";
+        const string WznowieniePrefix = "; wznowienie niepotwierdzone: ";
+        public static bool DodanoDoKolejki(string wynik) { return (wynik ?? "").StartsWith(KolejkaPrefix,StringComparison.Ordinal); }
+        public static bool NieWznowiono(string wynik) { return (wynik ?? "").Contains(WznowieniePrefix); }
+
         public static string NatywnyProgram(string program)
         {
             if (string.IsNullOrEmpty(program)) throw new EcxpException("Brak Codex CLI.");
@@ -61,8 +66,10 @@ namespace Ecxp
             if(kod != 0 || !m.Success || !string.Equals(m.Groups[2].Value,watek,StringComparison.OrdinalIgnoreCase))
                 throw new EcxpException("Nie potwierdzono dodania powiadomienia do kolejki Codexa (kod " + kod + "). " + (err.Length > 400 ? err.Substring(0,400) : err));
             // Samo dodanie do kolejki nie jest ACK zadania. Odbiór i wykonanie potwierdza później właściciel sesji przez ECXP.
-            return "powiadomienie w natywnej kolejce Codexa: " + m.Groups[1].Value + "; oczekuję na odbiór ECXP" +
-                (err.Length > 0 ? "; " + (err.Length > 300 ? err.Substring(0,300) : err) : "");
+            bool bladWznowienia = Regex.IsMatch(err, @"could not resume|failed to resume|unable to resume|cannot resume|start a local daemon",RegexOptions.IgnoreCase);
+            return KolejkaPrefix + m.Groups[1].Value + "; oczekuję na odbiór ECXP" +
+                (err.Length > 0 ? (bladWznowienia ? WznowieniePrefix : "; ostrzeżenie CLI: ") + (err.Length > 300 ? err.Substring(0,300) : err) : "");
+
         }
     }
 }

@@ -42,6 +42,7 @@ namespace Ecxp
             {
                 watcher.Created += delegate { zmiana.Set(); }; watcher.Renamed += delegate { zmiana.Set(); }; watcher.Changed += delegate { zmiana.Set(); };
                 watcher.EnableRaisingEvents = true;
+                Thread.Sleep(20000); // czas na zgłoszenie sesji po uruchomieniu stosu; zdarzenia obserwatora pozostają zapamiętane
                 while (true)
                 {
                     try { Krok(); } catch (Exception ex) { Log("doręczanie: " + ex.Message); }
@@ -127,13 +128,19 @@ namespace Ecxp
                     if ((DateTime.Now - najstarsza).TotalMinutes < StartSesjiMin) continue;
                     powodAlarmu = kto + " nie ma sesji na tym komputerze (czekano " + P.Wiek(DateTime.Now - najstarsza) + "; ostatni kontakt: " + Kontakt(kto) + ").";
                 }
+                else if (cel.Strona == "codex" && P.B(pr,"kolejka_codex"))
+                {
+                    // Powiadomienie już jest w natywnej kolejce. Nie dodawaj kolejnych identycznych tur.
+                    if ((DateTime.Now - (bylaProba ? ost : najstarsza)).TotalMinutes < AlarmClaudeMin) continue;
+                    powodAlarmu = "powiadomienie dla " + kto + " jest w kolejce Codexa, lecz sesja nie potwierdziła odbioru ECXP. " + P.S(pr,"wynik");
+                }
                 else if (nr >= MaxProb) powodAlarmu = "adresat " + kto + " nie odebrał wiadomości – budzenie się nie udało (" + cel.Opis + "; " + P.S(pr, "wynik") + ").";
                 else if (wylaczone)
                 {
                     if ((DateTime.Now - najstarsza).TotalMinutes < 30) continue;          // budzenie wyłączone – sam alarm po 30 min
                     powodAlarmu = "adresat " + kto + " nie odebrał wiadomości od " + P.Wiek(DateTime.Now - najstarsza) + " (budzenie wyłączone w stan\\doreczanie.json).";
                 }
-                else if (cel.Aktywna && cel.Strona != "codex") continue;   // Codex odbiera powiadomienie w swojej natywnej kolejce także podczas pracy
+                else if (cel.Aktywna && (cel.Strona != "codex" || (DateTime.Now - najstarsza).TotalMinutes < AktywnaSesjaMin)) continue; // aktywna sesja ma chwilę na samodzielny odbiór
                 else if (cel.Strona == "claude")
                 {
                     // sesji Claude stos nie budzi sam (patrz opis na górze pliku) – alarm z instrukcją, hook przypomni sesji przy wpisie
@@ -286,21 +293,6 @@ namespace Ecxp
             catch { return null; }
         }
 
-        // Reguły automatycznej zgody Codexa (~/.codex/rules i <katalog>\.codex\rules): decision="allow" pozwala wykonać polecenie bez pytania.
-        public static bool RegulyZgodyCodex(string katalog)
-        {
-            var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            foreach (var d in new[] { Path.Combine(dom, ".codex", "rules"), Path.Combine(katalog ?? "", ".codex", "rules") })
-                try
-                {
-                    if (!Directory.Exists(d)) continue;
-                    foreach (var f in Directory.GetFiles(d, "*.rules"))
-                        if (Regex.IsMatch(P.Czytaj(f), "decision\\s*=\\s*\"allow\"")) return true;
-                }
-                catch { return true; }   // nie da się sprawdzić – ostrożnie: jakby reguły były
-            return false;
-        }
-
         // Wątki Codexa z ostatnich 14 dni, których pierwszą wiadomością operatora był pakiet startowy tej sesji (najnowszy).
         static string WatekZPakietu(string kto)
         {
@@ -451,7 +443,10 @@ namespace Ecxp
                     var p = proby.ContainsKey(kto) && proby[kto] is Dictionary<string, object> ? (Dictionary<string, object>)proby[kto] : pr;
                     p["wynik"] = wynik.Length > 300 ? wynik.Substring(0, 300) : wynik; p["sekund"] = (int)(DateTime.Now - start).TotalSeconds;
                     p["czas"] = P.S(pr, "czas").Length > 0 ? P.S(pr, "czas") : start.ToString("o");
-                    p["ok"] = wynik.Contains("zakończona");
+                    bool kolejka = cel.Strona == "codex" && CodexBudzenie.DodanoDoKolejki(wynik);
+                    p["ok"] = kolejka || wynik.Contains("zakończona");
+                    if (kolejka) { p["kolejka_codex"] = true; p["ostrzezenie_wznowienia"] = CodexBudzenie.NieWznowiono(wynik); }
+
                     if (P.B(pr, "na_zadanie")) p["na_zadanie"] = true;
                     // wątek otwarty w aplikacji Codex: kolejne próby nic nie dadzą – alarm u operatora w najbliższym kroku
                     if (wynik.Contains("otwarty i zajęty")) p["nr"] = MaxProb;

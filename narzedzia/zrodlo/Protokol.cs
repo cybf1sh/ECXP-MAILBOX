@@ -614,7 +614,7 @@ namespace Ecxp
 
                 // Potwierdzenie doklejone do odpowiedzi (jak ACK w TCP): odpowiedź na wiadomość do mnie ją potwierdza.
                 string ack = "";
-                if (org != null && DoMnie(n.Od, org.Do) && org.Katalog != "przeczytane" && org.Katalog != "archiwum")
+                if (org != null && n.EtapObiegu != "odebrane" && DoMnie(n.Od, org.Do) && org.Katalog != "przeczytane" && org.Katalog != "archiwum")
                 {
                     PotwierdzPlik(org, n.Od, "obsluzona", "odpowiedź " + id);
                     ack = org.Id;

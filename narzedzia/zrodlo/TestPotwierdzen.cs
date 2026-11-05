@@ -10,6 +10,7 @@ class TestPotwierdzen {
  static void Check(bool ok,string name){Console.WriteLine((ok?"PASS ":"FAIL ")+name);if(!ok)failures++;}
  static List<Msg> Operator(){return P.Wszystkie(false).Where(m=>m.Do==P.Wlasciciel).ToList();}
  public static int Main(string[] args){
+  if(args.Length<2){Console.Error.WriteLine("Użycie: TestPotwierdzen.exe <pusty katalog> <AtrapaKolejkiCodex.exe>");return 2;}
   P.Root=Path.GetFullPath(args[0]);Directory.CreateDirectory(P.Root);if(Directory.EnumerateFileSystemEntries(P.Root).Any())throw new Exception("Empty fixture required");
   foreach(var d in P.Foldery)Directory.CreateDirectory(Path.Combine(P.Root,d));
   var config=Path.Combine(P.Root,"projekty","test");Directory.CreateDirectory(config);
@@ -23,12 +24,15 @@ class TestPotwierdzen {
   var receipt=Operator().SingleOrDefault(m=>m.EtapObiegu=="odebrane");
   Check(receipt!=null && receipt.Od=="codex-p" && receipt.OdpNa==c.Id,"receipt immediately visible with original request ID");
   Check(!Obieg.WynikAdresata(receipt,"codex-p"),"receipt does not mark task completed");
+  string chain;var state=P.Stany(out chain);
+  Check(state[c.Id].Wynik=="przyjeta","receipt preserves audit ACK=przyjeta, not obsluzona");
   P.Odbierz("codex-p",50);Check(Operator().Count==1,"repeated receive does not duplicate receipt");
   var n=new P.Nowa{Od="codex-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="fin",OdpNa=c.Id,Tresc="POZYTYWNY - wynik Codexa"};
   Siec.Wyslij(n);
   var part=Operator().SingleOrDefault(m=>m.EtapObiegu=="fin_czesciowy");
   Check(part!=null && part.OdpNa==c.Id && part.Uwagi.Contains("wynik Codexa"),"first FIN visible while partner pending");
   Check(Obieg.Otwarte().Count==1,"partial FIN preserves open pair");
+  Check(File.ReadLines(Path.Combine(P.Root,"dziennik","dziennik.jsonl")).Any(line=>line.Contains("obieg_fin") && line.Contains("codex-p")),"completion is recorded by FIN event after execution");
   Check(Obieg.WynikAdresata(part,"codex-p") && !Obieg.WynikAdresata(part,"claude-p"),"partial FIN completes only sender");
   int before=Operator().Count;Siec.Wyslij(n);Check(Operator().Count==before,"repeated partial FIN is idempotent");
   P.Odbierz("claude-p",50);
@@ -43,6 +47,7 @@ class TestPotwierdzen {
   string soloId=P.S(solo,"id");
   Siec.Wyslij(new P.Nowa{Od="codex-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="w_trakcie",OdpNa=soloId});
   Check(Operator().Count(m=>m.OdpNa==soloId && m.EtapObiegu=="odebrane")==1,"explicit in-progress notification also reports receipt");
+  state=P.Stany(out chain);Check(state[soloId].Wynik=="przyjeta","explicit in-progress also preserves audit ACK=przyjeta");
   P.Odbierz("codex-p",50);
   Check(Operator().Count(m=>m.OdpNa==soloId && m.EtapObiegu=="odebrane")==1,"later receive does not duplicate explicit receipt");
   Siec.Wyslij(new P.Nowa{Od="codex-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="fin",OdpNa=soloId,Tresc="POZYTYWNY - solo"});
@@ -58,6 +63,8 @@ class TestPotwierdzen {
    Check(process.ExitCode==0 && output.Contains("TEXT_BASE64:"+Convert.ToBase64String(Encoding.UTF8.GetBytes(text))),"argument quoting preserves Unicode, quotes, metacharacters and trailing slash");
   }
   Check(CodexBudzenie.Wyslij(args[1],id,"test",P.Root).Contains("kolejce"),"queue confirmation is not reported as ACK or completion");
+  string noResume=CodexBudzenie.Wyslij(args[1],id,"NO_RESUME",P.Root);
+  Check(CodexBudzenie.DodanoDoKolejki(noResume) && CodexBudzenie.NieWznowiono(noResume),"failed resume is explicit while transport is correctly marked queued");
   foreach(var bad in new[]{"ERROR","WRONG_THREAD"}){rejected=false;try{CodexBudzenie.Wyslij(args[1],id,bad,P.Root);}catch(EcxpException){rejected=true;}Check(rejected,"zero exit insufficient without matching confirmation: "+bad);}
   Console.WriteLine("RESULT: "+failures+" failed");return failures;
  }
