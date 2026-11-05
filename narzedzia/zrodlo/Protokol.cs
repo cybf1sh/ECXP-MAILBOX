@@ -30,7 +30,7 @@ namespace Ecxp
 {
     class Msg
     {
-        public string Id = "", Plik = "", Katalog = "", Sciezka = "", Od = "", Do = "", Projekt = "", Modul = "", Temat = "", Status = "", Typ = "",
+        public string Id = "", Plik = "", Katalog = "", Sciezka = "", Od = "", Do = "", Projekt = "", Modul = "", Temat = "", Status = "", EtapObiegu = "", Typ = "",
             Uwagi = "", Ograniczenia = "", Commit = "", OdpNa = "", WatekPole = "", Watek = "", Blad;
         public long Seq;
         public bool Pilne, Nowa, WymagaOdp, Odpowiedziano, NowyFormat;
@@ -367,7 +367,7 @@ namespace Ecxp
             {
                 Plik = f.Name, Katalog = katalog, Sciezka = f.FullName, Blad = blad,
                 Od = S(d, "od"), Do = S(d, "do"), Projekt = S(d, "projekt"), Modul = S(d, "modul"), Temat = S(d, "temat"), Status = S(d, "status"),
-                Typ = S(d, "typ"), Uwagi = S(d, "uwagi"), Ograniczenia = S(d, "ograniczenia"), Commit = S(d, "commit"),
+                Typ = S(d, "typ"), EtapObiegu = S(d, "etap_obiegu"), Uwagi = S(d, "uwagi"), Ograniczenia = S(d, "ograniczenia"), Commit = S(d, "commit"),
                 OdpNa = S(d, "odpowiedz_na"), WatekPole = S(d, "watek"), Pilne = B(d, "pilne"),
                 NowyFormat = S(d, "protokol").Length > 0,
                 Kontrole = L(d, "kontrole"), Pliki = L(d, "pliki")
@@ -519,7 +519,7 @@ namespace Ecxp
         // ---------- wysyłanie ----------
         public class Nowa
         {
-            public string Od = "", Do = "", Projekt = "", Modul = "wspolne", Typ = "informacja", Temat = "", Tresc = "", OdpNa = "", Commit = "", Ograniczenia = "";
+            public string Od = "", Do = "", Projekt = "", Modul = "wspolne", Typ = "informacja", Temat = "", Tresc = "", OdpNa = "", Commit = "", Ograniczenia = "", EtapObiegu = "";
             public bool Pilne;
             public bool BezKopii;        // operator wybrał jednego agenta: druga strona pary nie dostaje kopii
             public List<string> Kontrole = new List<string>(), Pliki = new List<string>();
@@ -583,6 +583,7 @@ namespace Ecxp
                 if (projekt.Length > 0) d["projekt"] = projekt;
                 d["modul"] = modul; d["typ"] = n.Typ; d["status"] = StatusZTypu(n.Typ);
                 d["temat"] = temat; d["pilne"] = n.Pilne;
+                if (n.EtapObiegu.Length > 0) d["etap_obiegu"] = n.EtapObiegu;
                 if (org != null) d["odpowiedz_na"] = org.Id;
                 d["watek"] = n.Watek.Length > 0 ? n.Watek : org != null ? (org.WatekPole.Length > 0 ? org.WatekPole : org.Id) : id;
                 if (n.Lustro.Count > 1) { d["lustro"] = n.Lustro; d["lustro_id"] = n.LustroId; }

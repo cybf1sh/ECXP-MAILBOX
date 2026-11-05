@@ -36,7 +36,7 @@ namespace Ecxp
         Msg OdpowiedzNa(Msg m)
         {
             var ids = new HashSet<string>(IdKopii(m));
-            return msgs.Where(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) && x.Od != P.Wlasciciel && (x.Od == m.Do || x.Typ == "fin"))
+            return msgs.Where(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) && x.Od != P.Wlasciciel && Obieg.WynikAdresata(x, m.Do))
                 .OrderBy(x => x.Czas).FirstOrDefault();
         }
 

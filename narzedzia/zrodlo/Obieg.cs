@@ -1,7 +1,7 @@
 // ECXP – obieg zadania operatora: zadanie → (w trakcie) → FIN.
 //  * Zadanie operatora zakłada zapis stan\obieg\<klucz>.json: kto wykonuje, kto sprawdza, stan każdego agenta.
-//  * „W trakcie” to stan w stosie, nie wiadomość: zapisuje go odbiór zadania (albo typ=w_trakcie). Operator nic nie dostaje.
-//  * FIN agenta też nie trafia od razu do operatora: w parze FIN wykonawcy idzie do sprawdzającego, a operator dostaje
+//  * Odbiór ustawia „w trakcie” i od razu informuje operatora. FIN każdej strony jest widoczny, wspólny FIN nadal zamyka parę.
+//  * W parze FIN wykonawcy idzie też do sprawdzającego, a operator dostaje
 //    jeden wspólny FIN, gdy skończą wszyscy. Zadanie dla jednego agenta: jego FIN od razu do operatora.
 //  * Nadzór: agent bez FIN dostaje przypomnienie (agent w tle – turę, sesja w aplikacji – wiadomość), po MaxPrzypomnien alarm.
 using System;
@@ -70,7 +70,7 @@ namespace Ecxp
             P.Zdarzenie("obieg_zalozony", P.D("klucz", r["klucz"], "agenci", agenci.Keys.ToList()));
         }
 
-        // ---------- odbiór: zadanie przyjęte = „w trakcie”, wiadomość potwierdzona (bez meldunku do operatora) ----------
+        // ---------- odbiór: „w trakcie”, ACK i widoczne potwierdzenie dla operatora ----------
         public static void Odebrane(string ja, IEnumerable<Msg> odebrane)
         {
             foreach (var m in odebrane.ToList())
@@ -79,9 +79,19 @@ namespace Ecxp
                 if (r == null || P.B(r, "zakonczone")) continue;
                 var w = Wpis(r, ja);
                 if (w == null) continue;
-                if (P.S(w, "stan") == "wyslane") { w["stan"] = "w_trakcie"; w["zmiana"] = P.Teraz(); Zapisz(r); }
+                if (P.S(w, "stan") == "wyslane") PotwierdzenieOdbioru(r,w,ja);
                 try { if (File.Exists(m.Sciezka) && m.Katalog != "przeczytane") P.PotwierdzPlik(m, ja, "przyjeta", "w trakcie (ECXP)"); } catch { }
             }
+        }
+
+        static void PotwierdzenieOdbioru(Dictionary<string, object> r, Dictionary<string, object> w, string ja)
+        {
+            if (P.S(w,"odbior_do_operatora").Length > 0) return;
+            w["stan"] = "w_trakcie"; w["zmiana"] = P.Teraz();
+            var potw = P.Wyslij(new P.Nowa { Od = ja, Do = P.Wlasciciel, Projekt = P.S(r,"projekt"), Modul = P.S(r,"modul"),
+                Typ = "informacja", EtapObiegu = "odebrane", Temat = "Odebrano: " + P.S(r,"temat"), OdpNa = P.S(w,"zadanie"), Watek = P.S(r,"klucz"),
+                Tresc = P.Nazwa(ja) + " odebrał zadanie „" + P.S(r,"temat") + "”. Zadanie jest w trakcie; po zakończeniu otrzymasz wynik tej strony." });
+            w["odbior_do_operatora"] = potw["id"]; Zapisz(r);
         }
 
         static void PotwierdzZadania(Dictionary<string, object> r, string ja)
@@ -118,23 +128,34 @@ namespace Ecxp
             var w = Wpis(r, n.Od);
             if (!fin)
             {
-                if (P.S(w, "stan") == "wyslane") { w["stan"] = "w_trakcie"; w["zmiana"] = P.Teraz(); }
+                if (P.S(w, "stan") == "wyslane") PotwierdzenieOdbioru(r,w,n.Od);
                 Zapisz(r);
                 var m = P.Znajdz(P.S(w, "zadanie"));
                 if (m != null && m.Katalog != "przeczytane" && m.Katalog != "archiwum") P.PotwierdzPlik(m, n.Od, "przyjeta", "w trakcie (ECXP)");
-                return P.D("ack", true, "stan", "w_trakcie", "zadanie", r["klucz"], "uwagi", "Zapisane w stosie – operator nic nie dostaje. Po wykonaniu wyślij typ=fin.");
+                return P.D("ack", true, "stan", "w_trakcie", "zadanie", r["klucz"], "uwagi", "Odbiór zadania jest widoczny dla operatora. Po wykonaniu wyślij typ=fin.");
             }
             if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("FIN bez treści: napisz wynik POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś.");
             var ag = Agenci(r);
             var wyk = ag.Where(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca").Select(kv => kv.Key).FirstOrDefault() ?? "";
             if (P.S(w, "rola") == "sprawdzajacy" && wyk.Length > 0 && P.S(Wpis(r, wyk), "stan") != "fin")
                 throw new EcxpException("Zadanie wykonuje " + wyk + ". Poczekaj na jego FIN (stos Ci go przekaże), wtedy sprawdź wynik i wyślij swój FIN. Teraz zakończ turę.");
+            if (P.S(w,"stan") == "fin")
+                return P.D("ack",true,"stan","fin","zadanie",r["klucz"],"fin_do_operatora",P.S(w,"fin_czesciowy_do_operatora"),"uwagi","Ten wynik został już zapisany; nie wysłano duplikatu.");
             w["stan"] = "fin"; w["fin"] = n.Tresc.Trim(); w["zmiana"] = P.Teraz();
             Zapisz(r);
             PotwierdzZadania(r, n.Od);
             P.Zdarzenie("obieg_fin", P.D("klucz", r["klucz"], "kto", n.Od));
             P.Sygnal(n.Od, "wyslij");
 
+            // Wynik zakończonej strony jest od razu widoczny. Cały obieg pozostaje otwarty do wspólnego FIN.
+            if (ag.Values.Cast<Dictionary<string,object>>().Any(x => P.S(x,"stan") != "fin"))
+            {
+                var czesc = P.Wyslij(new P.Nowa { Od=n.Od,Do=P.Wlasciciel,Projekt=P.S(r,"projekt"),Modul=P.S(r,"modul"),
+                    Typ="fin",EtapObiegu="fin_czesciowy",Temat="FIN " + P.Nazwa(n.Od) + ": " + P.S(r,"temat"),
+                    OdpNa=P.S(w,"zadanie"),Watek=P.S(r,"klucz"),Tresc=n.Tresc.Trim()+"\n\nTo wynik tej strony. Wspólny FIN zadania otrzymasz po zakończeniu pozostałych adresatów.",
+                    Pliki=n.Pliki,Czesci=n.Czesci,Commit=n.Commit });
+                w["fin_czesciowy_do_operatora"]=czesc["id"]; Zapisz(r);
+            }
             // wykonawca skończył, sprawdzający jeszcze nie: wynik idzie do sprawdzającego, operator czeka na wspólny FIN
             var spr = ag.Where(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "sprawdzajacy" && P.S(kv.Value as Dictionary<string, object>, "stan") != "fin").Select(kv => kv.Key).FirstOrDefault();
             if (P.S(w, "rola") == "wykonawca" && spr != null)
@@ -150,10 +171,10 @@ namespace Ecxp
                 var prz = P.L(r, "przekazane"); prz.Add((string)p["id"]); r["przekazane"] = prz;
                 ws["zmiana"] = P.Teraz();
                 Zapisz(r);
-                return P.D("ack", true, "stan", "fin", "zadanie", r["klucz"], "przekazano", spr, "uwagi", "FIN zapisany. Stos przekazał wynik " + spr + " do sprawdzenia; operator dostanie wspólny FIN. Zakończ turę.");
+                return P.D("ack", true, "stan", "fin", "zadanie", r["klucz"], "przekazano", spr, "uwagi", "Twój FIN jest widoczny dla operatora. Stos przekazał wynik " + spr + " do sprawdzenia; operator dostanie wspólny FIN. Zakończ turę.");
             }
             if (ag.Values.Cast<Dictionary<string, object>>().Any(x => P.S(x, "stan") != "fin"))
-                return P.D("ack", true, "stan", "fin", "zadanie", r["klucz"], "uwagi", "FIN zapisany. Operator dostanie wspólny FIN, gdy skończy druga strona. Zakończ turę.");
+                return P.D("ack", true, "stan", "fin", "zadanie", r["klucz"], "uwagi", "Twój FIN jest widoczny dla operatora. Wspólny FIN powstanie po zakończeniu pozostałych stron. Zakończ turę.");
 
             return FinWspolny(r, w, n);
         }
@@ -173,7 +194,7 @@ namespace Ecxp
                 }));
             var f = P.Wyslij(new P.Nowa
             {
-                Od = n.Od, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Temat = "FIN " + P.S(r, "temat"),
+                Od = n.Od, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", EtapObiegu = "fin_wspolny", Temat = "FIN " + P.S(r, "temat"),
                 OdpNa = P.S(w, "zadanie"), Tresc = tresc, Pliki = n.Pliki, Czesci = n.Czesci, Commit = n.Commit
             });
             r["zakonczone"] = true; r["zakonczone_czas"] = P.Teraz(); r["fin_do_operatora"] = f["id"];
@@ -222,6 +243,13 @@ namespace Ecxp
         public static Dictionary<string, object> OtwarteDla(string n, string projekt)
         {
             return Otwarte().FirstOrDefault(r => Wpis(r, n) != null && (projekt.Length == 0 || P.S(r, "projekt") == projekt));
+        }
+
+        // Potwierdzenie odbioru nie kończy pracy. Częściowy FIN dotyczy wyłącznie swojego adresata.
+        public static bool WynikAdresata(Msg odpowiedz, string adresat)
+        {
+            if (odpowiedz.EtapObiegu == "odebrane") return false;
+            return odpowiedz.Od == adresat || (odpowiedz.Typ == "fin" && odpowiedz.EtapObiegu != "fin_czesciowy");
         }
 
         // ---------- gwarancja FIN ----------

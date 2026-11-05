@@ -1,4 +1,4 @@
-﻿// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
+// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
@@ -18,8 +18,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.4.1.0")]
-[assembly: AssemblyFileVersion("3.4.1.0")]
+[assembly: AssemblyVersion("3.5.0.0")]
+[assembly: AssemblyFileVersion("3.5.0.0")]
 
 namespace Ecxp
 {
@@ -5482,8 +5482,8 @@ namespace Ecxp
                 var zadCl = P.Wszystkie(false).First(m => m.Do == "claude-elan" && m.Typ == "zadanie" && m.LustroId == zadL.LustroId);
                 int przed0 = doOperatora();
                 var odbC = P.Odbierz("codex-elan", 10);
-                ok(odbC.Any(x => P.S(x, "id") == zadL.Id) && P.Znajdz(zadL.Id).Katalog == "przeczytane" && doOperatora() == przed0,
-                    "odbiór zadania = ACK i „w trakcie” w stosie – bez wiadomości do operatora");
+                ok(odbC.Any(x => P.S(x, "id") == zadL.Id) && P.Znajdz(zadL.Id).Katalog == "przeczytane" && doOperatora() == przed0 + 1,
+                    "odbiór zadania = ACK, stan w trakcie i widoczne potwierdzenie operatorowi");
                 ok(!odbC[0].ContainsKey("plik") && !odbC[0].ContainsKey("seq") && !odbC[0].ContainsKey("wymaga_odpowiedzi"), "odbiór bez zbędnych pól (mniej tokenów)");
                 ok(Agenci.BezOdpowiedzi("codex-elan") != null && Agenci.BezOdpowiedzi("codex-elan").Id == zadL.Id, "gwarancja FIN: wykonawca winien FIN po odbiorze");
                 ok(Agenci.BezOdpowiedzi("claude-elan") == null, "sprawdzający przed FIN wykonawcy nic nie jest winien");
@@ -5493,13 +5493,13 @@ namespace Ecxp
                     "FIN sprawdzającego przed FIN wykonawcy odrzucony");
                 var finA = Siec.Wyslij(new P.Nowa { Od = "codex-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "POZYTYWNY – plik zapisany.", OdpNa = zadL.Id });
                 var doSpr = P.Wszystkie(false).Where(m => m.Do == "claude-elan" && m.Od == "codex-elan" && m.Uwagi.Contains("POZYTYWNY – plik zapisany")).ToList();
-                ok(P.B(finA, "ack") && P.S(finA, "przekazano") == "claude-elan" && doSpr.Count == 1 && doOperatora() == przed0,
-                    "FIN wykonawcy: ACK, przekazany sprawdzającemu, operator jeszcze nic nie dostał");
+                ok(P.B(finA, "ack") && P.S(finA, "przekazano") == "claude-elan" && doSpr.Count == 1 && doOperatora() == przed0 + 2,
+                    "FIN wykonawcy: widoczny operatorowi i przekazany sprawdzającemu");
                 ok(Agenci.BezOdpowiedzi("codex-elan") == null && Agenci.BezOdpowiedzi("claude-elan") != null && Agenci.BezOdpowiedzi("claude-elan").Id == zadCl.Id,
                     "po FIN wykonawcy FIN jest winien sprawdzający");
                 var finB = Siec.Wyslij(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "POZYTYWNY – sprawdzone.", OdpNa = zadCl.Id });
                 var finy = P.Wszystkie(false).Where(m => m.Do == P.Wlasciciel && m.Typ == "fin").ToList();
-                ok(P.S(finB, "stan") == "zakonczone" && doOperatora() == przed0 + 1 && finy.Count == 1 && finy[0].Uwagi.Contains("plik zapisany") && finy[0].Uwagi.Contains("sprawdzone"),
+                ok(P.S(finB, "stan") == "zakonczone" && doOperatora() == przed0 + 3 && finy.Count == 2 && finy.Single(m => m.EtapObiegu == "fin_wspolny").Uwagi.Contains("plik zapisany") && finy.Single(m => m.EtapObiegu == "fin_wspolny").Uwagi.Contains("sprawdzone"),
                     "jeden wspólny FIN do operatora z wynikiem obu");
                 ok(Agenci.BezOdpowiedzi("claude-elan") == null && P.Znajdz(doSpr[0].Id).Katalog == "przeczytane", "po FIN nic nie jest winne, przekazany wynik potwierdzony przez stos");
                 ok(agentWysyla(new P.Nowa { Od = "claude-elan", Do = P.Wlasciciel, Projekt = "testowy", Modul = "elan", Typ = "fin", Tresc = "jeszcze raz", OdpNa = zadCl.Id }).Contains("zakończone"),
