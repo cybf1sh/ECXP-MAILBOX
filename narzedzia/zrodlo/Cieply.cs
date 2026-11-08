@@ -1,4 +1,4 @@
-// ECXP – ciepli agenci w tle: jeden stale działający proces na agenta, gotowy, zanim przyjdzie zadanie.
+﻿// ECXP – ciepli agenci w tle: jeden stale działający proces na agenta, gotowy, zanim przyjdzie zadanie.
 //  * Codex: „codex app-server” (JSON-RPC na stdin/stdout). Każde zadanie to nowy wątek (świeży kontekst) w tym samym
 //    procesie – wątek zakłada się w kilkadziesiąt milisekund.
 //  * Claude: „claude -p” w trybie strumieniowym (stream-json). Po zadaniu proces jest zamykany, a pętla agentów od razu
@@ -101,7 +101,7 @@ namespace Ecxp
         // Konfiguracja procesu: zmiana uprawnień, katalogów albo modelu = nowy proces.
         static string Klucz(Dictionary<string, object> rec)
         {
-            return string.Join("|", new[] { P.S(rec, "strona"), P.S(rec, "katalog"), P.S(rec, "uprawnienia"), P.S(rec, "podwyzszone_klucz"), P.S(rec, "model"),
+            return string.Join("|", new[] { P.S(rec, "strona"), P.S(rec, "katalog"), P.S(rec, "uprawnienia"), P.S(rec, "podwyzszone_klucz"), P.S(rec, "model"), P.B(rec, "pentest").ToString(),
                 string.Join(";", P.L(rec, "katalogi_zapisu")) });
         }
 
@@ -166,7 +166,7 @@ namespace Ecxp
             {
                 var narz = new List<string> { "Read", "Grep", "Glob" };
                 if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
-                if (P.S(rec, "uprawnienia") == "pelne") { narz.Add("Bash"); narz.Add("PowerShell"); }
+                if (P.S(rec, "uprawnienia") == "pelne" || P.B(rec, "pentest")) { narz.Add("Bash"); narz.Add("PowerShell"); }
                 Directory.CreateDirectory(Dir);
                 var mcpCfg = Path.Combine(Dir, w.Nazwa + ".mcp.json");                 // pusta konfiguracja MCP: agent nie widzi ECXP
                 File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
@@ -365,7 +365,7 @@ namespace Ecxp
             {
                 var narz = new List<string> { "Read", "Grep", "Glob" };
                 if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
-                if (P.S(rec, "uprawnienia") == "pelne") { narz.Add("Bash"); narz.Add("PowerShell"); }
+                if (P.S(rec, "uprawnienia") == "pelne" || P.B(rec, "pentest")) { narz.Add("Bash"); narz.Add("PowerShell"); }
                 var mcpCfg = Path.Combine(Dir, n + ".mcp.json");
                 File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
                 // bez trybu „bypassPermissions” (może być zablokowany na stanowisku) – narzędzia dozwolone listą
@@ -377,7 +377,7 @@ namespace Ecxp
             else
             {
                 var tryb = Podwyzszone(rec) ? "danger-full-access" : pisze ? "workspace-write" : "read-only";
-                args = BezEcxpCodex() + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
+                args = BezEcxpCodex() + (P.B(rec, "pentest") ? "-c sandbox_workspace_write.network_access=true " : "") + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
                        (pisze && tryb != "danger-full-access" ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                        " -o \"" + plikWyniku + "\"" +
                        (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
@@ -491,7 +491,7 @@ namespace Ecxp
             string tryb; object polityka;
             if (Podwyzszone(rec)) { tryb = "danger-full-access"; polityka = P.D("type", "dangerFullAccess"); }      // zgoda operatora + UAC, do FIN tego zadania
             else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
-            else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", false); }
+            else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", P.B(rec, "pentest")); }
             var parStart = P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb);
             w.BladProjektu = false;
             string projekt;

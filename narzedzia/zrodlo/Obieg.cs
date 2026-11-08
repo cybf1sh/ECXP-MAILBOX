@@ -214,6 +214,9 @@ namespace Ecxp
                 if (e == null || P.S(e, "stan") == "fin" || P.S(e, "rola") == "sprawdzajacy") continue;
                 var tekst = "NEGATYWNY – nie mogę wykonać zadania: " + powod;
                 var partner = Agenci(r).Where(kv => kv.Key != n && P.S(kv.Value as Dictionary<string, object>, "stan") != "fin").Select(kv => kv.Key).FirstOrDefault();
+                // Pentest wymaga czterech niezależnych testerów i dwóch recenzentów.
+                // Błąd jednego nie może po cichu zmienić składu ani modelu zespołu.
+                if (Pentest.JestModul(P.S(r, "projekt"), P.S(r, "modul"))) partner = null;
                 if (partner == null)
                 {
                     ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Tresc = tekst, OdpNa = P.S(e, "zadanie") });

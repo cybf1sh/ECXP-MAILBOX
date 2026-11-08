@@ -530,6 +530,8 @@ namespace Ecxp
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
                 // agent dostaje samą treść pracy – jak od człowieka; ECXP jest dla niego niewidoczny
                 var polecenie = praca.Tekst;
+                if (P.B(rec, "pentest")) polecenie = "Twój identyfikator testera/recenzenta: " + n +
+                    ". Zapisuj własne pliki z tym identyfikatorem w nazwie.\n\n" + polecenie;
                 // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
                 var cw = Cieply.Wykonaj(rec, polecenie, 30, pr => { lock (trwa) procesy[n] = pr; });
                 kod = cw.Kod; wynik = cw.Wyjscie; odpowiedz = cw.Odpowiedz;

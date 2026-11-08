@@ -18,8 +18,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.5.0.0")]
-[assembly: AssemblyFileVersion("3.5.0.0")]
+[assembly: AssemblyVersion("3.6.0.0")]
+[assembly: AssemblyFileVersion("3.6.0.0")]
 
 namespace Ecxp
 {
@@ -3531,7 +3531,7 @@ namespace Ecxp
                 f.Size = new Size(880, Math.Min(1000, Screen.FromControl(form).WorkingArea.Height - 40));   // ikony i nowy projekt: więcej wierszy
                 var cbP = new ComboBox { Width = 320, DropDownStyle = ComboBoxStyle.DropDown, DrawMode = DrawMode.OwnerDrawFixed, Margin = new Padding(3, 3, 3, 3) };
                 cbP.Items.AddRange(projekty.Cast<object>().ToArray());
-                cbP.Text = cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : (projekty.Count > 0 ? projekty[0] : "evidlockv3");
+                cbP.Text = cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : (projekty.Count > 0 ? projekty[0] : "");
                 cbP.DrawItem += (s, e) => RysujPozycje(cbP, e, IkP);
                 var bNowyP = new Button { Text = "＋  Nowy projekt…", AutoSize = true, Margin = new Padding(10, 1, 3, 1) };
                 var lblNowyP = new Label { AutoSize = true, ForeColor = Color.FromArgb(0, 110, 0), Margin = new Padding(10, 7, 3, 3) };
@@ -3577,6 +3577,16 @@ namespace Ecxp
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
                 f.Zaaw = false;
+                var kategoria = f.Combo("Kategoria:", OpisyIkon.ToList(), "aplikacja / kod");
+                kategoria.DropDownStyle = ComboBoxStyle.DropDownList;
+                kategoria.SelectedIndexChanged += delegate {
+                    foreach (var ik in ikM) ik.Checked = (string)ik.Tag == Siec.Ikony[Math.Max(0, kategoria.SelectedIndex)];
+                };
+                foreach (var ik in ikM) ik.CheckedChanged += delegate {
+                    if (Formularz.WybranaIkona(ikM) == Siec.Ikony[1]) kategoria.SelectedIndex = 1;
+                };
+                if (Formularz.WybranaIkona(ikM) == Siec.Ikony[1] || Formularz.WybranaIkona(ikP) == Siec.Ikony[1]) kategoria.SelectedIndex = 1;
+                f.Uwaga("Bezpieczeństwo / testy: 2 testerów Codex + 2 testerów Claude oraz po 1 recenzencie. Konfiguracja zespołu w następnym kroku.");
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var chSpr = f.Wybor("Druga strona sprawdza wynik (dwa przebiegi – wolniej)", false);
@@ -3625,17 +3635,41 @@ namespace Ecxp
                 cbP.TextChanged += delegate { cele(); };
                 Action agenciZmiana = delegate
                 {
+                    bool pentest = kategoria.SelectedIndex == 1;
+                    foreach (Control c in new Control[] { chCx, chCl, chSpr, chPokaz, chUac, chTlo, chSes, chRepo, tbL, rCx, rCl }) c.Enabled = !pentest;
+                    if (pentest) {
+                        f.OkAktywny(true); f.PrzyciskOk("Dalej: zespół 6 specjalistów"); return;
+                    }
+                    chUac.Enabled = chTlo.Checked;
                     rCx.Enabled = chCx.Checked; rCl.Enabled = chCl.Checked;
                     tbL.Enabled = chCx.Checked && chCl.Checked;                 // łańcuch ról przechodzi przez obie strony pary
                     chSpr.Enabled = chCx.Checked && chCl.Checked; if (!chSpr.Enabled) chSpr.Checked = false;
                     f.OkAktywny(chCx.Checked || chCl.Checked);
                     f.PrzyciskOk(Jezyk.T(chCx.Checked && chCl.Checked ? "✉  Wyślij do pary (Codex + Claude)" : chCx.Checked ? "✉  Wyślij tylko do ChatGPT/Codex" : chCl.Checked ? "✉  Wyślij tylko do Claude" : "Zaznacz co najmniej jednego agenta"));
                 };
+                kategoria.SelectedIndexChanged += delegate { agenciZmiana(); };
                 chCx.CheckedChanged += delegate { agenciZmiana(); };
                 chCl.CheckedChanged += delegate { agenciZmiana(); };
                 f.Shown += delegate { agenciZmiana(); cele(); };
                 f.PrzyciskOk("✉  Wyślij do pary (Codex + Claude)");
-                if (f.ShowDialog(form) != DialogResult.OK) return;
+                // brak wymaganego pola: okno zostaje otwarte z komunikatem, wpisany opis zadania nie ginie (te same warunki sprawdza stos)
+                f.FormClosing += (s, ev) =>
+                {
+                    if (f.DialogResult != DialogResult.OK) return;
+                    var brak = Siec.BrakujacePole(cbP.Text, tbM.Text, tbO.Text);
+                    if (brak.Length == 0) return;
+                    ev.Cancel = true;
+                    f.Blad(Jezyk.T(brak == "projekt" ? "Podaj nazwę projektu." : brak == "modul" ? "Wpisz krótką nazwę modułu lub zadania, np. rozpoznanie." : "Opisz zadanie od operatora."));
+                    System.Media.SystemSounds.Exclamation.Play();
+                    (brak == "projekt" ? (Control)cbP : brak == "modul" ? tbM : tbO).Focus();
+                };
+                while (true)
+                {
+                    if (f.ShowDialog(form) != DialogResult.OK) return;
+                    if (kategoria.SelectedIndex != 1) break;
+                    if (NowyPentest(cbP.Text, tbM.Text, tbO.Text, zalN.Pliki)) return;
+                    f.DialogResult = DialogResult.None;
+                }
                 var strony = new List<string>();
                 if (chCx.Checked) strony.Add("codex");
                 if (chCl.Checked) strony.Add("claude");
@@ -3686,6 +3720,37 @@ namespace Ecxp
                 }
                 catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie utworzono: ") + ex.Message, Jezyk.T("Nowe zadanie"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
+        }
+
+        bool NowyPentest(string projekt, string modul, string opis, List<string> pliki)
+        {
+            using (var f = new Formularz("Bezpieczeństwo / testy — zespół pentestowy", fontN, fontB))
+            {
+                f.Size = new Size(860, Math.Min(900, Screen.FromControl(form).WorkingArea.Height - 40));
+                var cel = f.Tekst("Aplikacja / URL:", "");
+                var zakres = f.Wielowiersz("Dozwolony zakres i zasady programu:", "");
+                var cx = f.Tekst("Model Codex:", Pentest.ModelCodex);
+                var cl = f.Tekst("Model Claude:", Pentest.ModelClaude);
+                f.Uwaga("Modele jawne, aktualizowane przez operatora. Brak dostępu do modelu oznacza błąd, bez automatycznej zamiany na słabszy model. Zespół pracuje w tle. Może uruchamiać własne skrypty i korzystać z sieci w podanym zakresie, bez UAC.");
+                f.Uwaga("Testerzy: aplikacja/API i kontrola dostępu oraz analiza kodu i logiki biznesowej. Dwaj niezależni recenzenci weryfikują raporty czterech testerów.");
+                f.PrzyciskOk("Utwórz i uruchom 6 specjalistów");
+                f.FormClosing += (s, e) => {
+                    if (f.DialogResult != DialogResult.OK) return;
+                    try { Pentest.Sprawdz(projekt, modul, opis, cel.Text, zakres.Text, cx.Text, cl.Text); }
+                    catch (Exception ex) { e.Cancel = true; f.Blad(ex.Message); }
+                };
+                if (f.ShowDialog(form) != DialogResult.OK) return false;
+                try {
+                    var r = (Dictionary<string, object>)Stos("nowy_pentest", P.D("projekt", projekt, "modul", modul, "opis", opis,
+                        "cel", cel.Text, "zakres", zakres.Text, "model_codex", cx.Text.Trim(), "model_claude", cl.Text.Trim(), "czesci", WyslijZalaczniki(pliki)));
+                    Skanuj(); OdswiezProjekty(P.S(r, "projekt"));
+                    var ag = P.Lista(r, "agenci_w_tle");
+                    MessageBox.Show(form, "Zarejestrowano zespół: " + string.Join(", ", ag.Select(x => P.S(x, "nazwa"))) +
+                        "\nZadania oczekują na wykonanie. Wyniki i błędy tur pojawią się w skrzynce.", "ECXP");
+                    return true;
+                } catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, "Nie uruchomiono zespołu"); }
+            }
+            return false;
         }
 
         const string TekstZgodyUac = "Zaznaczając to pole, z pełną świadomością daję agentom tego zadania podwyższone uprawnienia (administrator, UAC) do wykonywania zadania – " +
@@ -5105,6 +5170,16 @@ namespace Ecxp
             Wiersz(e, p, true);
         }
         public void TylkoZamknij() { ok.Text = "Zamknij"; }
+        // Komunikat obok przycisków, gdy okno nie może się zamknąć (np. brak wymaganego pola) – wpisany tekst zostaje.
+        Label blad;
+        public void Blad(string tekst)
+        {
+            if (blad == null) { blad = new Label { AutoSize = true, Margin = new Padding(3, 9, 12, 3) }; dol.Controls.Add(blad); }
+            dol.Height = string.IsNullOrEmpty(tekst) ? 48 : 110;
+            blad.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 40), 0);
+            blad.ForeColor = Color.FromArgb(215, 30, 30); blad.Font = fb; blad.Text = tekst;
+        }
+        public string TekstBledu { get { return blad == null ? "" : blad.Text; } }
         public Zalaczniki Zalaczniki(string e) { var z = new Zalaczniki(); Wiersz(e, z, false); return z; }
         protected override void OnLoad(EventArgs e) { Motyw.Zastosuj(this); Jezyk.Zastosuj(this); base.OnLoad(e); }
         public void PrzyciskOk(string tekst) { ok.Text = tekst; }

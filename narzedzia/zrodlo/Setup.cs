@@ -1,4 +1,4 @@
-﻿// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
+// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
 // adapter MCP dla agentów Claude Code i ChatGPT/Codex oraz hook lustra czatu.
 // Jeden plik: programy są zasobami tego exe. Instalacja dla bieżącego użytkownika, bez uprawnień administratora.
 //
@@ -24,8 +24,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("EvidSec")]
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCopyright("EvidSec")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyVersion("3.6.0.0")]
+[assembly: AssemblyFileVersion("3.6.0.0")]
 
 namespace EcxpSetup
 {
@@ -112,7 +112,7 @@ namespace EcxpSetup
 
     static class Instalacja
     {
-        public const string Wersja = "1.4";
+        public const string Wersja = "3.6.0";
         const string KluczApl = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ECXP";
         static readonly string[] Programy = { "ecxpd.exe", "ECXP-MAILBOX.exe", "ecxp-mcp.exe", "ECXP-MAILBOX.ico", "hook-claude.ps1" };
         static readonly string[] Logo = { "ecxp-logo-light.png", "ecxp-logo-dark.png" };
@@ -161,30 +161,13 @@ namespace EcxpSetup
                 foreach (var p in Process.GetProcessesByName(n))
                     try
                     {
-                        if (!p.MainModule.FileName.StartsWith(narz, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!string.Equals(Path.GetFullPath(p.MainModule.FileName), Path.Combine(narz, n + ".exe"), StringComparison.OrdinalIgnoreCase)) continue;
                         Uruchom(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + p.Id + " /T /F", 15000);
                         p.WaitForExit(5000);
                     }
                     catch { }
-            // ciepłe procesy agentów zapisane przez stos (stangenci\cieple-*.txt) – tylko procesy agentów
-            try
-            {
-                var dir = Path.Combine(katalog, "stan", "agenci");
-                if (Directory.Exists(dir))
-                    foreach (var f in Directory.GetFiles(dir, "cieple-*.txt"))
-                        foreach (var s in File.ReadAllLines(f))
-                        {
-                            int pid; if (!int.TryParse(s.Trim(), out pid)) continue;
-                            try
-                            {
-                                var n = Process.GetProcessById(pid).ProcessName.ToLowerInvariant();
-                                if (n == "cmd" || n == "node" || n == "codex" || n == "claude")
-                                    Uruchom(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pid + " /T /F", 15000);
-                            }
-                            catch { }
-                        }
-            }
-            catch { }
+            // Drzewo zweryfikowanej instancji obejmuje jej agentów. Nie zabijamy PID
+            // z dawnych plików cieple-*.txt: Windows mógł przydzielić je innym aplikacjom.
         }
 
         // cel istniejącego skrótu (pusty, gdy go nie ma)

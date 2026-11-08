@@ -237,6 +237,7 @@ namespace Ecxp
                         // nadzór obiegu zadań w sesjach aplikacji (agentów w tle pilnuje Agenci.Petla)
                         var wTle = Agenci.ObslugiwaniWTle();
                         al.AddRange(P.ZBlokada(() => Obieg.Nadzor(wTle)));
+                        P.ZBlokada(() => Pentest.Nadzor());
                         foreach (var k in Agenci.Lista().Select(x => P.S(x, "podwyzszone_klucz")).Where(x => x.Length > 0).Distinct().ToList())
                         {
                             var po = Path.Combine(P.Root, "stan", "obieg", k + ".json");
@@ -286,7 +287,7 @@ namespace Ecxp
         // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
         // claudeWAplikacji: strona Claude nie pracuje w tle – konsola otwiera dla niej sesję w aplikacji Claude (widoczną na pasku),
         // która sama odbiera zadanie i daje FIN przez MCP ECXP.
-        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false)
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false, string modelCodex = "", string modelClaude = "", bool pentest = false)
         {
             var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
             var katalog = Path.Combine(P.Root, "projekty", projekt);
@@ -305,13 +306,14 @@ namespace Ecxp
                 }
                 try
                 {
-                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, "", podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
+                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, strona == "codex" ? modelCodex : modelClaude, podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
                         P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
                         P.S(p, "rola").Length > 0);      // jawne pole: agent zadania (wykonawca, sprawdzający, sam) musi dać FIN
                     P.ZBlokada(delegate
                     {
                         var pa = Path.Combine(P.Root, "stan", "agenci", P.S(rec, "nazwa") + ".json");
                         var d = Pliki.Czytaj(pa);
+                        d["pentest"] = pentest;
                         d["pokaz_sesje"] = pokazSesje;        // „Pokaż sesje agentów” – okno rozmowy otwiera się samo
                         if (podwyzszone.Length > 0) { d["podwyzszone_klucz"] = podwyzszone; d["uprawnienia_po_zadaniu"] = "edycja"; }
                         Pliki.Zapisz(pa, d);
@@ -324,6 +326,40 @@ namespace Ecxp
                 catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
             }
             return wynik;
+        }
+
+        static Dictionary<string, object> NowyPentest(Dictionary<string, object> a)
+        {
+            string projekt = P.S(a, "projekt"), modul = P.S(a, "modul"), opis = P.S(a, "opis");
+            string cx = P.S(a, "model_codex"), cl = P.S(a, "model_claude");
+            Pentest.Sprawdz(projekt, modul, opis, P.S(a, "cel"), P.S(a, "zakres"), cx, cl);
+            foreach (var strona in new[] { "codex", "claude" })
+                if (Agenci.Program(strona).Length == 0) throw new EcxpException("Brak CLI: " + strona + ". Zespół nie został utworzony.");
+            var plan = Pentest.Plan(modul, Guid.NewGuid().ToString("N").Substring(0, 8));
+            var agenci = new List<object>();
+            var zadania = new List<Dictionary<string, object>>();
+            // Najpierw rejestracja wszystkich sześciu agentów; żadne zadanie nie jest jeszcze wysłane.
+            foreach (var para in plan)
+            {
+                var role = P.S(para, "rola") == "tester" ? new List<string> { "programista", "tester" } : new List<string> { "recenzent" };
+                string instrukcja = Pentest.Instrukcja(para, plan, P.S(a, "cel"), P.S(a, "zakres"), opis);
+                var r = Siec.NoweZadanie(projekt, P.S(para, "modul"), modul + " / " + P.S(para, "rola"), instrukcja,
+                    role, role, Znacznik, Czesci(a), false, null, null, Siec.Ikony[1], false, false);
+                agenci.AddRange(AgenciWTle(r, "", role, role, "", false, false, cx, cl, true));
+                zadania.Add(P.D("modul", P.S(para, "modul"), "opis", instrukcja));
+            }
+            var bledy = agenci.Cast<Dictionary<string, object>>().Where(x => P.S(x, "blad").Length > 0).ToList();
+            if (bledy.Count > 0)
+            {
+                foreach (var ag in agenci.Cast<Dictionary<string, object>>().Where(x => P.S(x, "blad").Length == 0)) Agenci.Zatrzymaj(P.S(ag, "nazwa"));
+                throw new EcxpException("Nie wysłano zadań, zespół zatrzymany: " + string.Join("; ", bledy.Select(x => P.S(x, "nazwa") + ": " + P.S(x, "blad"))));
+            }
+            // Recenzenci są zarejestrowani, lecz nie dostają zadania przed czterema wynikami.
+            Pentest.Zapisz(P.Slug(projekt, 32, false), plan, P.S(zadania[2], "opis"), Czesci(a));
+            foreach (var z in zadania.Take(2))
+                Siec.Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + P.S(z, "modul"), Projekt = P.Slug(projekt, 32, false),
+                    Modul = P.S(z, "modul"), Typ = "zadanie", Temat = "Pentest: " + modul, Tresc = P.S(z, "opis"), Czesci = Czesci(a) });
+            return P.D("projekt", P.Slug(projekt, 32, false), "agenci_w_tle", agenci, "plan", plan, "model_codex", cx, "model_claude", cl);
         }
 
         // ---------- podwyższone uprawnienia (UAC) jednego zadania ----------
@@ -535,6 +571,7 @@ namespace Ecxp
                 case "sesja": TylkoOperator(s); return Doreczanie.Opisz(P.S(a, "nazwa"));
                 case "zarejestruj_sesje": TylkoOperator(s); return Siec.ZarejestrujZnalezione(P.Lista(a, "sesje"));
                 case "wycofaj": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"));
+                case "nowy_pentest": TylkoOperator(s); return NowyPentest(a);
                 case "nowe_zadanie":
                     {
                         TylkoOperator(s);

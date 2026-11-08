@@ -460,16 +460,26 @@ namespace Ecxp
         // Ikony projektu i modułu (wybór w „Nowe zadanie / moduł”), zapisywane w projekt.json: "ikona" i "ikony_modulow".
         public static readonly string[] Ikony = { "🖥", "🛡", "📄", "🗄", "🤖", "💡" };
 
+        // Brakujące pole nowego zadania: "projekt", "modul", "opis" albo "" – te same warunki sprawdza konsola przed zamknięciem okna.
+        public static string BrakujacePole(string projekt, string modul, string opis)
+        {
+            if (P.Slug(projekt, 32, false).Length == 0) return "projekt";
+            if (P.Slug(modul, 24, false).Length == 0) return "modul";
+            if ((opis ?? "").Trim().Length == 0) return "opis";
+            return "";
+        }
+
         public static Dictionary<string, object> NoweZadanie(string projekt, string modul, string tytul, string opis, List<string> roleCodex, List<string> roleClaude, string znacznik, List<Dictionary<string, object>> czesci = null, bool wyslijZadanie = true, List<string> strony = null,
             string ikonaProjektu = null, string ikonaModulu = null, bool repozytorium = false, bool sprawdzanie = true)
         {
+            var brak = BrakujacePole(projekt, modul, opis);
             projekt = P.Slug(projekt, 32, false); modul = P.Slug(modul, 24, false);
-            if (projekt.Length == 0 || modul.Length == 0) throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
+            if (brak == "projekt" || brak == "modul") throw new EcxpException("Podaj projekt i nazwę modułu lub zadania.");
             tytul = (tytul ?? "").Replace(znacznik, "").Trim();          // znacznik dodaje protokół – bez podwajania
             if (tytul.Length == 0) tytul = modul;
             strony = Strony(strony);
             var obie = strony.Count == 2;
-            if ((opis ?? "").Trim().Length == 0) throw new EcxpException(obie ? "Opisz zadanie – trafi do obu stron pary." : "Opisz zadanie – trafi do wybranego agenta.");
+            if (brak == "opis") throw new EcxpException(obie ? "Opisz zadanie – trafi do obu stron pary." : "Opisz zadanie – trafi do wybranego agenta.");
             var tytulSesji = znacznik + " " + tytul.Trim();
             return P.ZBlokada(delegate
             {
