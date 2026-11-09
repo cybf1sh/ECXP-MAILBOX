@@ -130,7 +130,7 @@ namespace Ecxp
                 w = new Proc { Nazwa = n, Strona = P.S(rec, "strona"), Klucz = Klucz(rec) };
                 procesy[n] = w;
                 var kopia = rec;
-                new Thread(() => { try { Uruchom(w, kopia); } catch (Exception ex) { w.Martwy = true; Dopisz(w, "start: " + ex.Message); Log("ciepły " + n + ": " + ex.Message); } })
+                new Thread(() => { try { Uruchom(w, kopia); } catch (Exception ex) { w.Martwy = true; Dopisz(w, "start: " + ex.Message); Log("ciepły " + n + ": " + ex.Message); ZamknijProc(w); } })
                     { IsBackground = true, Name = "ecxp-cieply-" + n }.Start();
             }
         }
@@ -145,6 +145,28 @@ namespace Ecxp
             psi.StandardOutputEncoding = Encoding.UTF8; psi.StandardErrorEncoding = Encoding.UTF8;
             psi.EnvironmentVariables["ECXP_DORECZANIE"] = "1";   // hook-claude.ps1: tura agenta w tle nie jest wpisem operatora (bez lustra)
             return psi;
+        }
+
+        // Odczyt bez tury modelu: nie zakłada agentów, projektów ani zadań.
+        // Brak gotowości nie może uruchomić płatnego zespołu z niedziałającymi narzędziami.
+        public static void SprawdzSandboxCodex()
+        {
+            var w = new Proc { Nazwa = "codex-diagnostyka-" + Guid.NewGuid().ToString("N"), Strona = "codex" };
+            try
+            {
+                Uruchom(w, P.D("katalog", P.Root));
+                var r = Rpc(w, "windowsSandbox/readiness", P.D(), 30000);
+                var status = r == null ? "" : P.S(r, "status");
+                if (status != "ready")
+                    throw new EcxpException("Sandbox Windows Codexa nie jest gotowy (" +
+                        (status.Length > 0 ? status : "brak statusu") +
+                        "). Sprawdź konfigurację środowiska Codexa; zespół nie został uruchomiony.");
+            }
+            catch (Exception ex)
+            {
+                throw new EcxpException("Nie utworzono zespołu ani nie wysłano zadań. Kontrola narzędzi Codexa: " + ex.Message);
+            }
+            finally { ZamknijProc(w); }
         }
 
         static List<string> Zapis(Dictionary<string, object> rec)
@@ -179,13 +201,13 @@ namespace Ecxp
                            " --name \"" + NazwaSesji(rec, w.Nazwa).Replace("\"", "'") + "\"";
                 psi = Psi(prog, args, katalog);
             }
-            else psi = Psi(prog, BezEcxpCodex() + "-c thread_unload_delay_secs=0 app-server", katalog);
+            else psi = Psi(prog, BezEcxpCodex() + PreferowanySandboxCodex + "-c thread_unload_delay_secs=0 app-server", katalog);
             var pr = Process.Start(psi);
             w.Pr = pr;
             w.We = new StreamWriter(pr.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-            ZapiszPidy();
             pr.ErrorDataReceived += (s, e) => { if (e.Data != null) Dopisz(w, e.Data); };
             pr.BeginErrorReadLine();
+            ZapiszPidy();
             new Thread(() => Czytaj(w)) { IsBackground = true, Name = "ecxp-cieply-czyt-" + w.Nazwa }.Start();
             if (w.Strona == "codex")
             {
@@ -215,7 +237,15 @@ namespace Ecxp
             return "";
         }
 
-        static void Pisz(Proc w, object o) { lock (w.We) w.We.WriteLine(P.Js().Serialize(o)); }
+        // Oficjalny wybór natywnego sandboxa: MXC na zgodnym Windows,
+        // w pozostałych przypadkach pozostaje skonfigurowany backend legacy.
+        // Uprawnienia workspace/read-only oraz wymagania administratora nadal obowiązują.
+        public const string PreferowanySandboxCodex = "-c features.prefer_mxc=true ";
+
+        static void Pisz(Proc w, object o)
+        {
+            lock (w.We) w.We.WriteLine(P.Js().Serialize(o));
+        }
 
         static void Czytaj(Proc w)
         {
@@ -273,15 +303,18 @@ namespace Ecxp
             int id = Interlocked.Increment(ref w.Nr);
             Pisz(w, P.D("jsonrpc", "2.0", "id", id, "method", metoda, "params", par));
             var koniec = DateTime.Now.AddMilliseconds(ms);
+            Dictionary<string, object> r;
             lock (w.Odp)
+            {
                 while (!w.Odp.ContainsKey(id))
                 {
                     var zostalo = (int)(koniec - DateTime.Now).TotalMilliseconds;
                     if (zostalo <= 0 || w.Martwy) throw new EcxpException("Codex app-server nie odpowiedział na " + metoda + ".");
                     Monitor.Wait(w.Odp, Math.Min(zostalo, 500));
                 }
-            var r = w.Odp[id];
-            lock (w.Odp) w.Odp.Remove(id);
+                r = w.Odp[id];
+                w.Odp.Remove(id);
+            }
             if (r.ContainsKey("error")) throw new EcxpException("Codex " + metoda + ": " + P.Js().Serialize(r["error"]));
             return r.ContainsKey("result") ? r["result"] as Dictionary<string, object> : null;
         }
@@ -377,7 +410,7 @@ namespace Ecxp
             else
             {
                 var tryb = Podwyzszone(rec) ? "danger-full-access" : pisze ? "workspace-write" : "read-only";
-                args = BezEcxpCodex() + (P.B(rec, "pentest") ? "-c sandbox_workspace_write.network_access=true " : "") + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
+                args = BezEcxpCodex() + PreferowanySandboxCodex + (P.B(rec, "pentest") ? "-c sandbox_workspace_write.network_access=true " : "") + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
                        (pisze && tryb != "danger-full-access" ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                        " -o \"" + plikWyniku + "\"" +
                        (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";

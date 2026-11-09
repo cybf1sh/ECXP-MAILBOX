@@ -441,6 +441,13 @@ namespace Ecxp
 
         static object Wykonaj(Sesja s, string op, Dictionary<string, object> a)
         {
+            if (op == "nowy_pentest")
+            {
+                TylkoOperator(s);
+                Pentest.Sprawdz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "opis"), P.S(a, "cel"), P.S(a, "zakres"), P.S(a, "model_codex"), P.S(a, "model_claude"));
+                // Odczyt środowiska CLI nie może zatrzymywać komunikacji całego stosu.
+                Cieply.SprawdzSandboxCodex();
+            }
             lock (stos)
             {
                 object w = WykonajW(s, op, a);
