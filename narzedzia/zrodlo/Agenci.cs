@@ -317,6 +317,7 @@ namespace Ecxp
                             if (wObiegu.Contains(n) || niedawno) Cieply.Rozgrzej(rec);
                             continue;
                         }
+                        if (OdmowionoPracy(rec, praca.Zadanie != null ? praca.Zadanie.Id : praca.Pytanie.Id)) continue;
                         // gwarancja FIN: tury bez wyniku liczone w obiegu; po MaxPrzypomnien+1 jeden alarm u operatora
                         if (praca.Zadanie != null && Obieg.Przypomnienia(n, praca.Zadanie.Id) > MaxPrzypomnien) { AlarmBrakOdpowiedzi(rec, praca.Zadanie); continue; }
                         int naGodzine; int.TryParse(P.S(rec, "na_godzine"), out naGodzine);
@@ -349,10 +350,43 @@ namespace Ecxp
         public static string Przyczyna(int kod, string wynik)
         {
             if (kod == 0) return "";
+            if (OdmowaDostawcy(kod, wynik)) return "odmowa";
             if (ReTrwaly.IsMatch(wynik ?? "")) return "trwaly";
             if (kod == 5 || kod == 740 || kod == 225 || ReBlokada.IsMatch(wynik ?? "")) return "blokada";
             if (ReSiec.IsMatch(wynik ?? "")) return "siec";
             return "inny";
+        }
+        public static bool OdmowaDostawcy(int kod, string wynik)
+        {
+            if (kod == 0) return false;
+            var tekst = (wynik ?? "").Replace("\\\"", "\"");
+            return Regex.IsMatch(tekst, @"\bcyberPolicy\b|""stop_reason""\s*:\s*""refusal""|safeguards flagged this session", RegexOptions.IgnoreCase);
+        }
+        public static bool OdmowionoPracy(Dictionary<string, object> rec, string id)
+        {
+            return id.Length > 0 && P.L(rec, "odmowy_prac").Contains(id);
+        }
+        // Tylko bieżąca praca kończy się negatywnie; bez przekazania partnerowi i bez blokowania przyszłych zadań.
+        public static void ZakonczOdmowe(Dictionary<string, object> d, Msg zadanie, Msg pytanie)
+        {
+            var n = P.S(d, "nazwa");
+            var praca = zadanie ?? pytanie;
+            if (praca == null) return;
+            var odmowy = P.L(d, "odmowy_prac");
+            if (!odmowy.Contains(praca.Id)) odmowy.Add(praca.Id);
+            d["odmowy_prac"] = odmowy;
+            // Zapis przed doręczeniem FIN: również błąd doręczenia nie może ponowić wywołania modelu.
+            Pliki.Zapisz(Path.Combine(Dir, n + ".json"), d);
+            var tekst = "NEGATYWNY — NIEWYKONANE: odmowa dostawcy modelu. Zadanie zakończono bez ponawiania, trybu zastępczego i przekazywania partnerowi. " +
+                "To nie jest pozytywny wynik testu. Szczegóły: stan/agenci/" + n + ".log";
+            if (zadanie != null)
+                Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Projekt, Modul = praca.Modul, Typ = "fin", OdpNa = praca.Id, Tresc = tekst });
+            else
+            {
+                Siec.Wyslij(new P.Nowa { Od = n, Do = praca.Od.Length > 0 ? praca.Od : P.Wlasciciel, Projekt = praca.Projekt, Modul = praca.Modul,
+                    Typ = "odpowiedz", Temat = praca.Temat, OdpNa = praca.Id, Tresc = tekst });
+                var pytania = P.L(d, "pytania"); pytania.Remove(praca.Id); d["pytania"] = pytania;
+            }
         }
         static readonly int[] OdstepBlokada = { 5, 30, 120, 600 }, OdstepInny = { 30, 120, 600 };
 
@@ -388,6 +422,7 @@ namespace Ecxp
             if (k == 0) return DateTimeOffset.MinValue;
             int kod; int.TryParse(P.S(ost, "kod"), out kod);
             var przyczyna = P.S(ost, "przyczyna").Length > 0 ? P.S(ost, "przyczyna") : Przyczyna(kod, P.S(ost, "wynik"));
+            if (przyczyna == "odmowa") return DateTimeOffset.MinValue; // zakończony ID pomija OdmowionoPracy; nowa praca jest dozwolona
             if (przyczyna == "siec")
             {
                 if (!SiecLokalna()) return DateTimeOffset.MaxValue;          // czeka na zdarzenie Windows, bez prób
@@ -552,6 +587,11 @@ namespace Ecxp
                         var d = Pliki.Czytaj(p);
                         var u = P.Lista(d, "uruchomienia").Cast<object>().ToList();
                         var przyczyna = Przyczyna(kod, wynik);
+                        if (przyczyna == "odmowa")
+                        {
+                            odpowiedz = "";
+                            ZakonczOdmowe(d, praca.Zadanie, praca.Pytanie);
+                        }
                         // wynik agenta zamienia stos: zadanie – FIN w obiegu, pytanie – odpowiedź do nadawcy (operatora albo agenta)
                         if (odpowiedz.Length > 0)
                         {
@@ -581,7 +621,7 @@ namespace Ecxp
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
                         // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam
-                        if (kod != 0 && !przezOperatora && przyczyna != "trwaly" && NieudaneZRzedu(u.Cast<Dictionary<string, object>>().ToList()) >= 3)
+                        if (kod != 0 && !przezOperatora && przyczyna != "trwaly" && przyczyna != "odmowa" && NieudaneZRzedu(u.Cast<Dictionary<string, object>>().ToList()) >= 3)
                         {
                             DateTimeOffset tA;
                             if (!DateTimeOffset.TryParse(P.S(d, "ostatni_alarm"), out tA) || tA < DateTimeOffset.Now.AddHours(-1))

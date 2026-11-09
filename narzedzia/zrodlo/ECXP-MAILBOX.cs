@@ -18,8 +18,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.6.0.0")]
-[assembly: AssemblyFileVersion("3.6.0.0")]
+[assembly: AssemblyVersion("3.6.1.0")]
+[assembly: AssemblyFileVersion("3.6.1.0")]
 
 namespace Ecxp
 {
@@ -265,14 +265,14 @@ namespace Ecxp
             stStos.ForeColor = ok ? Zielony : Czerwony;
         }
 
-        object Stos(string op, Dictionary<string, object> a)
+        object Stos(string op, Dictionary<string, object> a, int limitMs = 60000)
         {
             var t0 = DateTime.Now;
             try
             {
                 if (klient == null || !klient.Polaczony) Polacz();
                 if (klient == null) throw new EcxpException("Brak połączenia ze stosem ECXP (ecxpd).");
-                var r = klient.Wywolaj(op, a);
+                var r = klient.Wywolaj(op, a, limitMs);
                 Bledy.Slad("stos: " + op + " – ok (" + (int)(DateTime.Now - t0).TotalMilliseconds + " ms)");
                 return r;
             }
@@ -1345,6 +1345,9 @@ namespace Ecxp
 
         void OdswiezUslugi()
         {
+            // Stos obsługuje żądania jednej sesji kolejno. Nie blokuj wątku GUI
+            // odpytywaniem za długim żądaniem tworzenia zespołu.
+            if (startPentestuWToku) return;
             if (klient == null || !klient.Polaczony || stosBezUslug) return;
             try
             {
@@ -3722,8 +3725,43 @@ namespace Ecxp
             }
         }
 
+        bool startPentestuWToku;
+        internal Action<string, string> PowiadomienieStartuPentestu;
+        void PokazStatusStartu(string tekst, string tytul)
+        {
+            if (PowiadomienieStartuPentestu != null) PowiadomienieStartuPentestu(tekst, tytul);
+            else MessageBox.Show(form, tekst, tytul);
+        }
+        // Długie tworzenie zespołu nie jest awarią. Jedno żądanie, bez ponownego wysyłania po upływie czasu.
+        void StartPentestuWTle(Dictionary<string, object> argumenty)
+        {
+            if (startPentestuWToku) return;
+            startPentestuWToku = true;
+            stInfo.Text = "Uruchamianie zespołu w toku — czekam na potwierdzenie stosu…";
+            new Thread(() => {
+                Dictionary<string, object> wynik = null; Exception blad = null;
+                try { wynik = (Dictionary<string, object>)Stos("nowy_pentest", argumenty, Timeout.Infinite); }
+                catch (Exception ex) { blad = ex; }
+                try { form.BeginInvoke((Action)(() => {
+                    startPentestuWToku = false;
+                    if (blad != null)
+                    {
+                        stInfo.Text = "Status uruchomienia niepotwierdzony — sprawdź Agenci i rozmowy projektu.";
+                        PokazStatusStartu("Nie otrzymano potwierdzenia wyniku uruchomienia. Zespół mógł zostać utworzony. " +
+                            "Sprawdź Agenci i rozmowy projektu przed ponownym wysłaniem.\n\n" + blad.Message, "Status uruchomienia zespołu");
+                        return;
+                    }
+                    stInfo.Text = "Zespół zarejestrowany — zadania oczekują na wykonanie.";
+                    try { Skanuj(); OdswiezProjekty(P.S(wynik, "projekt")); } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                    PokazStatusStartu("Zarejestrowano zespół: " + string.Join(", ", P.Lista(wynik, "agenci_w_tle").Select(x => P.S(x, "nazwa"))) +
+                        "\nWyniki i błędy tur pojawią się w skrzynce.", "ECXP");
+                })); } catch { } // zamknięcie konsoli nie wysyła drugiego zlecenia
+            }) { IsBackground = true, Name = "ecxp-start-pentestu" }.Start();
+        }
+
         bool NowyPentest(string projekt, string modul, string opis, List<string> pliki)
         {
+            if (startPentestuWToku) { MessageBox.Show(form, "Uruchamianie zespołu nadal trwa. Nie wysłano kolejnego zlecenia.", "ECXP"); return true; }
             using (var f = new Formularz("Bezpieczeństwo / testy — zespół pentestowy", fontN, fontB))
             {
                 f.Size = new Size(860, Math.Min(900, Screen.FromControl(form).WorkingArea.Height - 40));
@@ -3741,12 +3779,8 @@ namespace Ecxp
                 };
                 if (f.ShowDialog(form) != DialogResult.OK) return false;
                 try {
-                    var r = (Dictionary<string, object>)Stos("nowy_pentest", P.D("projekt", projekt, "modul", modul, "opis", opis,
+                    StartPentestuWTle(P.D("projekt", projekt, "modul", modul, "opis", opis,
                         "cel", cel.Text, "zakres", zakres.Text, "model_codex", cx.Text.Trim(), "model_claude", cl.Text.Trim(), "czesci", WyslijZalaczniki(pliki)));
-                    Skanuj(); OdswiezProjekty(P.S(r, "projekt"));
-                    var ag = P.Lista(r, "agenci_w_tle");
-                    MessageBox.Show(form, "Zarejestrowano zespół: " + string.Join(", ", ag.Select(x => P.S(x, "nazwa"))) +
-                        "\nZadania oczekują na wykonanie. Wyniki i błędy tur pojawią się w skrzynce.", "ECXP");
                     return true;
                 } catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, "Nie uruchomiono zespołu"); }
             }

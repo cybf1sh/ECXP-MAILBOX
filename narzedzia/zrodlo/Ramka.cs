@@ -238,15 +238,15 @@ namespace Ecxp
             ulong moj;
             lock (wlock) { moj = ++seq; }
             Wyslij(new Rama { Typ = Ramka.ZAPYTANIE, Flagi = Ramka.F_PSH | Ramka.F_ACK, Polaczenie = polaczenie, Seq = moj, Ack = ackOd }.Z(P.D("op", op, "args", args ?? new Dictionary<string, object>())));
-            var koniec = DateTime.Now.AddMilliseconds(msTimeout);
+            var koniec = msTimeout == Timeout.Infinite ? DateTime.MaxValue : DateTime.Now.AddMilliseconds(msTimeout);
             Rama r;
             lock (olock)
             {
                 while (!odpowiedzi.TryGetValue(moj + 1, out r))
                 {
                     if (zamkniety) throw new EcxpException("Stos ECXP zamknął połączenie.");
-                    var zostalo = (int)(koniec - DateTime.Now).TotalMilliseconds;
-                    if (zostalo <= 0) throw new EcxpException("Stos ECXP nie odpowiedział w czasie.");
+                    var zostalo = msTimeout == Timeout.Infinite ? Timeout.Infinite : (int)(koniec - DateTime.Now).TotalMilliseconds;
+                    if (msTimeout != Timeout.Infinite && zostalo <= 0) throw new EcxpException("Stos ECXP nie odpowiedział w czasie.");
                     Monitor.Wait(olock, zostalo);
                 }
                 odpowiedzi.Remove(moj + 1);

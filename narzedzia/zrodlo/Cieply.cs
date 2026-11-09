@@ -257,7 +257,11 @@ namespace Ecxp
                 {
                     if (w.Strona == "claude")
                     {
-                        if (l.Contains("\"type\":\"result\"")) lock (w.Wyniki) { w.Wyniki.Enqueue(l); Monitor.PulseAll(w.Wyniki); }
+                        try {
+                            var wynikClaude = js.Deserialize<Dictionary<string, object>>(l);
+                            if (wynikClaude != null && P.S(wynikClaude, "type") == "result")
+                                lock (w.Wyniki) { w.Wyniki.Enqueue(l); Monitor.PulseAll(w.Wyniki); }
+                        } catch { }
                         continue;
                     }
                     Dictionary<string, object> m;
@@ -327,7 +331,7 @@ namespace Ecxp
             if (Zastepczy(strona)) return Jednorazowo(rec, tekst, limitMin, rejestr);
             string powod;
             var wy = WykonajCiepla(rec, tekst, limitMin, rejestr, out powod);
-            if (powod == null) return wy;
+            if (powod == null || Agenci.OdmowaDostawcy(wy.Kod, wy.Wyjscie)) return wy;
             // ciepły proces nie działa na tym stanowisku – to samo zadanie jeszcze raz w trybie zastępczym
             PrzejdzNaZastepczy(strona, powod);
             return Jednorazowo(rec, tekst, limitMin, rejestr);
@@ -341,6 +345,7 @@ namespace Ecxp
             if (!wystartowal) return "proces nie wystartował: " + Dziennik(w);
             if (wy.Kod == 0) return null;
             var t = (wy.Wyjscie ?? "") + "\n" + Dziennik(w);
+            if (Agenci.OdmowaDostawcy(wy.Kod, t)) return null;
             if (w.Strona == "codex" && System.Text.RegularExpressions.Regex.IsMatch(t, @"-32601|[Mm]ethod not found|unknown variant|unknown method|nie odpowiedział na (initialize|thread/start|turn/start)")) return t;
             if (w.Strona == "claude" && w.Martwy && System.Text.RegularExpressions.Regex.IsMatch(t, @"unknown option|error: option|[Uu]nknown argument|bypassPermissions|stream-json|--name|not allowed|disabled|zakończył się bez wyniku")) return t;
             return null;
@@ -446,7 +451,7 @@ namespace Ecxp
                 {
                     var t = linia.Trim();
                     if (!t.StartsWith("{") || !t.Contains("\"result\"")) continue;
-                    try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (P.B(j, "is_error")) wy.Kod = 1; else { wy.Odpowiedz = P.S(j, "result").Trim(); ZglosPokaz(rec, "claude", P.S(j, "session_id")); } } catch { }
+                    try { var j = P.Js().Deserialize<Dictionary<string, object>>(t); if (P.B(j, "is_error") || Agenci.OdmowaDostawcy(1, t)) wy.Kod = 1; else { wy.Odpowiedz = P.S(j, "result").Trim(); ZglosPokaz(rec, "claude", P.S(j, "session_id")); } } catch { }
                     break;
                 }
             return wy;
@@ -588,7 +593,7 @@ namespace Ecxp
             Dictionary<string, object> j = null;
             try { j = P.Js().Deserialize<Dictionary<string, object>>(linia); } catch { }
             wy.Wyjscie = linia;
-            if (j == null || P.B(j, "is_error")) { wy.Kod = 1; return; }
+            if (j == null || P.B(j, "is_error") || Agenci.OdmowaDostawcy(1, linia)) { wy.Kod = 1; return; }
             wy.Kod = 0; wy.Odpowiedz = P.S(j, "result").Trim();
             ZglosPokaz(rec, "claude", P.S(j, "session_id"));
         }
