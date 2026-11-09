@@ -343,6 +343,7 @@ namespace Ecxp
                     if (org != null) { n.Projekt = org.Projekt; if (n.Modul == "wspolne" && org.Modul.Length > 0) n.Modul = org.Modul; }
                 }
                 n.Projekt = P.Slug(n.Projekt, 32, false);
+                if (UsuwanieProjektu.Trwa(n.Projekt)) throw new EcxpException("Projekt jest w trakcie usuwania; nie utworzono wiadomości.");
                 // obieg zadania: „w trakcie” i FIN agenta zapisuje stos; do operatora trafia tylko końcowy FIN
                 if (P.PoprawnyNadawca(n.Od))
                 {
@@ -484,6 +485,7 @@ namespace Ecxp
             return P.ZBlokada(delegate
             {
                 // zadanie trafia do sesji, która już prowadzi moduł; nowa nazwa codex-/claude-<moduł> tylko, gdy takiej sesji nie ma
+                if (UsuwanieProjektu.Trwa(projekt)) throw new EcxpException("Projekt jest w trakcie usuwania; nie utworzono zadania.");
                 var istn = Para(projekt, modul);
                 var codex = P.S(istn, "codex").Length > 0 ? P.S(istn, "codex") : "codex-" + modul;
                 var claude = P.S(istn, "claude").Length > 0 ? P.S(istn, "claude") : "claude-" + modul;

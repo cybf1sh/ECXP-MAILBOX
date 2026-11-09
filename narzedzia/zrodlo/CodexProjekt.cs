@@ -1,5 +1,5 @@
 // Desktop Codex posiada własne identyfikatory projektów. Rejestruje je aplikacja;
-// ECXP tylko odczytuje jej mapowanie i sprawdza korzeń w app-server. Bez zapisu stanu Codexa.
+// ECXP odczytuje mapowanie i sprawdza korzeń; lokalne wpisy usuwa tylko jawna operacja usunięcia projektu.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -15,6 +15,30 @@ namespace Ecxp
     {
         static readonly object brama = new object();
         public static string Normalizuj(string path) { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
+        // Tylko wpisy dotyczące jednego korzenia; wielokorzeniowe projekty wymagają ręcznego rozdzielenia.
+        public static List<string> LokalneId(Dictionary<string,object> state,string path)
+        {
+            object value;var projects=state.TryGetValue("local-projects",out value)?value as Dictionary<string,object>:null;
+            var ids=new List<string>();if(projects==null)return ids;
+            foreach(var kv in projects){var p=kv.Value as Dictionary<string,object>;var roots=P.L(p,"rootPaths");
+                if(!roots.Any(r=>string.Equals(Normalizuj(r),Normalizuj(path),StringComparison.OrdinalIgnoreCase)))continue;
+                if(roots.Any(r=>!string.Equals(Normalizuj(r),Normalizuj(path),StringComparison.OrdinalIgnoreCase)))throw new EcxpException("Projekt Codexa obejmuje także inne katalogi. Rozdziel go przed usunięciem.");
+                ids.Add(kv.Key);
+            }return ids;
+        }
+        public static void UsunLokalneWpisy(string home,string path)
+        {
+            if(!Path.IsPathRooted(home))throw new EcxpException("Nieprawidłowy codexHome.");
+            var file=Path.Combine(home,".codex-global-state.json");if(!File.Exists(file))return;
+            var text=P.Czytaj(file);var state=P.Js().Deserialize<Dictionary<string,object>>(text);var ids=LokalneId(state,path);object value;var legacy=new HashSet<string>(ids);
+            if(state.TryGetValue("local-projects",out value)&&value is Dictionary<string,object>){var projects=(Dictionary<string,object>)value;foreach(var id in ids){var mapped=P.S(projects[id] as Dictionary<string,object>,"id");if(mapped.Length>0)legacy.Add(mapped);projects.Remove(id);}}
+            if(state.TryGetValue("app-server-project-id-by-legacy-project-id-by-host",out value)&&value is Dictionary<string,object>)
+                foreach(var map in ((Dictionary<string,object>)value).Values.OfType<Dictionary<string,object>>())foreach(var id in legacy)map.Remove(id);
+            foreach(var key in new[]{"electron-saved-workspace-roots","active-workspace-roots"})if(state.ContainsKey(key))state[key]=P.L(state,key).Where(r=>!string.Equals(Normalizuj(r),Normalizuj(path),StringComparison.OrdinalIgnoreCase)).ToList();
+            if(state.TryGetValue("electron-workspace-root-labels",out value)&&value is Dictionary<string,object>){var labels=(Dictionary<string,object>)value;foreach(var key in labels.Keys.Where(r=>string.Equals(Normalizuj(r),Normalizuj(path),StringComparison.OrdinalIgnoreCase)).ToList())labels.Remove(key);}
+            if(P.Czytaj(file)!=text)throw new EcxpException("Codex zmienił listę projektów. Zamknij jego okno projektu i ponów operację.");
+            Pliki.Zapisz(file,state);
+        }
         public static string Link(string katalog) { return "codex://new?path=" + Uri.EscapeDataString(Path.GetFullPath(katalog)); }
         public static void OtworzProjekt(string katalog)
         {

@@ -102,7 +102,36 @@ namespace Ecxp
         static string Klucz(Dictionary<string, object> rec)
         {
             return string.Join("|", new[] { P.S(rec, "strona"), P.S(rec, "katalog"), P.S(rec, "uprawnienia"), P.S(rec, "podwyzszone_klucz"), P.S(rec, "model"), P.B(rec, "pentest").ToString(),
-                string.Join(";", P.L(rec, "katalogi_zapisu")) });
+                string.Join(";", P.L(rec, "katalogi_zapisu")), rec.ContainsKey("opcje_pentestu") ? P.Js().Serialize(Pentest.Opcje(rec)) : "" });
+        }
+
+        static bool SiecCodex(Dictionary<string, object> rec) { return rec.ContainsKey("opcje_pentestu") ? P.B(Pentest.Opcje(rec), "siec_codex") : P.B(rec, "pentest"); }
+
+        // Ten sam zestaw narzędzi i reguł obowiązuje transport ciepły i jednorazowy.
+        static string ArgumentyClaude(Dictionary<string, object> rec, string mcpCfg)
+        {
+            var pisze = P.S(rec, "uprawnienia") != "odczyt";
+            var tools = new List<string> { "Read", "Grep", "Glob" };
+            if (pisze) { tools.Add("Edit"); tools.Add("Write"); }
+            bool jawne = rec.ContainsKey("opcje_pentestu");
+            var options = jawne ? Pentest.Opcje(rec) : null;
+            if (jawne ? P.B(options, "terminal_claude") : P.S(rec, "uprawnienia") == "pelne" || P.B(rec, "pentest")) { tools.Add("Bash"); tools.Add("PowerShell"); }
+            string settings = "";
+            if (jawne)
+            {
+                var deny = new List<string>();
+                if (!pisze) { deny.Add("Edit"); deny.Add("Write"); }
+                if (!P.B(options, "terminal_claude")) { deny.Add("Bash"); deny.Add("PowerShell"); }
+                if (P.B(options, "webfetch")) tools.AddRange(P.L(options, "domeny").Select(d => "WebFetch(domain:" + d + ")")); else deny.Add("WebFetch");
+                if (P.B(options, "websearch")) tools.Add("WebSearch"); else deny.Add("WebSearch");
+                var path = Path.Combine(Dir, P.S(rec, "nazwa") + ".permissions.json");
+                Pliki.Zapisz(path, P.D("permissions", P.D("allow", tools, "deny", deny), "switchModelsOnFlag", false, "disableAllHooks", true));
+                // Reguły allow są łączone przez Claude: nie dziedzicz szerokiego allow z prywatnych plików ustawień.
+                // Zarządzane polityki dostawcy pozostają nadrzędne; pliki użytkownika nie są zmieniane.
+                settings = " --setting-sources \"\" --settings \"" + path + "\" --tools \"" +
+                    string.Join(",", tools.Select(t => t.Split('(')[0]).Distinct()) + "\"";
+            }
+            return " --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", tools.Select(t => "\"" + t + "\"")) + settings;
         }
 
         static void Dopisz(Proc w, string t)
@@ -169,6 +198,16 @@ namespace Ecxp
             finally { ZamknijProc(w); }
         }
 
+        // Tylko operacje metadanych dostawcy; bez tury modelu i bez poleceń od agentów.
+        public static T KonserwacjaCodex<T>(Func<Func<string, Dictionary<string, object>, int, Dictionary<string, object>>, T> action)
+        { return KonserwacjaCodex((rpc, home) => action(rpc)); }
+        public static T KonserwacjaCodex<T>(Func<Func<string, Dictionary<string, object>, int, Dictionary<string, object>>, string, T> action)
+        {
+            var w = new Proc { Nazwa = "codex-konserwacja-" + Guid.NewGuid().ToString("N"), Strona = "codex" };
+            try { Uruchom(w, P.D("katalog", P.Root)); return action((m, a, ms) => Rpc(w, m, a, ms), w.CodexHome); }
+            finally { ZamknijProc(w); }
+        }
+
         static List<string> Zapis(Dictionary<string, object> rec)
         {
             var l = new List<string> { P.S(rec, "katalog") };
@@ -186,13 +225,10 @@ namespace Ecxp
             ProcessStartInfo psi;
             if (w.Strona == "claude")
             {
-                var narz = new List<string> { "Read", "Grep", "Glob" };
-                if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
-                if (P.S(rec, "uprawnienia") == "pelne" || P.B(rec, "pentest")) { narz.Add("Bash"); narz.Add("PowerShell"); }
                 Directory.CreateDirectory(Dir);
                 var mcpCfg = Path.Combine(Dir, w.Nazwa + ".mcp.json");                 // pusta konfiguracja MCP: agent nie widzi ECXP
                 File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
-                var args = "-p --input-format stream-json --output-format stream-json --verbose --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", narz) +
+                var args = "-p --input-format stream-json --output-format stream-json --verbose" + ArgumentyClaude(rec, mcpCfg) +
                            // zadanie z UAC (zgoda operatora): bez pytań o zgodę – w trybie bez okna każda prośba kończyłaby się odmową
                            (Podwyzszone(rec) ? " --permission-mode bypassPermissions" : pisze ? " --permission-mode acceptEdits" : "") +
                            (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
@@ -340,14 +376,15 @@ namespace Ecxp
         // Rozpoznanie „ten tryb nie działa na tym stanowisku” (a nie zwykły błąd zadania).
         static string NieDziala(Proc w, Wynik wy, bool wystartowal)
         {
-            if (w.TuraWystartowala) return null; // nie powtarzaj wykonanej pracy po błędzie oddawania sesji
-            if (w.BladProjektu) return null; // błąd projektu nie może uruchomić drugiej, nieprzypisanej sesji
-            if (!wystartowal) return "proces nie wystartował: " + Dziennik(w);
             if (wy.Kod == 0) return null;
             var t = (wy.Wyjscie ?? "") + "\n" + Dziennik(w);
             if (Agenci.OdmowaDostawcy(wy.Kod, t)) return null;
+            // Jedyny wyjątek: jednoznaczny błąd parsera argumentów CLI przed wykonaniem pracy.
+            if (w.Strona == "claude" && w.Martwy && System.Text.RegularExpressions.Regex.IsMatch(Dziennik(w), @"(?im)^\s*(?:error:\s*)?(?:unknown option\b|unknown argument\b|error:\s*option\b)")) return t;
+            if (w.TuraWystartowala) return null; // nie powtarzaj wykonanej pracy po błędzie oddawania sesji
+            if (w.BladProjektu) return null; // błąd projektu nie może uruchomić drugiej, nieprzypisanej sesji
+            if (!wystartowal) return "proces nie wystartował: " + Dziennik(w);
             if (w.Strona == "codex" && System.Text.RegularExpressions.Regex.IsMatch(t, @"-32601|[Mm]ethod not found|unknown variant|unknown method|nie odpowiedział na (initialize|thread/start|turn/start)")) return t;
-            if (w.Strona == "claude" && w.Martwy && System.Text.RegularExpressions.Regex.IsMatch(t, @"unknown option|error: option|[Uu]nknown argument|bypassPermissions|stream-json|--name|not allowed|disabled|zakończył się bez wyniku")) return t;
             return null;
         }
 
@@ -377,12 +414,12 @@ namespace Ecxp
             catch (Exception ex) { wy.Kod = 1; wy.Wyjscie = "błąd: " + ex.Message + "\n" + Dziennik(w); }
             finally
             {
+                nieDziala = NieDziala(w, wy, wystartowal); // oceń stan przed własnym zamknięciem procesu
                 w.Zajety = false; w.Ostatnio = DateTime.Now;
                 // Claude: świeży kontekst na następne zadanie – proces zamknięty, pętla agentów od razu uruchomi nowy.
                 // Codex i każdy proces po błędzie: wątek/kontekst też nie przechodzi dalej (nowy wątek albo nowy proces).
                 if (w.Strona == "claude" || wy.Kod != 0 || w.Martwy) lock (procesy) { if (procesy.ContainsKey(n) && procesy[n] == w) procesy.Remove(n); ZamknijProc(w); }
             }
-            nieDziala = NieDziala(w, wy, wystartowal);
             return wy;
         }
 
@@ -401,13 +438,10 @@ namespace Ecxp
             string args;
             if (strona == "claude")
             {
-                var narz = new List<string> { "Read", "Grep", "Glob" };
-                if (pisze) { narz.Add("Edit"); narz.Add("Write"); }
-                if (P.S(rec, "uprawnienia") == "pelne" || P.B(rec, "pentest")) { narz.Add("Bash"); narz.Add("PowerShell"); }
                 var mcpCfg = Path.Combine(Dir, n + ".mcp.json");
                 File.WriteAllText(mcpCfg, "{\"mcpServers\":{}}", new UTF8Encoding(false));
                 // bez trybu „bypassPermissions” (może być zablokowany na stanowisku) – narzędzia dozwolone listą
-                args = "-p --output-format json --mcp-config \"" + mcpCfg + "\" --strict-mcp-config --allowedTools " + string.Join(" ", narz) +
+                args = "-p --output-format json" + ArgumentyClaude(rec, mcpCfg) +
                        (pisze ? " --permission-mode acceptEdits" : "") +
                        (pisze ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                        (P.S(rec, "model").Length > 0 ? " --model " + P.S(rec, "model") : "");
@@ -415,7 +449,9 @@ namespace Ecxp
             else
             {
                 var tryb = Podwyzszone(rec) ? "danger-full-access" : pisze ? "workspace-write" : "read-only";
-                args = BezEcxpCodex() + PreferowanySandboxCodex + (P.B(rec, "pentest") ? "-c sandbox_workspace_write.network_access=true " : "") + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
+                if (rec.ContainsKey("opcje_pentestu") && tryb == "read-only" && SiecCodex(rec))
+                    return new Wynik { Kod = 1, Wyjscie = "Tryb read-only z siecią wymaga Codex app-server. Jednorazowy CLI nie gwarantuje tej polityki; nie uruchomiono tury." };
+                args = BezEcxpCodex() + PreferowanySandboxCodex + (rec.ContainsKey("opcje_pentestu") || P.B(rec, "pentest") ? "-c sandbox_workspace_write.network_access=" + (SiecCodex(rec) ? "true " : "false ") : "") + "exec --skip-git-repo-check -C \"" + katalog + "\" -s " + tryb +
                        (pisze && tryb != "danger-full-access" ? string.Concat(Zapis(rec).Skip(1).Select(z => " --add-dir \"" + z + "\"")) : "") +
                        " -o \"" + plikWyniku + "\"" +
                        (P.S(rec, "model").Length > 0 ? " -m " + P.S(rec, "model") : "") + " -";
@@ -528,8 +564,8 @@ namespace Ecxp
             var katalog = P.S(rec, "katalog");
             string tryb; object polityka;
             if (Podwyzszone(rec)) { tryb = "danger-full-access"; polityka = P.D("type", "dangerFullAccess"); }      // zgoda operatora + UAC, do FIN tego zadania
-            else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly"); }
-            else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", P.B(rec, "pentest")); }
+            else if (P.S(rec, "uprawnienia") == "odczyt") { tryb = "read-only"; polityka = P.D("type", "readOnly", "networkAccess", rec.ContainsKey("opcje_pentestu") && SiecCodex(rec)); }
+            else { tryb = "workspace-write"; polityka = P.D("type", "workspaceWrite", "writableRoots", Zapis(rec), "networkAccess", SiecCodex(rec)); }
             var parStart = P.D("cwd", katalog, "approvalPolicy", "never", "sandbox", tryb);
             w.BladProjektu = false;
             string projekt;
@@ -560,8 +596,14 @@ namespace Ecxp
             var par = P.D("threadId", watek, "approvalPolicy", "never", "sandboxPolicy", polityka,
                 "input", new List<object> { P.D("type", "text", "text", tekst, "text_elements", new List<object>()) });
             if (P.S(rec, "model").Length > 0) par["model"] = P.S(rec, "model");
-            var startTury = Rpc(w, "turn/start", par, 60000);
             w.TuraWystartowala = true;
+            Dictionary<string,object> startTury;
+            try { startTury = Rpc(w, "turn/start", par, 60000); }
+            catch (EcxpException ex) {
+                // -32601 to jawne odrzucenie nieobsługiwanej metody. Timeout lub zerwane połączenie nie dowodzą braku wykonania.
+                if (ex.Message.StartsWith("Codex turn/start: ", StringComparison.Ordinal) && ex.Message.Contains("\"code\":-32601")) w.TuraWystartowala = false;
+                throw;
+            }
             bool zakonczona = w.KoniecTury.WaitOne(TimeSpan.FromMinutes(limitMin));
             if (!zakonczona)
             {
@@ -578,6 +620,7 @@ namespace Ecxp
 
         static void WykonajClaude(Proc w, Dictionary<string, object> rec, string tekst, int limitMin, Wynik wy)
         {
+            w.TuraWystartowala = true; // od próby doręczenia wynik jest niepewny: nie wolno powtarzać pracy w zimnym CLI
             Pisz(w, P.D("type", "user", "message", P.D("role", "user", "content", tekst)));
             string linia = null;
             var koniec = DateTime.Now.AddMinutes(limitMin);
@@ -633,8 +676,9 @@ namespace Ecxp
                 {
                     var w = kv.Value;
                     if (w.Zajety) continue;
-                    Dictionary<string, object> rec;
-                    bool zbedny = w.Martwy || !aktywni.TryGetValue(kv.Key, out rec) || Klucz(rec) != w.Klucz || DateTime.Now - w.Ostatnio > TimeSpan.FromMinutes(BezczynnoscMin);
+                    Dictionary<string, object> rec=null;
+                    bool zbedny = w.Martwy || !aktywni.TryGetValue(kv.Key, out rec) || DateTime.Now - w.Ostatnio > TimeSpan.FromMinutes(BezczynnoscMin);
+                    if (!zbedny) try { zbedny = Klucz(rec) != w.Klucz; } catch (Exception ex) { zbedny = true; Log("zamykam agenta z nieprawidłową konfiguracją: " + kv.Key + ": " + ex.Message); }
                     if (zbedny) { procesy.Remove(kv.Key); ZamknijProc(w); }
                 }
         }

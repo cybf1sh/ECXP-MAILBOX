@@ -63,6 +63,39 @@ class TestOdmow {
    var qid=P.S(question,"id");var d=Pliki.Czytaj(Path.Combine(P.Root,"stan","agenci","claude-r1.json"));d["pytania"]=new List<string>{qid};
    P.ZBlokada(()=>{Agenci.ZakonczOdmowe(d,null,P.Znajdz(qid));Pliki.Zapisz(Path.Combine(P.Root,"stan","agenci","claude-r1.json"),d);return 0;});
    Check(P.L(d,"pytania").Count==0&&Agenci.OdmowionoPracy(d,qid),"odmowa pytania usuwa je z kolejki i zapamiętuje jego ID");
+   Cieply.ZamknijWszystko();
+   File.WriteAllText(fixture,"import sys\nfor line in sys.stdin:\n with open("+P.Js().Serialize(calls)+",'a') as f: f.write('crash\\n')\n sys.exit(1)\n");
+   int beforeCrash=File.ReadAllLines(calls).Length;
+   var crashed=Cieply.Wykonaj(P.D("nazwa","claude-crash","strona","claude","projekt","odmowy-test","katalog",P.Root,"uprawnienia","odczyt"),"syntetyczne",1,null);
+   Check(crashed.Kod!=0&&File.ReadAllLines(calls).Length==beforeCrash+1&&!Cieply.Zastepczy("claude"),"awaria Claude po doręczeniu nie ponawia pracy w zimnym transporcie");
+   File.WriteAllText(fixture,"import sys,time\nfor line in sys.stdin:\n with open("+P.Js().Serialize(calls)+",'a') as f: f.write('stop\\n')\n time.sleep(30)\n");
+   int beforeStop=File.ReadAllLines(calls).Length;
+   var stopper=new Thread(()=>{var stopAt=DateTime.UtcNow.AddSeconds(10);while(File.ReadAllLines(calls).Length==beforeStop&&DateTime.UtcNow<stopAt)Thread.Sleep(50);Cieply.Zamknij(n=>n=="claude-stop");});stopper.IsBackground=true;stopper.Start();
+   var stopped=Cieply.Wykonaj(P.D("nazwa","claude-stop","strona","claude","projekt","odmowy-test","katalog",P.Root,"uprawnienia","odczyt"),"syntetyczne",1,null);stopper.Join(11000);
+   Check(stopped.Kod!=0&&File.ReadAllLines(calls).Length==beforeStop+1&&!Cieply.Zastepczy("claude"),"Stop Claude po doręczeniu nie uruchamia zadania ponownie");
+   var legacy=Path.Combine(mock,"legacy.py");File.WriteAllText(legacy,"import sys,json\nif '--input-format' in sys.argv:\n print(\"error: unknown option '--input-format'\",file=sys.stderr,flush=True)\n sys.exit(1)\nsys.stdin.read()\nprint(json.dumps({'type':'result','is_error':False,'result':'LEGACY_OK'}),flush=True)\n");
+   File.WriteAllText(Path.Combine(mock,"claude.cmd"),"@echo off\r\n\"C:\\Python314\\python.exe\" \""+legacy+"\" %*\r\n");
+   var compatible=Cieply.Wykonaj(P.D("nazwa","claude-legacy","strona","claude","projekt","odmowy-test","katalog",P.Root,"uprawnienia","odczyt"),"syntetyczne",1,null);
+   Check(compatible.Kod==0&&compatible.Odpowiedz=="LEGACY_OK"&&Cieply.Zastepczy("claude"),"jawny błąd parsera opcji przed pracą nadal pozwala na zgodny transport jednorazowy");
+   var codexFixture=Path.Combine(mock,"codex.py");File.WriteAllText(codexFixture,@"import sys,json,uuid,pathlib
+def log(text):
+ with open("+P.Js().Serialize(calls)+@",'a') as f: f.write(text+'\n')
+def send(value): print(json.dumps(value),flush=True)
+if 'exec' in sys.argv:
+ log('codex-cold-duplicate');pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_text('duplicate');sys.exit(0)
+for line in sys.stdin:
+ r=json.loads(line)
+ if 'id' not in r: continue
+ m=r.get('method');out={}
+ if m=='initialize': out={'codexHome':"+P.Js().Serialize(mock)+@"}
+ if m=='project/create': out={'project':{'id':'fixture-project'}}
+ if m=='thread/start': out={'thread':{'id':str(uuid.uuid4())}}
+ if m=='turn/start': log('codex-accepted-no-ack');sys.exit(1)
+ send({'id':r['id'],'result':out})
+");
+   File.WriteAllText(Path.Combine(mock,"codex.cmd"),"@echo off\r\n\"C:\\Python314\\python.exe\" \""+codexFixture+"\" %*\r\n");
+   var uncertain=Cieply.Wykonaj(P.D("nazwa","codex-no-ack","strona","codex","projekt","odmowy-test","katalog",P.Root,"uprawnienia","odczyt","model","fixture"),"syntetyczne",1,null);
+   Check(uncertain.Kod!=0&&File.ReadAllLines(calls).Count(x=>x=="codex-accepted-no-ack")==1&&!File.ReadAllLines(calls).Contains("codex-cold-duplicate")&&!Cieply.Zastepczy("codex"),"Codex po utracie ACK turn/start nie powtarza potencjalnie wykonanej pracy");
   } finally {Environment.SetEnvironmentVariable("PATH",old);}
  }
  public static int Main(string[] args){if(args.Length!=1)return 2;try{MainTest(args[0]);}catch(Exception ex){Console.WriteLine(ex);return 1;}return errors==0?0:1;}

@@ -58,7 +58,7 @@ namespace Ecxp
         }
 
         public static Dictionary<string, object> Uruchom(string nazwa, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role, string opis, int naGodzine,
-            string pakiet = null, List<string> katalogiZapisu = null, bool obowiazkowaOdpowiedz = false)
+            string pakiet = null, List<string> katalogiZapisu = null, bool obowiazkowaOdpowiedz = false, bool aktywny = true)
         {
             nazwa = (nazwa ?? "").Trim().ToLowerInvariant();
             if (!P.PoprawnyNadawca(nazwa)) throw new EcxpException("Nazwa agenta: codex-<nazwa> albo claude-<nazwa>.");
@@ -71,18 +71,19 @@ namespace Ecxp
                     ? "Na tym stanowisku nie ma Codex CLI (polecenie codex). Zainstaluj je albo otwórz czat Codexa i wklej pakiet startowy."
                     : "Na tym stanowisku nie ma Claude Code CLI (polecenie claude).");
             // kontrola sesji, trasa „tlo:” i rekord agenta – jedna sekcja krytyczna z ecxp_przypisz (blokada stosu)
-            return P.ZBlokada(() => UruchomPodBlokada(nazwa, strona, projekt, modul, katalog, model, uprawnienia, role, opis, naGodzine, pakiet, katalogiZapisu, obowiazkowaOdpowiedz));
+            return P.ZBlokada(() => UruchomPodBlokada(nazwa, strona, projekt, modul, katalog, model, uprawnienia, role, opis, naGodzine, pakiet, katalogiZapisu, obowiazkowaOdpowiedz, aktywny));
         }
 
         static Dictionary<string, object> UruchomPodBlokada(string nazwa, string strona, string projekt, string modul, string katalog, string model, string uprawnienia, List<string> role,
-            string opis, int naGodzine, string pakiet, List<string> katalogiZapisu, bool obowiazkowaOdpowiedz)
+            string opis, int naGodzine, string pakiet, List<string> katalogiZapisu, bool obowiazkowaOdpowiedz, bool aktywny)
         {
+            if (UsuwanieProjektu.Trwa(projekt)) throw new EcxpException("Projekt jest w trakcie usuwania; nie uruchomiono agenta.");
             if (SesjeInteraktywne().Contains(nazwa))
                 throw new EcxpException("Adres " + nazwa + " ma już sesję w aplikacji – agent w tle nie został założony. Zadanie czeka w skrzynce tej sesji; stos ją obudzi.");
             var r = Siec.Przypisz(nazwa, projekt, modul, "tlo:" + nazwa, role, opis, P.Wlasciciel);
             var rec = P.D("nazwa", nazwa, "strona", strona, "projekt", r["projekt"], "modul", r["modul"], "katalog", Path.GetFullPath(katalog),
                 "model", model ?? "", "uprawnienia", uprawnienia, "na_godzine", Math.Max(1, naGodzine), "sesja", Guid.NewGuid().ToString(),
-                "sesja_zalozona", false, "aktywny", true, "uruchomienia", new List<object>(), "utworzono", P.Teraz(), "opis", opis ?? "",
+                "sesja_zalozona", false, "aktywny", aktywny, "uruchomienia", new List<object>(), "utworzono", P.Teraz(), "opis", opis ?? "",
                 "obowiazkowa_odpowiedz", obowiazkowaOdpowiedz,
                 "katalogi_zapisu", (katalogiZapisu ?? new List<string>()).Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
             Pliki.Zapisz(Path.Combine(Dir, nazwa + ".json"), rec);
@@ -303,6 +304,7 @@ namespace Ecxp
                     foreach (var rec in lista)
                     {
                         var n = P.S(rec, "nazwa");
+                        if (UsuwanieProjektu.Trwa(P.S(rec,"projekt"))) continue;
                         lock (trwa) if (trwa.Contains(n)) continue;
                         // ECXP przezroczysty: stos odbiera za agenta (ACK), agent dostaje samą treść pracy, bez protokołu.
                         // Informacje (np. podziękowania) kończą się na ACK – bez tury i bez tokenów.
@@ -327,7 +329,11 @@ namespace Ecxp
                         if (Ponowienie(rec) > DateTimeOffset.Now) continue;
                         // adres mógł przejść na sesję w aplikacji po migawce – wtedy bez tury w tle; odebrana już praca do operatora
                         if (P.ZBlokada(() => SesjeInteraktywne().Contains(n))) { PracaPrzejeta(rec); continue; }
-                        lock (trwa) trwa.Add(n);
+                        bool rozpocznij = P.ZBlokada(() => {
+                            if (UsuwanieProjektu.Trwa(P.S(rec,"projekt")) || !P.B(Pliki.Czytaj(Path.Combine(Dir,n+".json")),"aktywny")) return false;
+                            lock (trwa) { if (trwa.Contains(n)) return false; trwa.Add(n); } return true;
+                        });
+                        if (!rozpocznij) continue;
                         var kopia = rec; var kopiaPraca = praca;
                         new Thread(() => Tura(kopia, kopiaPraca)) { IsBackground = true, Name = "ecxp-agent-" + n }.Start();
                     }
@@ -336,6 +342,7 @@ namespace Ecxp
         }
 
         public const int MaxPrzypomnien = 2;
+        public static bool TrwaKtorys(List<string> nazwy) { lock (trwa) return nazwy.Any(n => trwa.Contains(n)); }
 
         // Zadanie, na które agent jest winien FIN (zapis obiegu zadania – Obieg.Brakujacy).
         public static Msg BezOdpowiedzi(string n) { return Obieg.Brakujacy(n); }

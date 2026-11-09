@@ -18,11 +18,19 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet do recenzji: `builds/reinstall-802be22-20261104/narzedzia/`.
+Aktualny pakiet 3.7.0: `builds/release-3.7.0/narzedzia/`.
+
+**Wersja 3.7.0:** kategoria „Bezpieczeństwo / testy” ma osobne opcje WebFetch
+z importem domen JSON/TXT, narzędzi Claude, zapisu i sieci Codexa oraz jawny
+wybór modeli. Sześciu agentów pracuje według etapów dopasowanych do mechanizmów
+aplikacji, z kontrolą dowodów, chainingiem, lokalnym PoC i pamięcią projektu.
+Przycisk „Usuń projekt…” obok „Nowe zadanie” pokazuje plan i pozwala osobno
+wybrać usunięcie lokalnych danych dostawców oraz UAC. Szczegóły i wyniki:
+[wydanie 3.7.0](docs/WDROZENIE-3.7.0-20261110.md).
 
 **Test protokołu**: `narzedzia\ECXP-MAILBOX.exe /selftest <pusty katalog>`.
 
-**Klient 3.2 — przygotowywana aktualizacja:** filtr „Niewysłane” obok „Wszystkie”,
+**Szkice i wysyłka:** filtr „Niewysłane” obok „Wszystkie”,
 „Odebrane” i „Wysłane” zbiera lokalne szkice oraz błędy wysyłki/doręczenia.
 Kliknięcie otwiera edytor z zachowaną treścią, adresatem i załącznikami.
 Szkice zapisują się automatycznie i pozostają po ponownym uruchomieniu.

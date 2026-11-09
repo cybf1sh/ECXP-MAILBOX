@@ -60,6 +60,10 @@ namespace Ecxp
 
         public static Dictionary<string, object> Odswiez()
         {
+            lock (Blokada) return P.ZBlokada(OdswiezPodBlokada);
+        }
+        static Dictionary<string, object> OdswiezPodBlokada()
+        {
             List<Msg> msgs; Dictionary<string, Stan> stany;
             lock (Blokada)
             {

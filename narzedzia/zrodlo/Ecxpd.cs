@@ -287,7 +287,7 @@ namespace Ecxp
         // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
         // claudeWAplikacji: strona Claude nie pracuje w tle – konsola otwiera dla niej sesję w aplikacji Claude (widoczną na pasku),
         // która sama odbiera zadanie i daje FIN przez MCP ECXP.
-        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false, string modelCodex = "", string modelClaude = "", bool pentest = false)
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false, string modelCodex = "", string modelClaude = "", bool pentest = false, Dictionary<string, object> opcjePentestu = null)
         {
             var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
             var katalog = Path.Combine(P.Root, "projekty", projekt);
@@ -306,24 +306,26 @@ namespace Ecxp
                 }
                 try
                 {
-                    var rec = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, strona == "codex" ? modelCodex : modelClaude, podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
-                        P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
-                        P.S(p, "rola").Length > 0);      // jawne pole: agent zadania (wykonawca, sprawdzający, sam) musi dać FIN
-                    P.ZBlokada(delegate
+                    var rec = P.ZBlokada(delegate
                     {
-                        var pa = Path.Combine(P.Root, "stan", "agenci", P.S(rec, "nazwa") + ".json");
+                    var registered = Agenci.Uruchom(P.S(p, "nazwa"), projekt, modul, katalog, strona == "codex" ? modelCodex : modelClaude, opcjePentestu != null ? (P.B(opcjePentestu,"zapis") ? "edycja" : "odczyt") : podwyzszone.Length > 0 ? "pelne" : "edycja", strona == "codex" ? roleCodex : roleClaude, P.S(r, "tytul_sesji"), 12,
+                        P.S(p, "tekst") + (zapis.Count > 0 ? "\n\nMożesz zapisywać w: " + katalog + " oraz " + string.Join(", ", zapis) + "." : ""), zapis,
+                        P.S(p, "rola").Length > 0, false); // aktywacja dopiero z kompletem opcji, także dla pętli czytającej rekordy
+                        var pa = Path.Combine(P.Root, "stan", "agenci", P.S(registered, "nazwa") + ".json");
                         var d = Pliki.Czytaj(pa);
                         d["pentest"] = pentest;
+                        if (opcjePentestu != null) { d["opcje_pentestu"] = opcjePentestu; d["uprawnienia"] = P.B(opcjePentestu, "zapis") ? "edycja" : "odczyt"; }
                         d["pokaz_sesje"] = pokazSesje;        // „Pokaż sesje agentów” – okno rozmowy otwiera się samo
+                        d["aktywny"] = true;
                         if (podwyzszone.Length > 0) { d["podwyzszone_klucz"] = podwyzszone; d["uprawnienia_po_zadaniu"] = "edycja"; }
                         Pliki.Zapisz(pa, d);
-                        return 0;
+                        return d;
                     });
                     // projekt widoczny w Claude od razu: folder projektu ECXP zaufany w Claude Code (bez pytania przy otwarciu sesji)
                     if (strona == "claude") Cieply.ZaufajClaude(katalog);
                     wynik.Add(P.D("nazwa", P.S(rec, "nazwa"), "strona", strona, "katalog", katalog, "zapis", zapis, "podwyzszone", podwyzszone.Length > 0));
                 }
-                catch (Exception ex) { wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
+                catch (Exception ex) { try { Agenci.Zatrzymaj(P.S(p,"nazwa")); } catch { } wynik.Add(P.D("nazwa", P.S(p, "nazwa"), "strona", strona, "blad", ex.Message)); }
             }
             return wynik;
         }
@@ -333,11 +335,14 @@ namespace Ecxp
             string projekt = P.S(a, "projekt"), modul = P.S(a, "modul"), opis = P.S(a, "opis");
             string cx = P.S(a, "model_codex"), cl = P.S(a, "model_claude");
             Pentest.Sprawdz(projekt, modul, opis, P.S(a, "cel"), P.S(a, "zakres"), cx, cl);
+            var opcje = Pentest.Opcje(a);
             foreach (var strona in new[] { "codex", "claude" })
                 if (Agenci.Program(strona).Length == 0) throw new EcxpException("Brak CLI: " + strona + ". Zespół nie został utworzony.");
             var plan = Pentest.Plan(modul, Guid.NewGuid().ToString("N").Substring(0, 8));
             var agenci = new List<object>();
             var zadania = new List<Dictionary<string, object>>();
+            try
+            {
             // Najpierw rejestracja wszystkich sześciu agentów; żadne zadanie nie jest jeszcze wysłane.
             foreach (var para in plan)
             {
@@ -345,7 +350,7 @@ namespace Ecxp
                 string instrukcja = Pentest.Instrukcja(para, plan, P.S(a, "cel"), P.S(a, "zakres"), opis);
                 var r = Siec.NoweZadanie(projekt, P.S(para, "modul"), modul + " / " + P.S(para, "rola"), instrukcja,
                     role, role, Znacznik, Czesci(a), false, null, null, Siec.Ikony[1], false, false);
-                agenci.AddRange(AgenciWTle(r, "", role, role, "", false, false, cx, cl, true));
+                agenci.AddRange(AgenciWTle(r, "", role, role, "", false, false, cx, cl, true, opcje));
                 zadania.Add(P.D("modul", P.S(para, "modul"), "opis", instrukcja));
             }
             var bledy = agenci.Cast<Dictionary<string, object>>().Where(x => P.S(x, "blad").Length > 0).ToList();
@@ -360,6 +365,20 @@ namespace Ecxp
                 Siec.Wyslij(new P.Nowa { Od = P.Wlasciciel, Do = "para:" + P.S(z, "modul"), Projekt = P.Slug(projekt, 32, false),
                     Modul = P.S(z, "modul"), Typ = "zadanie", Temat = "Pentest: " + modul, Tresc = P.S(z, "opis"), Czesci = Czesci(a) });
             return P.D("projekt", P.Slug(projekt, 32, false), "agenci_w_tle", agenci, "plan", plan, "model_codex", cx, "model_claude", cl);
+            }
+            catch (Exception ex)
+            {
+                foreach (var para in plan) foreach (var strona in new[] { "codex", "claude" })
+                    try { Agenci.Zatrzymaj(strona + "-" + P.S(para,"modul")); } catch { }
+                var names=new HashSet<string>(plan.SelectMany(p=>new[]{"codex-"+P.S(p,"modul"),"claude-"+P.S(p,"modul")}));Cieply.Zamknij(names.Contains);
+                try { P.ZBlokada(()=>{
+                    Pentest.Anuluj(P.S(plan[2],"modul"),ex.Message);
+                    var modules=new HashSet<string>(plan.Select(p=>P.S(p,"modul")));
+                    P.Wycofaj(P.Wszystkie(false).Where(m=>m.Projekt==P.Slug(projekt,32,false)&&modules.Contains(m.Modul)).Select(m=>m.Plik).ToList(),"Nieudane tworzenie zespołu: "+ex.Message);
+                    Obieg.ZamknijWycofane();return 0;
+                }); } catch(Exception cleanup) { Log("Niepełne wycofanie błędnego startu zespołu: "+cleanup.Message); }
+                throw;
+            }
         }
 
         // ---------- podwyższone uprawnienia (UAC) jednego zadania ----------
@@ -439,17 +458,32 @@ namespace Ecxp
             return P.Lista(a, "czesci");
         }
 
+        static string ProjektOperacji(Sesja s, Dictionary<string,object> a)
+        {
+            var projekt=P.Slug(P.S(a,"projekt"),32,false); if(projekt.Length>0)return projekt;
+            var id=P.S(a,"id"); if(id.Length==0)id=P.S(a,"odpowiedz_na");
+            if(id.Length>0){var m=P.Znajdz(id);if(m!=null)return m.Projekt;var chain=Lancuchy.Wszystkie().FirstOrDefault(c=>P.S(c,"id")==id);if(chain!=null)return P.S(chain,"projekt");}
+            var name=P.S(a,"nazwa");if(name.Length==0)name=s.Ja;
+            var projects=Siec.Trasy().Where(t=>t.Nazwa==name).Select(t=>t.Projekt).Distinct().ToList();
+            return projects.Count==1?projects[0]:"";
+        }
+
         static object Wykonaj(Sesja s, string op, Dictionary<string, object> a)
         {
+            if (op == "projekt_usun_plan") { TylkoOperator(s); return UsuwanieProjektu.Przygotuj(P.S(a,"projekt"),P.B(a,"codex"),P.B(a,"claude")); }
+            var projektOperacji=ProjektOperacji(s,a);var epoka=UsuwanieProjektu.Epoka(projektOperacji);
+            UsuwanieProjektu.SprawdzOperacje(op,projektOperacji,epoka);
             if (op == "nowy_pentest")
             {
                 TylkoOperator(s);
                 Pentest.Sprawdz(P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "opis"), P.S(a, "cel"), P.S(a, "zakres"), P.S(a, "model_codex"), P.S(a, "model_claude"));
+                Pentest.Opcje(a); // walidacja przed diagnostyką CLI i utworzeniem rekordów
                 // Odczyt środowiska CLI nie może zatrzymywać komunikacji całego stosu.
                 Cieply.SprawdzSandboxCodex();
             }
             lock (stos)
             {
+                UsuwanieProjektu.SprawdzOperacje(op,projektOperacji,epoka); // także po wolnym preflight i po zakończonym usunięciu
                 object w = WykonajW(s, op, a);
                 if (op != "odbierz" && op != "stan" && op != "watek" && op != "trasy" && op != "kontekst_pobierz" && op != "ping" && op != "sprawdz_decyzje" && op != "lancuchy" && op != "galezie" && op != "agenci" && op != "sesja")
                 {
@@ -464,6 +498,7 @@ namespace Ecxp
         {
             switch (op)
             {
+                case "projekt_usun_bilet": TylkoOperator(s); return UsuwanieProjektu.OdbierzBilet(P.S(a,"token"));
                 case "ping": return P.D("stos", "ecxpd 1.0", "protokol", P.Protokol, "ja", s.Ja, "czas", P.Teraz());
                 case "wyslij":
                     {

@@ -18,8 +18,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("ECXP-MAILBOX – konsola operatora ECXP")]
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
-[assembly: AssemblyVersion("3.6.2.0")]
-[assembly: AssemblyFileVersion("3.6.2.0")]
+[assembly: AssemblyVersion("3.7.0.0")]
+[assembly: AssemblyFileVersion("3.7.0.0")]
 
 namespace Ecxp
 {
@@ -157,6 +157,8 @@ namespace Ecxp
         bool dialogNiedoreczonej;
         readonly HashSet<string> pokazaneNiedoreczone = new HashSet<string>();
         Button bLogi;
+        Button bUsunProjekt;
+        bool konserwacjaWToku;
         // wiersz listy rozmów: tytuł, znacznik (NOWA / przeczytana / stan wysłanej), data i godzina, kierunek
         class Wiersz : ListViewItem
         {
@@ -448,6 +450,9 @@ namespace Ecxp
             cbProjekt.DrawItem += (s, e) => RysujPozycje(cbProjekt, e, x => cbProjekt.Items.IndexOf(x) == 0 ? "" : IkP(x));
             cbProjekt.SelectedIndex = cbProjekt.Items.Count > 1 ? 1 : 0;
             var bNoweH = Btn("＋  Nowe zadanie / moduł…");
+            bUsunProjekt = Btn("Usuń projekt…"); bUsunProjekt.Enabled = cbProjekt.SelectedIndex > 0;
+            bUsunProjekt.Click += delegate { UsunProjekt(); };
+            cbProjekt.SelectedIndexChanged += delegate { bUsunProjekt.Enabled = cbProjekt.SelectedIndex > 0 && !konserwacjaWToku; };
             bMotyw = Btn(NapisMotywu());
             cbJezyk = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (var j in Jezyk.Dostepne) cbJezyk.Items.Add(j[1]);
@@ -488,7 +493,7 @@ namespace Ecxp
                 menu.Show(pomoc, new Point(0, pomoc.Height));
             };
             new ToolTip().SetToolTip(pomoc, Jezyk.T("O programie, wersja, strona ECXP i kod źródłowy."));
-            headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, ustawienia, pomoc });
+            headerRow.Controls.AddRange(new Control[] { logo, lblProj, cbProjekt, bNoweH, bUsunProjekt, ustawienia, pomoc });
             head.Controls.Add(headerRow);
 
             pnlBiez = new Panel { Dock = DockStyle.Top, Height = 46, Visible = false, Padding = new Padding(8, 4, 8, 4) };
@@ -1347,7 +1352,7 @@ namespace Ecxp
         {
             // Stos obsługuje żądania jednej sesji kolejno. Nie blokuj wątku GUI
             // odpytywaniem za długim żądaniem tworzenia zespołu.
-            if (startPentestuWToku) return;
+            if (startPentestuWToku || konserwacjaWToku) return;
             if (klient == null || !klient.Polaczony || stosBezUslug) return;
             try
             {
@@ -3759,28 +3764,91 @@ namespace Ecxp
             }) { IsBackground = true, Name = "ecxp-start-pentestu" }.Start();
         }
 
+        void UsunProjekt()
+        {
+            if (cbProjekt.SelectedIndex <= 0 || konserwacjaWToku || startPentestuWToku) return;
+            var projekt = cbProjekt.SelectedItem.ToString(); bool codex, claude, uac;
+            using (var f = new Formularz("Usuń projekt — " + projekt, fontN, fontB))
+            {
+                f.Uwaga("Trwale usuń z mailboxa projekt „" + projekt + "”, jego wiadomości i katalog:\n" + UsuwanieProjektu.Katalog(projekt));
+                var cx = f.Wybor("Usuń także lokalne sesje Codexa tego projektu", false);
+                var cl = f.Wybor("Usuń także sesje i lokalną pamięć Claude tego projektu", false);
+                var admin = f.Wybor("Uruchom usuwanie z podwyższonymi uprawnieniami (UAC)", false);
+                f.Uwaga("Najpierw zobaczysz plan. Zaznaczenie danych agentów dodaje ostrzeżenia i końcowe potwierdzenie nazwą projektu. Usuwanie nie trafia do Kosza. Kopie zapasowe, globalne dane współdzielone i dane dostawców w chmurze nie są objęte tą operacją.");
+                f.PrzyciskOk("Pokaż plan usuwania"); if (f.ShowDialog(form) != DialogResult.OK) return;
+                codex = cx.Checked; claude = cl.Checked; uac = admin.Checked;
+            }
+            konserwacjaWToku = true; bUsunProjekt.Enabled = false; stInfo.Text = "Przygotowuję plan usuwania projektu…";
+            new Thread(() => {
+                Dictionary<string, object> plan = null; string error = "";
+                try { plan = (Dictionary<string, object>)Stos("projekt_usun_plan", P.D("projekt", projekt, "codex", codex, "claude", claude), Timeout.Infinite); }
+                catch (Exception ex) { error = ex.Message; }
+                try { form.BeginInvoke((Action)(() => {
+                    if (plan == null) { konserwacjaWToku = false; bUsunProjekt.Enabled = cbProjekt.SelectedIndex > 0; MessageBox.Show(form, error, "Nie przygotowano usuwania"); return; }
+                    bool zgoda = false;
+                    try {
+                        using (var f = new Formularz("Plan trwałego usunięcia — " + projekt, fontN, fontB)) {
+                            f.Size = new Size(900, 700);
+                            var opis = "Katalog: " + P.S(plan,"katalog") + "\nPliki mailboxa poza katalogiem: " + P.L(plan,"pliki").Count + "\n" + string.Join("\n", P.L(plan,"pliki").Take(30)) +
+                                "\n\nWątki Codexa: " + P.L(plan,"watki").Count + "\n" + string.Join("\n", P.L(plan,"watki")) + "\n\n" + P.S(plan,"claude_plan") + "\nDane tymczasowe Claude:\n" + string.Join("\n",P.L(plan,"claude_scratch"));
+                            f.Kopiuj("Dokładny zakres:", opis); f.PrzyciskOk("Dalej"); if (f.ShowDialog(form) != DialogResult.OK) return;
+                        }
+                        if (codex || claude) {
+                            if (MessageBox.Show(form, "Sesje i pamięć wybranych agentów zostaną trwale usunięte. Nie będzie można wznowić tych rozmów.\n\nKontynuować dla projektu „" + projekt + "”?", "Ostrzeżenie — dane agentów", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                            using (var f = new Formularz("Definitywne potwierdzenie usunięcia", fontN, fontB)) {
+                                f.Uwaga("Zatrzymam agentów tego projektu i usunę dane pokazane w planie. Wpisz dokładną nazwę: " + projekt);
+                                var nazwa = f.Tekst("Nazwa projektu:", ""); var rozumiem = f.Wybor("Rozumiem, że operacja jest nieodwracalna", false);
+                                f.PrzyciskOk("Definitywnie usuń projekt"); f.OkAktywny(false);
+                                EventHandler zmiana = (s,e) => f.OkAktywny(nazwa.Text == projekt && rozumiem.Checked); nazwa.TextChanged += zmiana; rozumiem.CheckedChanged += zmiana;
+                                if (f.ShowDialog(form) != DialogResult.OK) return;
+                            }
+                        } else if (MessageBox.Show(form, "Trwale usunąć projekt „" + projekt + "” z mailboxa i dysku?", "Potwierdź usunięcie", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                        zgoda = true; UruchomUsuwanie(plan, uac);
+                    } finally { if (!zgoda) { konserwacjaWToku = false; bUsunProjekt.Enabled = cbProjekt.SelectedIndex > 0; stInfo.Text = "Anulowano usuwanie."; } }
+                })); } catch { }
+            }) { IsBackground = true, Name = "ecxp-plan-usuwania" }.Start();
+        }
+
+        void UruchomUsuwanie(Dictionary<string, object> plan, bool uac)
+        {
+            var token = P.S(plan,"token"); var projekt = P.S(plan,"projekt");
+            new Thread(() => {
+                string error = ""; Dictionary<string, object> wynik = null;
+                try {
+                    var psi = UsuwanieProjektu.Pomocnik(Application.ExecutablePath, token, uac);
+                    using (var p = System.Diagnostics.Process.Start(psi)) { p.WaitForExit(); }
+                    var file = UsuwanieProjektu.Wynik(token); if (File.Exists(file)) wynik = Pliki.Czytaj(file); else error = "Nie otrzymano wyniku. Projekt mógł zostać częściowo usunięty; sprawdź katalog i stan agentów.";
+                } catch (Exception ex) { error = ex.Message; }
+                try { form.BeginInvoke((Action)(() => {
+                    konserwacjaWToku = false;
+                    if (wynik != null && P.B(wynik,"sukces")) {
+                        magazynSzkicow = new MagazynSzkicow(Path.Combine(P.Root,"narzedzia","niewyslane-wlasciciela.json"));
+                        foreach (var watek in msgs.Where(m => m.Projekt == projekt).Select(m => m.Watek).Distinct()) szkice.Remove(watek);
+                        if (odpowiedzKotwica != null && odpowiedzKotwica.Projekt == projekt) { draftWatek = ""; odpowiedzKotwica = null; szybkaTresc.Clear(); szybkieZal.UstawPliki(new List<string>()); }
+                        if (biezProj == projekt) { biezProj = ""; biezMod = ""; biezTytul = ""; ZapiszUstawienia(); }
+                        cbProjekt.SelectedIndex = 0; OdswiezProjekty(""); Skanuj();
+                        MessageBox.Show(form, string.Join("\n", P.L(wynik,"wykonano")), "Projekt usunięty");
+                    } else MessageBox.Show(form, (wynik != null ? P.S(wynik,"blad") + "\n\nWykonano:\n" + string.Join("\n",P.L(wynik,"wykonano")) : error), "Usuwanie nie zostało w pełni zakończone");
+                    bUsunProjekt.Enabled = cbProjekt.SelectedIndex > 0;
+                })); } catch { }
+            }) { IsBackground = true, Name = "ecxp-usuwanie" }.Start();
+        }
+
         bool NowyPentest(string projekt, string modul, string opis, List<string> pliki)
         {
             if (startPentestuWToku) { MessageBox.Show(form, "Uruchamianie zespołu nadal trwa. Nie wysłano kolejnego zlecenia.", "ECXP"); return true; }
-            using (var f = new Formularz("Bezpieczeństwo / testy — zespół pentestowy", fontN, fontB))
+            using (var f = new FormularzPentestu(fontN, fontB))
             {
-                f.Size = new Size(860, Math.Min(900, Screen.FromControl(form).WorkingArea.Height - 40));
-                var cel = f.Tekst("Aplikacja / URL:", "");
-                var zakres = f.Wielowiersz("Dozwolony zakres i zasady programu:", "");
-                var cx = f.Tekst("Model Codex:", Pentest.ModelCodex);
-                var cl = f.Tekst("Model Claude:", Pentest.ModelClaude);
-                f.Uwaga("Modele jawne, aktualizowane przez operatora. Brak dostępu do modelu oznacza błąd, bez automatycznej zamiany na słabszy model. Zespół pracuje w tle. Może uruchamiać własne skrypty i korzystać z sieci w podanym zakresie, bez UAC.");
-                f.Uwaga("Testerzy: aplikacja/API i kontrola dostępu oraz analiza kodu i logiki biznesowej. Dwaj niezależni recenzenci weryfikują raporty czterech testerów.");
-                f.PrzyciskOk("Utwórz i uruchom 6 specjalistów");
+                Dictionary<string, object> argumenty = null;
                 f.FormClosing += (s, e) => {
                     if (f.DialogResult != DialogResult.OK) return;
-                    try { Pentest.Sprawdz(projekt, modul, opis, cel.Text, zakres.Text, cx.Text, cl.Text); }
+                    try { argumenty = f.Argumenty(projekt, modul, opis); }
                     catch (Exception ex) { e.Cancel = true; f.Blad(ex.Message); }
                 };
                 if (f.ShowDialog(form) != DialogResult.OK) return false;
                 try {
-                    StartPentestuWTle(P.D("projekt", projekt, "modul", modul, "opis", opis,
-                        "cel", cel.Text, "zakres", zakres.Text, "model_codex", cx.Text.Trim(), "model_claude", cl.Text.Trim(), "czesci", WyslijZalaczniki(pliki)));
+                    argumenty["czesci"] = WyslijZalaczniki(pliki);
+                    StartPentestuWTle(argumenty);
                     return true;
                 } catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, "Nie uruchomiono zespołu"); }
             }
@@ -4296,9 +4364,18 @@ namespace Ecxp
             var exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             P.Root = Path.GetDirectoryName(exeDir);   // program leży w <skrzynka>\narzedzia
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
+            int usun = Array.IndexOf(args, "/usun-projekt");
+            if (usun >= 0 && usun + 1 < args.Length) {
+                var token = args[usun + 1];
+                try { using (var k = Klient.Polacz(P.Wlasciciel,"konsola",false)) {
+                    var plan = (Dictionary<string, object>)k.Wywolaj("projekt_usun_bilet",P.D("token",token),Timeout.Infinite);
+                    return P.B(UsuwanieProjektu.Wykonaj(plan),"sukces") ? 0 : 1;
+                }} catch (Exception ex) { try { Pliki.Zapisz(UsuwanieProjektu.Wynik(token),P.D("sukces",false,"blad",ex.Message)); } catch { } return 1; }
+            }
             if (args.Length >= 1 && args[0] == "/selftest") return Test.Uruchom(args.Length > 1 ? args[1] : P.Root);
             if (args.Length >= 2 && args[0] == "/selftest-stos") return Test.Stos(args[1]);
             if (args.Length >= 2 && args[0] == "/selftest-agent") return Test.Agent(args[1]);
+            if (args.Length == 2 && args[0] == "/selftest-usuwanie") return Test.UsuwaniePomocnika(args[1]);
             if (args.Length >= 3 && args[0] == "/demo") return Test.Demo(args[1], args[2], args.Length > 3 ? args[3] : "pl");
             if (args.Length >= 1 && (args[0] == "/instaluj" || args[0] == "/odinstaluj"))
             {
@@ -5077,6 +5154,60 @@ namespace Ecxp
     }
 
     // ---------- proste okna dialogowe konsoli ----------
+    class FormularzPentestu : Formularz
+    {
+        public readonly TextBox Cel, Zakres, Domeny, Plik;
+        public readonly ComboBox CodexModel, ClaudeModel;
+        public readonly CheckBox InnyCodex, Opus48, InnyClaude, WebFetch, ImportPliku, WebSearch, Zapis, TerminalClaude, SiecCodex;
+        public readonly Button WybierzPlik;
+        public FormularzPentestu(Font font, Font bold) : base("Bezpieczeństwo / testy — zespół pentestowy", font, bold)
+        {
+            Size = new Size(940, Math.Min(940, Screen.PrimaryScreen.WorkingArea.Height - 40));
+            Cel = Tekst("Aplikacja / URL:", ""); Zakres = Wielowiersz("Dozwolony zakres i zasady:", ""); Zakres.Height = 90;
+            InnyCodex = Wybor("Codex: zmień model", false);
+            CodexModel = Combo("Identyfikator Codex:", new List<string> { Pentest.ModelCodex, "gpt-6-luna" }, Pentest.ModelCodex);
+            CodexModel.Enabled = false; InnyCodex.CheckedChanged += delegate { CodexModel.Enabled = InnyCodex.Checked; if (!InnyCodex.Checked) CodexModel.Text = Pentest.ModelCodex; };
+            Opus48 = Wybor("Claude: użyj Opus 4.8", false);
+            InnyClaude = Wybor("Claude: wpisz inny model", false);
+            ClaudeModel = Combo("Identyfikator Claude:", new List<string> { Pentest.ModelClaude, Pentest.ModelClaude48 }, Pentest.ModelClaude);
+            ClaudeModel.Enabled = false;
+            Opus48.CheckedChanged += delegate { if (Opus48.Checked) { InnyClaude.Checked = false; ClaudeModel.Text = Pentest.ModelClaude48; } else if (!InnyClaude.Checked) ClaudeModel.Text = Pentest.ModelClaude; };
+            InnyClaude.CheckedChanged += delegate { if (InnyClaude.Checked) Opus48.Checked = false; else ClaudeModel.Text = Opus48.Checked ? Pentest.ModelClaude48 : Pentest.ModelClaude; ClaudeModel.Enabled = InnyClaude.Checked; };
+            Uwaga("Bez zmiany modeli: " + Pentest.ModelCodex + " oraz " + Pentest.ModelClaude + ". Możesz wpisać dokładne ID dostępne na swoim koncie. Brak dostępu kończy turę błędem, bez automatycznej zamiany modelu.");
+            WebFetch = Wybor("Claude: zezwól na WebFetch dla podanych domen", false);
+            Domeny = Wielowiersz("Domeny WebFetch:", ""); Domeny.Height = 55;
+            ImportPliku = Wybor("Wczytaj domeny WebFetch z pliku JSON / TXT", false);
+            Plik = new TextBox { Width = 390 }; WybierzPlik = new Button { Text = "Wybierz plik…", AutoSize = true };
+            Rzad("Plik WebFetch:", Plik, WybierzPlik);
+            Action odswiez = () => { Domeny.Enabled = WebFetch.Checked && !ImportPliku.Checked; ImportPliku.Enabled = WebFetch.Checked; Plik.Enabled = WybierzPlik.Enabled = WebFetch.Checked && ImportPliku.Checked; };
+            WebFetch.CheckedChanged += delegate { odswiez(); }; ImportPliku.CheckedChanged += delegate { odswiez(); }; odswiez();
+            WybierzPlik.Click += delegate {
+                using (var dialog = new OpenFileDialog { Filter = "Domeny WebFetch (*.json;*.txt)|*.json;*.txt", CheckFileExists = true })
+                    if (dialog.ShowDialog(this) == DialogResult.OK) {
+                        try { Domeny.Text = string.Join("\r\n", Pentest.DomenyZPliku(dialog.FileName)); Plik.Text = dialog.FileName; Blad(""); }
+                        catch (Exception ex) { Blad(ex.Message); }
+                    }
+            };
+            Uwaga("Domeny: np. hack.cert.pl, jedna na wiersz. JSON: reguły WebFetch(domain:...) w permissions.allow. TXT: lista domen. Import obejmuje tylko domeny; nie uruchamia hooków z pliku.");
+            WebSearch = Wybor("Claude: zezwól na WebSearch", false);
+            Zapis = Wybor("Obaj dostawcy: zapis i edycja plików projektu", true);
+            TerminalClaude = Wybor("Claude: uruchamianie skryptów Bash / PowerShell", true);
+            SiecCodex = Wybor("Codex: dostęp sieciowy skryptów", true);
+            Uwaga("Opcje obowiązują czterech testerów i obu recenzentów tego zespołu, także po restarcie. Claude używa osobnych ustawień zespołu; nie dziedziczy prywatnych reguł allow. Polityki zarządzane pozostają nadrzędne. Terminal może wykonywać własne żądania sieciowe: domeny WebFetch ograniczają tylko to narzędzie. Opcje nie nadają praw administratora Windows.");
+            PrzyciskOk("Utwórz i uruchom 6 specjalistów");
+        }
+        public Dictionary<string, object> Argumenty(string projekt, string modul, string opis)
+        {
+            var cx = InnyCodex.Checked ? CodexModel.Text.Trim() : Pentest.ModelCodex;
+            var cl = Opus48.Checked ? Pentest.ModelClaude48 : InnyClaude.Checked ? ClaudeModel.Text.Trim() : Pentest.ModelClaude;
+            Pentest.Sprawdz(projekt, modul, opis, Cel.Text, Zakres.Text, cx, cl);
+            var domains = WebFetch.Checked ? (ImportPliku.Checked ? Pentest.DomenyZPliku(Plik.Text) : Pentest.Domeny(Domeny.Text)) : new List<string>();
+            var a = P.D("projekt", projekt, "modul", modul, "opis", opis, "cel", Cel.Text, "zakres", Zakres.Text, "model_codex", cx, "model_claude", cl,
+                "opcje_pentestu", P.D("zapis", Zapis.Checked, "terminal_claude", TerminalClaude.Checked, "siec_codex", SiecCodex.Checked, "webfetch", WebFetch.Checked, "websearch", WebSearch.Checked, "domeny", domains));
+            a["opcje_pentestu"] = Pentest.Opcje(a); return a;
+        }
+    }
+
     class Formularz : OknoEcxp
     {
         readonly TableLayoutPanel t;
@@ -5427,6 +5558,35 @@ namespace Ecxp
     // ---------- test protokołu na kopii (ECXP-MAILBOX.exe /selftest <pusty katalog>) ----------
     static class Test
     {
+        public static int UsuwaniePomocnika(string root)
+        {
+            P.Root = Path.GetFullPath(root); if (Directory.Exists(P.Root)) return 2;
+            System.Diagnostics.Process server = null;
+            try {
+                foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root,d));
+                var roles = new List<string>{"tester"};
+                foreach (var project in new[]{"native-usun","native-zostaw"}) {
+                    Siec.NoweZadanie(project,project,"syntetyczny","syntetyczny",roles,roles,"ECXP",null,false,null,null,Siec.Ikony[1],false,false);
+                    File.WriteAllText(Path.Combine(P.Root,"projekty",project,"test.txt"),"syntetyczny");
+                }
+                server = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath),"ecxpd.exe"),"/root \""+P.Root+"\""){UseShellExecute=false,CreateNoWindow=true});
+                Klient client = null; var end = DateTime.UtcNow.AddSeconds(10);
+                while (client == null && DateTime.UtcNow < end) { try { client = Klient.Polacz(P.Wlasciciel,"konsola",false); } catch { Thread.Sleep(100); } }
+                if (client == null) throw new Exception("Brak połączenia ze stosem testowym.");
+                using (client) {
+                    var plan = (Dictionary<string,object>)client.Wywolaj("projekt_usun_plan",P.D("projekt","native-usun","codex",false,"claude",false));
+                    using (var helper = System.Diagnostics.Process.Start(UsuwanieProjektu.Pomocnik(Application.ExecutablePath,P.S(plan,"token"),false))) { if(!helper.WaitForExit(20000))throw new Exception("Pomocnik nie zakończył testu.");if(helper.ExitCode!=0)throw new Exception("Błąd pomocnika: "+P.Czytaj(UsuwanieProjektu.Wynik(P.S(plan,"token")))); }
+                    var wynik = Pliki.Czytaj(UsuwanieProjektu.Wynik(P.S(plan,"token")));
+                    if (!P.B(wynik,"sukces") || Directory.Exists(Path.Combine(P.Root,"projekty","native-usun"))) throw new Exception("Cel nie został usunięty.");
+                    if (!File.Exists(Path.Combine(P.Root,"projekty","native-zostaw","test.txt"))) throw new Exception("Naruszono inny projekt.");
+                    Console.WriteLine("PASS autoryzacja konsoli, jednorazowy bilet i rzeczywisty proces pomocnika");
+                    Console.WriteLine("PASS pomocnik usunął tylko zatwierdzony projekt syntetyczny");
+                    Console.WriteLine("PASS zachowano pliki innego projektu");
+                }
+                return 0;
+            } catch(Exception ex) { Console.WriteLine(ex); return 1; }
+            finally { if(server!=null&&!server.HasExited){server.Kill();server.WaitForExit();} }
+        }
         // Test operatora przez prawdziwy stos: konsola łączy się jako operator (stos sprawdza obraz procesu),
         // Przykładowe dane do prezentacji i dokumentacji (wymyślony projekt, bez prawdziwych danych):
         // ECXP-MAILBOX.exe /demo <katalog instalacji przykładowej> 1   – operator tworzy parę i zadanie

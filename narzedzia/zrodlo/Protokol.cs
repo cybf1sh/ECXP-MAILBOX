@@ -351,6 +351,9 @@ namespace Ecxp
                     case "zaginiona":
                         if (s != null) { s.Zaginiona = true; s.Eskalacja = true; }
                         break;
+                    case "projekt_wiadomosc_usunieta":
+                        if (s != null) { s.Potwierdzona = czas; s.Wynik = "projekt usunięty"; s.ZadanieStan = "anulowane"; s.Zaginiona = false; }
+                        break;
                 }
             }
             spojnosc = blad != null ? "NARUSZONY: " + blad : "spójny, wpisów: " + n;
