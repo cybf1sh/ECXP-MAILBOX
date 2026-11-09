@@ -44,8 +44,8 @@ namespace Ecxp
                 Ok(cli, "Claude Code CLI w PATH (wymagany przez Agenci.Uruchom; tur testu nie uruchamia)");
 
                 // 0. reguła tur
-                Ok(Agenci.WymagaTury(P.Wlasciciel, "pytanie") && !Agenci.WymagaTury(P.Wlasciciel, "zadanie") && !Agenci.WymagaTury(P.Wlasciciel, "informacja"),
-                    "operator: pytanie = tura, zadanie prowadzi obieg, informacja = sam ACK");
+                Ok(Agenci.WymagaTury(P.Wlasciciel, "pytanie") && Agenci.WymagaTury(P.Wlasciciel, "odpowiedz") && !Agenci.WymagaTury(P.Wlasciciel, "zadanie") && !Agenci.WymagaTury(P.Wlasciciel, "informacja"),
+                    "operator: pytanie i odpowiedź = tura, zadanie prowadzi obieg, informacja = sam ACK");
                 Ok(Agenci.WymagaTury("codex-x", "pytanie") && Agenci.WymagaTury("codex-x", "zadanie") && Agenci.WymagaTury("codex-x", "recenzja") && Agenci.WymagaTury("codex-x", "blokada"),
                     "agent: pytanie, zadanie, recenzja i blokada = tura (nie przepadają)");
                 Ok(!Agenci.WymagaTury("codex-x", "informacja") && !Agenci.WymagaTury("codex-x", "odpowiedz") && !Agenci.WymagaTury(P.Straznik, "blokada"),

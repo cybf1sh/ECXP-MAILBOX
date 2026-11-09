@@ -465,12 +465,12 @@ namespace Ecxp
         // Praca agenta w tle: zadanie z obiegu (wynik = FIN) albo pytanie operatora (wynik = odpowiedź).
         class Praca { public Msg Zadanie, Pytanie; public string Tekst = ""; }
 
-        // Stos odbiera wiadomości za agenta (każdy odbiór = ACK). Pytania operatora czekają w zapisie agenta na turę.
+        // Stos odbiera wiadomości za agenta (każdy odbiór = ACK). Pytania i odpowiedzi operatora czekają na turę.
         // Pytanie, zadanie, recenzja albo blokada od innego agenta też czeka na turę (odpowiedź do nadawcy) – odbiór
         // nie może jej połknąć. Zadania operatora prowadzi obieg (Obieg), informacje kończą się na ACK.
         public static bool WymagaTury(string od, string typ)
         {
-            if (od == P.Wlasciciel) return typ == "pytanie";
+            if (od == P.Wlasciciel) return typ == "pytanie" || typ == "odpowiedz";
             return od != P.Straznik && (typ == "pytanie" || typ == "zadanie" || typ == "recenzja" || typ == "blokada");
         }
 
