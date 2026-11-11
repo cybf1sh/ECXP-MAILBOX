@@ -1,6 +1,6 @@
 param([string]$Stack='',[string]$Output='',
-    [ValidateSet('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu')]
-    [string[]]$Tests=@('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu'))
+    [ValidateSet('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika')]
+    [string[]]$Tests=@('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika'))
 $ErrorActionPreference='Stop'
 Push-Location $PSScriptRoot
 try {
@@ -12,7 +12,7 @@ try {
     New-Item -ItemType Directory -Path $Output | Out-Null
     $fw=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
     $compiler=Join-Path $fw 'csc.exe'
-    $sources=@('ECXP-MAILBOX.cs','Czytnik.cs','Szkice.cs','Sledzenie.cs','Bledy.cs','Widok.cs','UsuwanieProjektu.cs','Pentest.cs','Protokol.cs','Siec.cs','Ramka.cs','Sprawy.cs','Agenci.cs','Obieg.cs','Cieply.cs','CodexProjekt.cs','CodexBudzenie.cs','Tury.cs')
+    $sources=@('ECXP-MAILBOX.cs','Czytnik.cs','Szkice.cs','Sledzenie.cs','Straznik.cs','Bledy.cs','Widok.cs','UsuwanieProjektu.cs','Pentest.cs','Protokol.cs','Siec.cs','Ramka.cs','Sprawy.cs','Agenci.cs','Obieg.cs','Cieply.cs','CodexProjekt.cs','CodexBudzenie.cs','Tury.cs')
     $options=@('/nologo','/optimize+','/codepage:65001','/target:exe','/r:System.dll','/r:System.Core.dll','/r:System.Security.dll','/r:System.Management.dll','/r:System.Drawing.dll','/r:System.Windows.Forms.dll',('/r:'+(Join-Path $fw 'System.Web.Extensions.dll')),'/resource:spis-galezi.html,spis-galezi.html','/resource:jezyki.json,jezyki.json')
     $results=@()
     foreach($name in $Tests){

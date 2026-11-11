@@ -57,10 +57,13 @@ namespace Ecxp
             if (d != null && d.Dostarczona.HasValue)
             {
                 var po = CzasOd(d.Dostarczona.Value - m.Czas);
-                if (m.Typ == "zadanie") return Jezyk.T("odebrane po") + " " + po + " · " + (Obieg.CzekaNaFin(m.Id, m.Do) ? Jezyk.T("w trakcie, czeka na FIN") : Jezyk.T("w trakcie"));
-                if (m.WymagaOdp) return Jezyk.T("odebrana po") + " " + po + " · " + Jezyk.T("czeka na odpowiedź");
+                // kto odebrał: adresat tej kopii (para dostaje osobne kopie – każda ma swojego adresata)
+                var kto = P.PoprawnyNadawca(m.Do) && !m.Do.Contains(":") && !m.Do.Contains("/") ? " " + Jezyk.T("przez") + " " + NazwaW(m.Do) : "";
+                if (m.Typ == "zadanie")
+                    return (Jezyk.T("odebrane") + kto + " " + Jezyk.T("po") + " " + po + " · " + (Obieg.CzekaNaFin(m.Id, m.Do) ? Jezyk.T("w trakcie, czeka na FIN") : Jezyk.T("w trakcie"))) + EtapAgenta(m, teraz);
+                if (m.WymagaOdp) return Jezyk.T("odebrana") + kto + " " + Jezyk.T("po") + " " + po + " · " + Jezyk.T("czeka na odpowiedź") + EtapAgenta(m, teraz);
                 kolor = Zielony;
-                return Jezyk.T("odebrana po") + " " + po;
+                return Jezyk.T("odebrana") + kto + " " + Jezyk.T("po") + " " + po;
             }
             if (m.Katalog == "przeczytane") { kolor = Zielony; return Jezyk.T("odebrana"); }
             if (d != null && (d.Eskalacja || d.Zaginiona)) { kolor = Czerwony; return Jezyk.T("NIEDORĘCZONA – alarm") + (d.Ponowienia > 0 ? " · " + Jezyk.T("ponowień: ") + d.Ponowienia : ""); }

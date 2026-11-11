@@ -129,10 +129,20 @@ namespace Ecxp
             if (!fin)
             {
                 if (P.S(w, "stan") == "wyslane") PotwierdzenieOdbioru(r,w,n.Od);
+                // etap podany przez agenta (np. w odpowiedzi na pytanie strażnika) – widoczny w konsoli; to nie jest FIN
+                var etap = (n.Tresc ?? "").Trim();
+                if (etap.Length > 0 && P.S(w, "stan") != "fin")
+                {
+                    if (etap.Length > EtapMaks) etap = etap.Substring(0, EtapMaks) + "…";
+                    w["etap"] = etap; w["etap_czas"] = P.Teraz(); w["zmiana"] = P.Teraz();
+                    P.Zdarzenie("obieg_etap", P.D("klucz", r["klucz"], "kto", n.Od, "etap", etap));
+                }
                 Zapisz(r);
                 var m = P.Znajdz(P.S(w, "zadanie"));
                 if (m != null && m.Katalog != "przeczytane" && m.Katalog != "archiwum") P.PotwierdzPlik(m, n.Od, "przyjeta", "w trakcie (ECXP)");
-                return P.D("ack", true, "stan", "w_trakcie", "zadanie", r["klucz"], "uwagi", "Odbiór zadania jest widoczny dla operatora. Po wykonaniu wyślij typ=fin.");
+                return P.D("ack", true, "stan", "w_trakcie", "zadanie", r["klucz"], "uwagi", etap.Length > 0
+                    ? "Etap zapisany i widoczny dla operatora. Pracuj dalej; po wykonaniu wyślij typ=fin."
+                    : "Odbiór zadania jest widoczny dla operatora. Po wykonaniu wyślij typ=fin.");
             }
             if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("FIN bez treści: napisz wynik POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś.");
             var ag = Agenci(r);
@@ -363,6 +373,64 @@ namespace Ecxp
         {
             var r = Znajdz(idZadania); if (r == null || P.B(r, "zakonczone")) return false;
             var e = Wpis(r, n); return e != null && P.S(e, "stan") != "fin" && P.S(e, "zadanie") == idZadania;
+        }
+
+        // ---------- strażnik zadań: etap zgłoszony przez agenta i pytanie o etap ----------
+        public const int EtapMaks = 400;
+        public const string TematPytaniaOEtap = "STAN-ZADANIA";   // stos zapisuje temat z łącznikami: STAN-ZADANIA-<temat>
+
+        // Ostatni etap, który agent podał sam (typ=w_trakcie z treścią). Pusty, gdy nie podał.
+        public static string EtapZgloszony(string idZadania, string n, out DateTime czas)
+        {
+            czas = DateTime.MinValue;
+            var r = Znajdz(idZadania); var e = r == null ? null : Wpis(r, n);
+            if (e == null || P.S(e, "etap").Length == 0) return "";
+            DateTimeOffset t; if (DateTimeOffset.TryParse(P.S(e, "etap_czas"), out t)) czas = t.LocalDateTime;
+            return P.S(e, "etap");
+        }
+
+        // Chwila ostatniego pytania strażnika o etap tego zadania u agenta (MinValue = nie pytano).
+        public static DateTime OstatniePytanieOEtap(string idZadania, string n)
+        {
+            var r = Znajdz(idZadania); var e = r == null ? null : Wpis(r, n);
+            DateTimeOffset t; return e != null && DateTimeOffset.TryParse(P.S(e, "pytanie_o_etap"), out t) ? t.LocalDateTime : DateTime.MinValue;
+        }
+
+        // Pytanie o etap (polecenie operatora). Sesja w aplikacji dostaje od strażnika informację STAN-ZADANIA i odpowiada
+        // typem w_trakcie z opisem etapu – to nie jest FIN i nie zamyka zadania. Pytanie nie trafia do „przekazane”,
+        // więc odpowiedź na nie nie może być wzięta za FIN. Agent w tle (bez MCP) nie dostaje pytania: jego stan zna stos.
+        public static List<object> ZapytajOEtap(string idZadania, int minOdstepSek = 60)
+        {
+            var wynik = new List<object>();
+            var r = Znajdz(idZadania);
+            if (r == null) throw new EcxpException("To nie jest zadanie w obiegu – o etap można pytać tylko przy zadaniu operatora.");
+            if (P.B(r, "zakonczone")) throw new EcxpException("Zadanie „" + P.S(r, "temat") + "” jest już zakończone.");
+            var trasy = Siec.Trasy();
+            foreach (var kv in Agenci(r))
+            {
+                var n = kv.Key; var e = kv.Value as Dictionary<string, object>;
+                if (e == null || P.S(e, "stan") == "fin") continue;
+                bool wAplikacji = trasy.Any(t => t.Aktywna && t.Nazwa == n && (t.Sesja ?? "").Length > 0 && !t.Sesja.StartsWith("tlo:"));
+                if (!wAplikacji) { wynik.Add(P.D("agent", n, "sposob", "w_tle")); continue; }
+                DateTimeOffset ost;
+                if (DateTimeOffset.TryParse(P.S(e, "pytanie_o_etap"), out ost) && ost > DateTimeOffset.Now.AddSeconds(-minOdstepSek))
+                { wynik.Add(P.D("agent", n, "sposob", "niedawno")); continue; }
+                var zad = P.S(e, "zadanie");
+                P.Wyslij(new P.Nowa
+                {
+                    Od = P.Straznik, Do = n, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "informacja", Watek = P.S(r, "klucz"),
+                    Temat = TematPytaniaOEtap + " " + P.S(r, "temat"),
+                    Tresc = "Operator pyta, na jakim etapie jest zadanie „" + P.S(r, "temat") + "” (id " + zad + "). Nie przerywaj pracy i nie wysyłaj FIN, jeśli nie skończyłeś.\n" +
+                            "Odpowiedz jednym wywołaniem: ecxp_wyslij(ja=" + n + ", do=wlasciciel, typ=w_trakcie, odpowiedz_na=" + zad +
+                            ", tresc=<etap jednym–dwoma zdaniami: co już zrobione, co robisz teraz, co zostało>). Potem pracuj dalej. " +
+                            "Jeśli zadanie jest już wykonane – wyślij zwykły FIN (typ=fin)."
+                });
+                e["pytanie_o_etap"] = P.Teraz();
+                P.Zdarzenie("obieg_pytanie_o_etap", P.D("klucz", r["klucz"], "kto", n));
+                wynik.Add(P.D("agent", n, "sposob", "zapytano"));
+            }
+            Zapisz(r);
+            return wynik;
         }
 
         public static string Rola(string n, string idZadania) { var r = Znajdz(idZadania); var e = r == null ? null : Wpis(r, n); return e == null ? "" : P.S(e, "rola"); }

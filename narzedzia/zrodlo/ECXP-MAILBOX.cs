@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.7.0.0")]
+[assembly: AssemblyFileVersion("3.8.0.0")]
 
 namespace Ecxp
 {
@@ -160,11 +160,14 @@ namespace Ecxp
         Button bUsunProjekt;
         bool konserwacjaWToku;
         // wiersz listy rozmów: tytuł, znacznik (NOWA / przeczytana / stan wysłanej), data i godzina, kierunek
+        // wysokość wiersza listy rozmów: tytuł, znacznik i data, linia rozmowy, stan Twojej wysłanej wiadomości
+        const int WysokoscWiersza = 100;
+
         class Wiersz : ListViewItem
         {
             public Wiersz(string t) : base(t) { }
-            public string Tytul = "", Data = "", Linia = "", Znak = "";
-            public Color ZnakTlo, ZnakTekst;
+            public string Tytul = "", Data = "", Linia = "", Znak = "", Etap = "";
+            public Color ZnakTlo, ZnakTekst, EtapKolor;
         }
 
         public App()
@@ -180,6 +183,7 @@ namespace Ecxp
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
             widokUslug = ust.Contains("uslugi=karty") ? "karty" : "pasek";
+            WczytajStraznika(ust);
             var mb = Regex.Match(ust, @"biezaca=([^|\r\n]*)\|([^|\r\n]*)\|([^|\r\n]*)\|(\d+)(?:\|([a-z,]+))?");
             if (mb.Success)
             {
@@ -469,6 +473,7 @@ namespace Ecxp
                 menu.Items.Add(NapisMotywu(), null, delegate { PrzelaczMotyw(); });
                 foreach (var j in Jezyk.Dostepne) { string kod = j[0]; menu.Items.Add(new ToolStripMenuItem(j[1], null, delegate { ZmienJezyk(kod); }) { Checked = Jezyk.Kod == kod }); }
                 menu.Items.Add(Jezyk.T("📡  Śledzenie wysłanych…"), null, delegate { SledzenieWyslanych(); });
+                menu.Items.Add(Jezyk.T("🛡  Strażnik zadań…"), null, delegate { PokazZakladke(tabAg); });
                 menu.Items.Add(Jezyk.T("⬇  Pobierz dane o projektach, sesjach i agentach…"), null, delegate { PobieranieDanych(false); });
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));
@@ -553,7 +558,7 @@ namespace Ecxp
 
             var split = rozmowySplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, Size = new Size(1000, 500), SplitterDistance = 300, Panel1MinSize = 180, Panel2MinSize = 300 };
             lv = new SpokojnaLista { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false, ShowGroups = true,
-                SmallImageList = new ImageList { ImageSize = new Size(1, 78) } };
+                SmallImageList = new ImageList { ImageSize = new Size(1, WysokoscWiersza) } };
             lv.ShowGroups = false; lv.ShowItemToolTips = true; lv.HeaderStyle = ColumnHeaderStyle.None; lv.OwnerDraw = true;
             lv.DrawItem += delegate { };
             lv.DrawSubItem += (sender, e) => { if (e.ColumnIndex == 0) RysujWiersz(e); };
@@ -642,6 +647,7 @@ namespace Ecxp
             tabAg.Controls.Add(lvAg);
             tabAg.Controls.Add(lblAg);
             tabAg.Controls.Add(agTop);
+            BudujStraznika(tabAg);
             bNowe.Click += delegate { NoweZadanie(); };
             bNoweH.Click += delegate { NoweZadanie(); };
             bRola.Click += delegate { NadajRole(); };
@@ -1590,7 +1596,7 @@ namespace Ecxp
 
         void ZapiszUstawienia()
         {
-            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Konsolowy ? "konsola" : Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine +
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Konsolowy ? "konsola" : Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine + UstawieniaStraznika() +
                 (biezMod.Length > 0 ? "biezaca=" + biezProj + "|" + biezMod + "|" + biezTytul.Replace("|", "/") + "|" + biezOd.Ticks + "|" + string.Join(",", biezStrony) + Environment.NewLine : ""), new UTF8Encoding(false)); } catch { }
         }
 
@@ -1703,6 +1709,9 @@ namespace Ecxp
                 it.Data = representative.Czas.ToString("dd.MM.yyyy HH:mm");
                 it.Linia = (Wyslana(representative) ? "📤 " + Jezyk.T("do ") + Adresaci(representative, w) : "📥 " + Jezyk.T("od ") + NazwaW(representative.Od)) + "  ·  " + IkM(representative.Projekt, representative.Modul) + representative.Modul + "  ·  " + stanW;
                 Znacznik(representative, w, out it.Znak, out it.ZnakTlo, out it.ZnakTekst);
+                // stan Twojej wysłanej wiadomości w tej rozmowie: czy dotarła, kto odebrał, etap (Sledzenie.Etap)
+                var wyslanaW = w.LastOrDefault(x => Wyslana(x) && x.Blad == null && P.PoprawnyNadawca(x.Do));
+                if (wyslanaW != null) try { Color ke; it.Etap = "▸ " + Jezyk.T("Twoja wiadomość: ") + Etap(wyslanaW, teraz, out ke); it.EtapKolor = ke; } catch (Exception ex) { Bledy.Wyjatek(ex); }
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
                 it.SubItems.Add(stanW);
                 it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
@@ -1956,6 +1965,11 @@ namespace Ecxp
                 TextRenderer.DrawText(e.Graphics, w.Data, fontS, new Rectangle(x, y + 2, Math.Max(1, r.Right - x), fontS.Height + 2), Motyw.Slaby, jedna);
                 y += fontS.Height + 8;
                 TextRenderer.DrawText(e.Graphics, w.Linia, fontS, new Rectangle(r.X, y, r.Width, fontS.Height + 2), e.Item.ForeColor == Czerwony ? Czerwony : Motyw.Slaby, jedna);
+                if (w.Etap.Length > 0)
+                {
+                    y += fontS.Height + 5;
+                    TextRenderer.DrawText(e.Graphics, w.Etap, fontS, new Rectangle(r.X, y, r.Width, fontS.Height + 2), selected ? e.Item.ForeColor : w.EtapKolor, jedna);
+                }
             }
             using (var pen = new Pen(Motyw.Ramka)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             if (selected && e.Item.ListView.Focused) e.DrawFocusRectangle(e.Bounds);

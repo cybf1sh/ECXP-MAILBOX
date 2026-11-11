@@ -565,6 +565,17 @@ namespace Ecxp
             var start = DateTime.Now;
             int kod = -1; string wynik = "", odpowiedz = "";
             Msg przypomnij = praca.Zadanie;
+            // znacznik trwającej tury – strażnik zadań w konsoli pokazuje, od kiedy agent w tle pracuje nad tą pracą
+            try
+            {
+                P.ZBlokada(delegate
+                {
+                    var p = Path.Combine(Dir, n + ".json"); var d = Pliki.Czytaj(p);
+                    d["tura_od"] = P.Teraz(); d["tura_praca"] = praca.Zadanie != null ? praca.Zadanie.Id : praca.Pytanie != null ? praca.Pytanie.Id : "";
+                    Pliki.Zapisz(p, d); return 0;
+                });
+            }
+            catch { }
             try
             {
                 var strona = P.S(rec, "strona");
@@ -625,6 +636,7 @@ namespace Ecxp
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
+                        d.Remove("tura_od"); d.Remove("tura_praca");
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
                         // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam

@@ -18,7 +18,13 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.7.0: `builds/release-3.7.0/narzedzia/`.
+Aktualny pakiet 3.8.0: `builds/release-3.8.0/narzedzia/`.
+
+**Wersja 3.8.0:** strażnik zadań w zakładce Agenci – hook konsoli, który co
+10 s – 1 min (suwak, domyślnie 1 min) sprawdza etap Twoich zadań i zapytań,
+a przy zastoju pyta sesję agenta o etap (odpowiedź `w_trakcie`, nie FIN).
+Lista TYTUŁ pokazuje przy wysłanych wiadomościach, czy dotarły, kto je odebrał
+i na jakim są etapie. Szczegóły: [wydanie 3.8.0](docs/WDROZENIE-3.8.0-20261111.md).
 
 **Wersja 3.7.0:** kategoria „Bezpieczeństwo / testy” ma osobne opcje WebFetch
 z importem domen JSON/TXT, narzędzi Claude, zapisu i sieci Codexa oraz jawny

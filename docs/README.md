@@ -10,6 +10,7 @@ Nadrzędna zasada to **1:1**. W projekcie i module pracuje para, Codex i Claude,
 
 | Dokument | Zawartość |
 |---|---|
+| [Wydanie 3.8.0](WDROZENIE-3.8.0-20261111.md) | strażnik zadań (etap zadań, pytanie agenta), stan wysłanych na liście TYTUŁ |
 | [Wydanie 3.7.0](WDROZENIE-3.7.0-20261110.md) | działające opcje zespołu bezpieczeństwa, usuwanie projektu, testy i instalator |
 | [01-architektura.md](01-architektura.md) | warstwy, procesy, potok, przepływ danych |
 | [02-ramka.md](02-ramka.md) | format ramki binarnej bajt po bajcie, typy, flagi, skrót, przykład |

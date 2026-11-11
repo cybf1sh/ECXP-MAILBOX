@@ -183,6 +183,24 @@ class TestyRozmow {
       form.Size=new Size(900,560); Application.DoEvents();
       Check(det.Width>200 && det.Height>20,"minimum window retains readable content area");
       form.Size=new Size(1240,820); Application.DoEvents();
+      // strażnik zadań (zakładka Agenci) i stan wysłanej wiadomości na liście TYTUŁ
+      var tabAgenci=(TabPage)Field(app,"tabAg");
+      var slider=Descendants(tabAgenci).OfType<TrackBar>().SingleOrDefault(x=>x.Name=="suwakStraznika");
+      Check(slider!=null && slider.Minimum==10 && slider.Maximum==60 && slider.Value==60,"watcher slider spans 10 s to 1 min and defaults to 1 min");
+      Check(Descendants(tabAgenci).OfType<Button>().Any(x=>x.Name=="przyciskStraznika") && Descendants(tabAgenci).OfType<ListView>().Any(x=>x.Name=="listaStraznika"),"watcher can be started from the Agents tab");
+      var watcherTimer=(System.Windows.Forms.Timer)Field(app,"timerStraznika");
+      Check(!watcherTimer.Enabled,"watcher is off until the operator starts it");
+      slider.Value=10; Application.DoEvents();
+      Check(watcherTimer.Interval==10000 && File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("straznik=0|10|"),"slider changes the check interval and persists it");
+      P.Wyslij(new P.Nowa { Od=P.Wlasciciel, Do="codex-demo", Projekt="demo", Modul="rozmowy", Typ="pytanie", Temat="Pytanie operatora o postęp", Tresc="Na jakim etapie jest praca?", Watek="test-other" });
+      Call(app,"Skanuj"); Application.DoEvents();
+      var etapRow=lv.Items.Cast<ListViewItem>().Select(x=>(string)x.GetType().GetField("Etap").GetValue(x)).FirstOrDefault(x=>x.Length>0);
+      Check(etapRow!=null && etapRow.Contains("w kolejce"),"sent message shows its current delivery state in the TITLE list");
+      Call(app,"UstawStraznika",true,true); Application.DoEvents();
+      var watcherList=Descendants(tabAgenci).OfType<ListView>().Single(x=>x.Name=="listaStraznika");
+      Check(watcherTimer.Enabled && watcherList.Items.Cast<ListViewItem>().Any(x=>((Msg)x.Tag).Uwagi.Contains("Na jakim etapie jest praca?") && x.SubItems[3].Text.Contains("w kolejce")),"started watcher tracks the operator question with its stage");
+      Call(app,"UstawStraznika",false,true); Application.DoEvents();
+      Check(!watcherTimer.Enabled,"watcher can be stopped");
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
         }

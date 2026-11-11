@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace Ecxp
 {
@@ -499,6 +499,13 @@ namespace Ecxp
             switch (op)
             {
                 case "projekt_usun_bilet": TylkoOperator(s); return UsuwanieProjektu.OdbierzBilet(P.S(a,"token"));
+                // strażnik zadań w konsoli: pytanie sesji o etap zadania (odpowiedź: typ=w_trakcie z opisem etapu, nie FIN)
+                case "zapytaj_o_etap":
+                    {
+                        TylkoOperator(s);
+                        var id = P.S(a, "id").Trim();
+                        return P.D("agenci", P.ZBlokada(() => Obieg.ZapytajOEtap(id)));
+                    }
                 case "ping": return P.D("stos", "ecxpd 1.0", "protokol", P.Protokol, "ja", s.Ja, "czas", P.Teraz());
                 case "wyslij":
                     {
