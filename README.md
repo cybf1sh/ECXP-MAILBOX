@@ -18,7 +18,12 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.8.0: `builds/release-3.8.0/narzedzia/`.
+Aktualny pakiet 3.9.0: `builds/release-3.9.0/narzedzia/`.
+
+**Wersja 3.9.0:** menu prawego klawisza przy wiadomościach – w Niewysłanych
+Ponów / Usuń, przy odebranych Odpowiedz / Archiwizuj / Usuń (także w podglądzie).
+Usuń przenosi pliki do `kosz\RRRR-MM` (do odzyskania ręcznie).
+Szczegóły: [wydanie 3.9.0](docs/WDROZENIE-3.9.0-20261112.md).
 
 **Wersja 3.8.0:** strażnik zadań w zakładce Agenci – hook konsoli, który co
 10 s – 1 min (suwak, domyślnie 1 min) sprawdza etap Twoich zadań i zapytań,
