@@ -89,7 +89,7 @@ namespace Ecxp
         }
         string PodpisWatku(string id)
         {
-            var w = msgs.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList();
+            var w = Zrodlo.Where(x => x.Watek == id).OrderBy(x => x.Czas).ToList();
             // tokeny dochodzą po zakończeniu tury agenta – zmiana liczby odświeża podgląd
             // wysłane przez operatora: „od wysłania” w podglądzie odświeżane co minutę
             return P.Sha(PodpisDanych(w, false) + Jezyk.Kod + Motyw.Tryb + string.Join("|", w.Select(TokenyZadania)) +
@@ -576,12 +576,12 @@ namespace Ecxp
             BudujMenuNiewyslanych();
             var listy = new Panel { Dock = DockStyle.Fill }; listy.Controls.Add(lv); listy.Controls.Add(lvNiewyslane);
             split.Panel1.Controls.Add(listy);
-            var pasekKier = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(4, 3, 4, 3) };
-            rbWsz = Kier("Wszystkie", 0); rbOdeb = Kier("📥 Odebrane", 1); rbWysl = Kier("📤 Wysłane", 2); rbNiewyslane = Kier("Niewysłane", 3);
+            var pasekKier = pasekKierunkow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(4, 3, 4, 3), Visible = false };
+            rbWsz = Kier("Wszystkie", 0); rbOdeb = Kier("📥 Odebrane", 1); rbWysl = Kier("📤 Wysłane", 2); rbNiewyslane = Kier("Niewysłane", 3); rbArch = Kier("🗄 Zarchiwizowane", FolderArchiwum);
             rbWsz.Checked = true;
             new ToolTip().SetToolTip(rbOdeb, "Rozmowy z wiadomościami od agentów do Ciebie i między agentami.");
             new ToolTip().SetToolTip(rbWysl, "Rozmowy z wiadomościami, które wysłałeś – ze stanem odczytu u adresata.");
-            pasekKier.Controls.AddRange(new Control[] { rbWsz, rbOdeb, rbWysl, rbNiewyslane });
+            pasekKier.Controls.AddRange(new Control[] { rbWsz, rbOdeb, rbWysl, rbNiewyslane, rbArch });
             split.Panel1.Controls.Add(pasekKier);
             split.Panel1.Controls.Add(Naglowek("TYTUŁ"));
             split.Panel2.Controls.Add(det);
@@ -592,20 +592,22 @@ namespace Ecxp
             split.Panel2.Controls.Add(noweWiadomosci);
             pnlZal = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 4), Visible = false };
             split.Panel2.Controls.Add(pnlZal);
-            modulySplit = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1200, 600), SplitterDistance = 180, FixedPanel = FixedPanel.Panel1, Panel1MinSize = 160, Panel2MinSize = 480 };
-            var nav = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(8) };
+            modulySplit = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1200, 600), SplitterDistance = 280, FixedPanel = FixedPanel.Panel1, Panel1MinSize = 200, Panel2MinSize = 480 };
+            // lewy panel jak w programie pocztowym: drzewko folderów, pod nim filtry
+            var nav = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 232, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(8) };
             var wszystkie = Btn("Wszystkie rozmowy"); wszystkie.Click += delegate { cbWidok.SelectedIndex = 0; };
             var uwaga = Btn("Wymaga uwagi"); uwaga.Click += delegate { cbWidok.SelectedIndex = 3; };
-            cbWidok.Width = 150; cbModul.Width = 150; szukaj.Width = 150;
-            nav.Controls.AddRange(new Control[] { wszystkie, uwaga, new Label { Text = "Widok", AutoSize = true }, cbWidok, new Label { Text = "Moduły", AutoSize = true }, cbModul, lblSz, szukaj });
-            modulySplit.Panel1.Controls.Add(nav); modulySplit.Panel2.Controls.Add(split);
+            cbWidok.Width = 240; cbModul.Width = 240; szukaj.Width = 240;
+            nav.Controls.AddRange(new Control[] { uwaga, new Label { Text = "Widok", AutoSize = true }, cbWidok, new Label { Text = "Moduły", AutoSize = true }, cbModul, lblSz, szukaj });
+            BudujDrzewoFolderow(modulySplit.Panel1);
+            modulySplit.Panel1.Controls.Add(nav); modulySplit.Panel1.Controls.Add(Naglowek("FOLDERY")); modulySplit.Panel2.Controls.Add(split);
             rozmowaTytul = new Label { Dock = DockStyle.Top, Height = 58, Padding = new Padding(12, 8, 8, 4), Font = fontB, Text = "Wybierz rozmowę", AutoEllipsis = true };
             split.Panel2.Controls.Add(rozmowaTytul);
             split.Panel2.Controls.Add(Naglowek("WIADOMOŚĆ"));
             BudujSzybkaOdpowiedz(split.Panel2);
             tabMsg.Controls.Add(modulySplit); tabMsg.Controls.Add(top);
-            var filtrPanel = Btn("Filtry"); top.Controls.Add(filtrPanel);
-            filtrPanel.Click += delegate { modulySplit.Panel1Collapsed = !modulySplit.Panel1Collapsed; };
+            var filtrPanel = Btn("Foldery i filtry"); top.Controls.Add(filtrPanel);
+            filtrPanel.Click += delegate { modulySplit.Panel1Collapsed = !modulySplit.Panel1Collapsed; if (pasekKierunkow != null) pasekKierunkow.Visible = modulySplit.Panel1Collapsed; };
             lv.Resize += delegate { if (lv.Columns.Count > 0) { lv.Columns[0].Width = Math.Max(120, lv.ClientSize.Width - 5); for (int i = 1; i < lv.Columns.Count; i++) lv.Columns[i].Width = 0; } };
             lv.MouseClick += (sender, e) => { if (e.Button != MouseButtons.Left) return; var hit = lv.HitTest(e.Location); if (hit.Item != null) OtworzWiadomosc((Msg)hit.Item.Tag); };
             BudujMenuListy();
@@ -792,7 +794,7 @@ namespace Ecxp
             det.SuspendLayout();
             det.Clear(); zakresyWiadomosci.Clear();
             ZmienSzkic(sel);
-            var w = msgs.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ToList();
+            var w = Zrodlo.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 ? 1 : 0).ToList();
             var korzenW = KorzenWatku(w);
             rozmowaTytul.Text = OpisWatku(korzenW) + " · " + P.Baza(sel.Temat) + "\n" + sel.Projekt + " / " + sel.Modul + " · " + OpisPary(sel.Projekt, sel.Modul);
             var teraz = DateTime.Now;
@@ -1684,7 +1686,9 @@ namespace Ecxp
             RefreshView(); StanStosu();
         }
 
-        bool Pasuje(Msg m)
+        bool Pasuje(Msg m) { return (projektDrzewa == null || m.Projekt == projektDrzewa) && PasujeBezFolderu(m); }
+
+        bool PasujeBezFolderu(Msg m)
         {
             var pr = cbProjekt != null && cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : null;
             if (tylkoBiez && biezMod.Length > 0) { if (!Biezaca(m)) return false; pr = null; }     // filtr bieżącej sesji ma pierwszeństwo przed projektem
@@ -1735,20 +1739,38 @@ namespace Ecxp
 
             var wybrana = Wybrana();
 
-            var pasujace = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
-                .Where(w => PasujeWatek(w, teraz) && w.Any(Pasuje)).ToList();
-            int ileOdeb = pasujace.Count(w => w.Any(m => !Wyslana(m))), ileWysl = pasujace.Count(w => w.Any(Wyslana)), ileNowych = pasujace.Count(w => w.Any(m => m.Nowa));
-            UstawKier(rbWsz, Jezyk.T("Wszystkie") + " (" + pasujace.Count + ")");
+            // rozmowy bieżące po filtrach (bez podfolderu projektu) – liczniki drzewka; lista – wybrany folder / podfolder
+            var rozmowyDrzewa = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
+                .Where(w => PasujeWatek(w, teraz) && w.Any(PasujeBezFolderu)).ToList();
+            var pasujace = kierunek == FolderArchiwum
+                ? archiwum.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
+                    .Where(w => w.Any(m => m.Katalog == "archiwum") && w.Any(Pasuje)).OrderByDescending(w => w.Last().Czas).Take(MaksRozmowArchiwum).ToList()
+                : projektDrzewa == null ? rozmowyDrzewa : rozmowyDrzewa.Where(w => w.Any(Pasuje)).ToList();
+            try
+            {
+                var szk = magazynSzkicow != null ? magazynSzkicow.Lista.Where(PasujeSzkicBezFolderu).ToList() : new List<SzkicWiadomosci>();
+                var zast = new HashSet<string>(szk.Where(d => d.Zastepuje.Length > 0).Select(d => d.Zastepuje));
+                var bl = msgs.Where(m => Wyslana(m) && PasujeBezFolderu(m) && !zast.Contains(m.Id) && m.Dor != null && !m.Dor.Potwierdzona.HasValue && (m.Dor.Eskalacja || m.Dor.Zaginiona || m.Dor.Ponowienia > 0))
+                    .GroupBy(m => m.LustroId.Length > 0 ? m.LustroId : m.Id).Select(g => g.First()).ToList();
+                var nwP = szk.Select(d => d.Projekt ?? "").Concat(bl.Select(m => m.Projekt)).GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+                OdswiezDrzewoFolderow(rozmowyDrzewa, szk.Count + bl.Count, nwP);
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); }
+            if (kierunek == FolderArchiwum) UstawKier(rbArch, "🗄 " + Jezyk.T("Zarchiwizowane") + " (" + pasujace.Count + ")");
+            else pasujace = pasujace.ToList();
+            var doLicznikow = kierunek == FolderArchiwum ? rozmowyDrzewa : pasujace;
+            int ileOdeb = doLicznikow.Count(w => w.Any(m => !Wyslana(m))), ileWysl = doLicznikow.Count(w => w.Any(Wyslana)), ileNowych = doLicznikow.Count(w => w.Any(m => m.Nowa));
+            UstawKier(rbWsz, Jezyk.T("Wszystkie") + " (" + doLicznikow.Count + ")");
             UstawKier(rbOdeb, Jezyk.T("📥 Odebrane") + " (" + ileOdeb + (ileNowych > 0 ? ", " + Jezyk.T("nowe: ") + ileNowych : "") + ")");
             UstawKier(rbWysl, Jezyk.T("📤 Wysłane") + " (" + ileWysl + ")");
             OdswiezNiewyslane();
-            var watki = pasujace.Where(w => kierunek == 0 || kierunek == 3 || w.Any(m => Wyslana(m) == (kierunek == 2)))
+            var watki = pasujace.Where(w => kierunek == 0 || kierunek == 3 || kierunek == FolderArchiwum || w.Any(m => Wyslana(m) == (kierunek == 2)))
                 .OrderByDescending(w => kierunek != 2 && w.Any(m => m.Nowa)).ThenByDescending(w => Reprezentant(w).Czas).ToList();
 
             // co agenci właśnie robią przy Twoich ostatnich wiadomościach (okno „Co robi agent” w skrócie); w podpisie bez wieku
             Dictionary<string, string> terazAg;
             try { terazAg = TerazAgentow(watki); } catch (Exception ex) { Bledy.Wyjatek(ex); terazAg = new Dictionary<string, string>(); }
-            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Tryb + biezProj + biezMod + kierunek + teraz.ToString("yyyyMMddHHmm") +
+            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Tryb + biezProj + biezMod + kierunek + projektDrzewa + teraz.ToString("yyyyMMddHHmm") +
                 string.Join(";", terazAg.Select(kv => kv.Key + "=" + System.Text.RegularExpressions.Regex.Replace(kv.Value, @" \([^)]*\)$", ""))));
             if (podpis != podpisListy)
             {
@@ -1995,9 +2017,11 @@ namespace Ecxp
             r.FlatAppearance.CheckedBackColor = Akcent;
             r.CheckedChanged += delegate { if (r.Checked && kierunek != k) {
                 ZapiszSzybkiSzkic(); kierunek = k; podpisListy = ""; podpisPodgladu = ""; watekPodgladu = "";
-                lv.Visible = k != 3; lvNiewyslane.Visible = k == 3; UkladRozmow(); RefreshView();
+                if (!wyborZDrzewa) projektDrzewa = null;
+                if (k == FolderArchiwum) { WczytajArchiwum(); det.Clear(); pnlZal.Visible = false; rozmowaTytul.Text = Jezyk.T("Zarchiwizowane"); }
+                lv.Visible = k != 3; lvNiewyslane.Visible = k == 3; UkladRozmow(); RefreshView(); ZaznaczFolderWDrzewie();
                 if(k == 3) { rozmowaTytul.Text = Jezyk.T("Niewysłane"); noweWiadomosci.Visible=false; pnlZal.Visible=false; PokazNiewyslana(true); }
-                else { var m=Wybrana(); if(m!=null)PokazWatek(m,true); }
+                else { var m=Wybrana(); if(m!=null)PokazWatek(m,true); else if(k!=FolderArchiwum) { det.Clear(); pnlZal.Visible=false; rozmowaTytul.Text=Jezyk.T("Wybierz rozmowę"); } }
             } };
             return r;
         }
@@ -2079,14 +2103,17 @@ namespace Ecxp
         {
             if (modulySplit == null || rozmowySplit == null) return;
             modulySplit.Panel1Collapsed = form.ClientSize.Width < 1100;
-            if (szybkiPanel != null) szybkiPanel.Visible = kierunek != 3 && form.ClientSize.Height >= 620;
+            if (szybkiPanel != null) szybkiPanel.Visible = kierunek != 3 && kierunek != FolderArchiwum && form.ClientSize.Height >= 620;
+            if (pasekKierunkow != null) pasekKierunkow.Visible = modulySplit.Panel1Collapsed;   // wąskie okno: zamiast drzewka pasek przycisków folderów
             rozmowySplit.Orientation = Orientation.Vertical;
             if (rozmowySplit.Orientation == Orientation.Vertical && rozmowySplit.Width > 500)
                 rozmowySplit.SplitterDistance = Math.Max(180, Math.Min(400, rozmowySplit.Width - 420));
             else if (rozmowySplit.Height > 500) rozmowySplit.SplitterDistance = 180;
         }
 
-        bool PasujeSzkic(SzkicWiadomosci d)
+        bool PasujeSzkic(SzkicWiadomosci d) { return (projektDrzewa == null || d.Projekt == projektDrzewa) && PasujeSzkicBezFolderu(d); }
+
+        bool PasujeSzkicBezFolderu(SzkicWiadomosci d)
         {
             if(cbProjekt.SelectedIndex>0 && d.Projekt!=(string)cbProjekt.SelectedItem)return false;
             if(cbModul.SelectedIndex>0 && d.Modul!=(string)cbModul.SelectedItem)return false;
@@ -2970,10 +2997,12 @@ namespace Ecxp
                 if (m == null) { e.Cancel = true; return; }
                 // odebrana: Odpowiedz, Archiwizuj, Usuń na górze; wysłana: bez Archiwizuj (jest Zamknij wątek), Usuń na końcu
                 bool odebrana = !Wyslana(m);
-                miObudz.Enabled = Oczekujace(m).Count > 0;
-                miArch.Visible = odebrana;
-                miZam.Visible = !odebrana;
-                miCoRobi.Visible = AgentRozmowy(m) != null;
+                bool arch = kierunek == FolderArchiwum;      // archiwum jest tylko do odczytu: zostają Otwórz, Pokaż w folderze, Odpowiedz
+                miObudz.Enabled = !arch && Oczekujace(m).Count > 0;
+                miArch.Visible = odebrana && !arch;
+                miZam.Visible = !odebrana && !arch;
+                miPon.Visible = miAgenci.Visible = miObudz.Visible = miUsun.Visible = !arch;
+                miCoRobi.Visible = !arch && AgentRozmowy(m) != null;
                 menu.Items.Remove(miUsun);
                 if (odebrana) menu.Items.Insert(2, miUsun); else menu.Items.Add(miUsun);
                 Jezyk.Zastosuj(menu);
@@ -3015,6 +3044,7 @@ namespace Ecxp
                 miPonN.Visible = niewysl;
                 miUsun.Visible = m != null || niewysl;
                 miCoRobi.Visible = !niewysl && AgentRozmowy(m) != null;
+                if (kierunek == FolderArchiwum) miArch.Visible = miPon.Visible = miUsun.Visible = miCoRobi.Visible = false;
                 sep.Visible = miUsun.Visible;
                 Jezyk.Zastosuj(menu);
             };
@@ -3061,8 +3091,17 @@ namespace Ecxp
         }
 
         // Odebrane: rozmowy (zaznaczone wiersze) do archiwum – jak „Zamknij wątek”, nic nie jest kasowane.
+        // Archiwum jest tylko do odczytu: bez archiwizowania, usuwania i zamykania wątków.
+        bool TylkoOdczytArchiwum(string tytul)
+        {
+            if (kierunek != FolderArchiwum) return false;
+            MessageBox.Show(form, Jezyk.T("Wiadomości w folderze Zarchiwizowane są tylko do odczytu."), Jezyk.T(tytul));
+            return true;
+        }
+
         void ArchiwizujWatki()
         {
+            if (TylkoOdczytArchiwum("Archiwizuj")) return;
             var lista = WiadomosciZaznaczonychWatkow();
             if (lista.Count == 0) return;
             int nowe = lista.Count(x => x.Nowa);
@@ -3082,6 +3121,7 @@ namespace Ecxp
         // Usuń: rozmowy (zaznaczone wiersze) do kosza – znikają z konsoli i z archiwum, pliki można odzyskać ręcznie.
         void UsunWatki()
         {
+            if (TylkoOdczytArchiwum("Usuń")) return;
             var lista = WiadomosciZaznaczonychWatkow();
             if (lista.Count == 0) return;
             var tematy = string.Join("\n", lista.GroupBy(x => x.Watek).Select(g => "• " + P.Baza(g.First().Temat) + " (" + g.Count() + Jezyk.T(" wiad.") + ")").Take(8));
@@ -4307,6 +4347,7 @@ namespace Ecxp
         // Zamknięcie całych wątków zaznaczonych wiadomości przez operatora (operacja stosu „wycofaj”).
         void ZamknijWatki()
         {
+            if (TylkoOdczytArchiwum("Zamknij wątek")) return;
             var sel = lv.SelectedItems.Cast<ListViewItem>().Select(it => (Msg)it.Tag).ToList();
             if (sel.Count == 0) { MessageBox.Show(form, Jezyk.T("Zaznacz wiadomość z wątku, który chcesz zamknąć."), Jezyk.T("Zamknij wątek")); return; }
             var watki = new HashSet<string>(sel.Select(m => m.Watek));
@@ -4566,6 +4607,7 @@ namespace Ecxp
             if (alarmy.Count > 20) alarmy = alarmy.Skip(alarmy.Count - 20).ToList();
 
             msgs = Wczytaj();
+            if (kierunek == FolderArchiwum) WczytajArchiwum();
             WczytajIkony();
             SprawdzSledzone();
             var fresh = msgs.Where(m => m.Nowa && !seen.Contains(m.Plik)).ToList();

@@ -250,6 +250,27 @@ class TestyRozmow {
       var odpMsg=((List<Msg>)Field(app,"msgs")).Single(x=>x.Id==idOdp);
       string schowek=(string)Call(app,"TekstDoSchowka",odpMsg);
       Check(schowek.Contains("Znacznik: "+tagOdp) && schowek.Contains("↩ odpowiedź na zadanie "+tagZad),"copied message text contains its code and the code it answers");
+      // drzewko folderów (3.11.0): Wszystkie / Odebrane / Wysłane / Niewysłane / Zarchiwizowane
+      var drzewo=(TreeView)Field(app,"drzewoFolderow");
+      Check(drzewo!=null && drzewo.Nodes.Count==5 && drzewo.Nodes[1].Text.Contains("Odebrane") && drzewo.Nodes[2].Text.Contains("Wysłane") && drzewo.Nodes[3].Text.Contains("Niewysłane") && drzewo.Nodes[4].Text.Contains("Zarchiwizowane"),"folder tree lists inbox, sent, unsent and archived");
+      Check(System.Text.RegularExpressions.Regex.IsMatch(drzewo.Nodes[1].Text,@"\(\d+") && System.Text.RegularExpressions.Regex.IsMatch(drzewo.Nodes[2].Text,@"\(\d+\)"),"folders show conversation counts");
+      int wszystkichRozmow=lv.Items.Count;
+      drzewo.SelectedNode=drzewo.Nodes[2]; Application.DoEvents();
+      Check((int)Field(app,"kierunek")==2 && lv.Items.Count>0 && lv.Items.Count<wszystkichRozmow && lv.Items.Cast<ListViewItem>().All(x=>((Msg)x.Tag).Od==P.Wlasciciel),"selecting Sent folder lists only conversations with sent messages");
+      drzewo.SelectedNode=drzewo.Nodes[3]; Application.DoEvents();
+      Check((int)Field(app,"kierunek")==3 && ((ListView)Field(app,"lvNiewyslane")).Visible && !lv.Visible,"selecting Unsent folder shows the unsent list");
+      P.Wycofaj(new List<string>{Path.GetFileName(P.S(odpZn,"plik")),Path.GetFileName(P.S(zadZn,"plik"))},"test archiwum");
+      Call(app,"Skanuj"); Application.DoEvents();
+      drzewo.SelectedNode=drzewo.Nodes[4]; Application.DoEvents();
+      Check((int)Field(app,"kierunek")==4 && lv.Visible && lv.Items.Count==1 && ((Msg)lv.Items[0].Tag).Temat.ToUpperInvariant().Contains("ZNACZNIK") && drzewo.Nodes[4].Text.Contains("(1)"),"Archived folder lists the archived conversation");
+      lv.Items[0].Selected=true; Application.DoEvents();
+      Check(det.Text.Contains("Zrób A.") && det.Text.Contains("Zrobione.") && !((Panel)Field(app,"szybkiPanel")).Visible,"archived conversation opens read-only in the preview");
+      lv.ContextMenuStrip.Show(lv,new Point(5,5)); Application.DoEvents();
+      var menuArch=lv.ContextMenuStrip.Items.Cast<ToolStripItem>().Where(x=>x.Available && !(x is ToolStripSeparator)).Select(x=>x.Text).ToList();
+      lv.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
+      Check(!menuArch.Any(x=>x.Contains("Usuń")||x.Contains("Archiwizuj")||x.Contains("Zamknij")) && menuArch.Contains("Otwórz w oknie"),"archived folder menu has no delete, archive or close actions");
+      drzewo.SelectedNode=drzewo.Nodes[0]; Application.DoEvents();
+      Check((int)Field(app,"kierunek")==0 && !lv.Items.Cast<ListViewItem>().Any(x=>((Msg)x.Tag).Temat.ToUpperInvariant().Contains("ZNACZNIK")),"archived conversation is not shown among current conversations");
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
         }

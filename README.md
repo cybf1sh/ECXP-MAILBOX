@@ -18,7 +18,12 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.10.0: `builds/release-3.10.0/narzedzia/`.
+Aktualny pakiet 3.11.0: `builds/release-3.11.0/narzedzia/`.
+
+**Wersja 3.11.0:** kolorowe znaczniki wiadomości (kod `#c73f`, „Wątek do zadania…”,
+„↩ odpowiedź na zadanie #c73f”) oraz układ jak w programie pocztowym – drzewko folderów
+Odebrane / Wysłane / Niewysłane / Zarchiwizowane z podfolderami projektów.
+Szczegóły: [wydanie 3.11.0](docs/WDROZENIE-3.11.0-20261113.md).
 
 **Wersja 3.10.0:** okno „👁 Co robi agent” – bieżące działania agentów w tle
 (zdarzenia ze stosu) i sesji w aplikacjach Claude/Codex (odczyt zapisu rozmowy),

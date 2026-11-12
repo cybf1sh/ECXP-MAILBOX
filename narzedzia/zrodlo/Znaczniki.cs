@@ -58,7 +58,12 @@ namespace Ecxp
         }
 
         // Pierwsza wiadomość rozmowy (jej kod jest kodem wątku).
-        Msg KorzenWatku(List<Msg> w) { return Kanon(w.OrderBy(x => x.Czas).First()); }
+        // Przy tym samym czasie pierwszeństwo ma wiadomość, która nie jest odpowiedzią na inną z tej rozmowy.
+        Msg KorzenWatku(List<Msg> w)
+        {
+            var ids = new HashSet<string>(w.Select(x => x.Id));
+            return Kanon(w.OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) ? 1 : 0).ThenBy(x => x.Seq).First());
+        }
 
         // „Wątek do zadania #c73f”
         string OpisWatku(Msg korzen) { return Jezyk.T("Wątek do " + RodzajDo(korzen)) + " " + Tag(korzen); }
