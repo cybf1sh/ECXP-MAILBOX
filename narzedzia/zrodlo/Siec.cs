@@ -389,8 +389,16 @@ namespace Ecxp
                 // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
                 var kontakt = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.Max(x => x.Ostatnio));
                 var ostrz = new List<string>();
+                // agent w tle odzywa się tylko w turach (bez sygnałów sesji): brak kontaktu nie jest problemem, dopóki działa usługa
+                var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).ToDictionary(a => P.S(a, "nazwa"), a => P.S(a, "strona"));
                 foreach (var c in cele.Where(P.PoprawnyNadawca))
                 {
+                    string stronaTla;
+                    if (wTle.TryGetValue(c, out stronaTla))
+                    {
+                        if (Agenci.Zatrzymana(stronaTla)) ostrz.Add("Adresat " + c + " to agent w tle, a usługa agentów " + stronaTla + " jest zatrzymana – odbierze wiadomość dopiero po jej uruchomieniu (Agenci → Start).");
+                        continue;
+                    }
                     DateTime t;
                     if (!kontakt.TryGetValue(c, out t)) ostrz.Add("Adresat " + c + " jeszcze nigdy nie odezwał się w ECXP.");
                     else if ((DateTime.Now - t).TotalHours >= 24) ostrz.Add("Adresat " + c + " nie odzywa się od " + P.Wiek(DateTime.Now - t) + " (ostatni kontakt " + t.ToString("dd.MM.yyyy HH:mm") + ").");

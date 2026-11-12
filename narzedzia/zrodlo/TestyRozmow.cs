@@ -170,7 +170,19 @@ class TestyRozmow {
       det.ContextMenuStrip.Show(det,new Point(5,5)); Application.DoEvents();
       var menuPodgladu=det.ContextMenuStrip.Items.Cast<ToolStripItem>().Where(x=>x.Available && !(x is ToolStripSeparator)).Select(x=>x.Text).ToList();
       det.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
-      Check(menuPodgladu.SequenceEqual(new[]{"📋  Kopiuj","↩  Odpowiedz…","🗄  Archiwizuj","🗑  Usuń…"}),"received message preview right-click offers Copy, Reply, Archive, Delete");
+      Check(menuPodgladu.SequenceEqual(new[]{"📋  Kopiuj","↩  Odpowiedz…","🗄  Archiwizuj","🗑  Usuń…","👁  Co teraz robi agent?"}),"received message preview right-click offers Copy, Reply, Archive, Delete, agent activity");
+      Check(widoczneMenu.Contains("👁  Co teraz robi agent?"),"conversation right-click offers agent activity window");
+      // okno „Co robi agent” dla agenta w tle (dane syntetyczne)
+      Directory.CreateDirectory(Path.Combine(root,"stan","agenci"));
+      Pliki.Zapisz(Path.Combine(root,"stan","agenci","claude-demo.json"),P.D("nazwa","claude-demo","strona","claude","katalog",root,"tura_od",P.Teraz(),"tura_praca",""));
+      Aktywnosc.Zapisz("claude-demo","praca","📥 zadanie: DEMO"); Aktywnosc.Zapisz("claude-demo","narzedzie","▶ uruchamia pytest -q");
+      Call(app,"PokazAktywnosc","claude-demo");
+      Form oknoAkt=null; for(int i=0;i<40 && (oknoAkt==null || ((ListView)Descendants(oknoAkt).OfType<ListView>().Single()).Items.Count<2);i++){ Application.DoEvents(); System.Threading.Thread.Sleep(50); oknoAkt=Application.OpenForms.Cast<Form>().FirstOrDefault(x=>x.Name=="oknoAktywnosci"); }
+      var listaAkt=oknoAkt==null?null:Descendants(oknoAkt).OfType<ListView>().Single();
+      Check(oknoAkt!=null && listaAkt.Items.Count==2 && listaAkt.Items[1].SubItems[1].Text=="▶ uruchamia pytest -q" && Descendants(oknoAkt).OfType<Label>().Any(x=>x.Name=="stanAgenta" && x.Text.StartsWith("● pracuje")),"agent activity window lists live actions and working state");
+      Call(app,"PokazAktywnosc","claude-demo");
+      Check(Application.OpenForms.Cast<Form>().Count(x=>x.Name=="oknoAktywnosci")==1,"activity window is reused per agent");
+      if(oknoAkt!=null) oknoAkt.Close();
       var doKosza=P.Wyslij(new P.Nowa{Od="codex-demo",Do=P.Wlasciciel,Projekt="demo",Modul="rozmowy",Temat="Do usunięcia",Tresc="Syntetyczna",Watek="test-kosz"});
       string plikKosza=Path.GetFileName(P.S(doKosza,"plik"));
       var wynikKosza=P.Wycofaj(new List<string>{plikKosza},"test usuwania",P.Kosz);

@@ -10,6 +10,7 @@ Nadrzędna zasada to **1:1**. W projekcie i module pracuje para, Codex i Claude,
 
 | Dokument | Zawartość |
 |---|---|
+| [Wydanie 3.10.0](WDROZENIE-3.10.0-20261112.md) | okno „Co robi agent”, spis gałęzi na bieżąco, poprawki strażnika po teście na żywo |
 | [Wydanie 3.9.0](WDROZENIE-3.9.0-20261112.md) | menu prawego klawisza: ponów/usuń, odpowiedz/archiwizuj/usuń, kosz |
 | [Wydanie 3.8.0](WDROZENIE-3.8.0-20261111.md) | strażnik zadań (etap zadań, pytanie agenta), stan wysłanych na liście TYTUŁ |
 | [Wydanie 3.7.0](WDROZENIE-3.7.0-20261110.md) | działające opcje zespołu bezpieczeństwa, usuwanie projektu, testy i instalator |

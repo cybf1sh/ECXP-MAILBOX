@@ -18,7 +18,13 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.9.0: `builds/release-3.9.0/narzedzia/`.
+Aktualny pakiet 3.10.0: `builds/release-3.10.0/narzedzia/`.
+
+**Wersja 3.10.0:** okno „👁 Co robi agent” – bieżące działania agentów w tle
+(zdarzenia ze stosu) i sesji w aplikacjach Claude/Codex (odczyt zapisu rozmowy),
+skrót „agent teraz: …” na liście rozmów; „Spis gałęzi” budowany na bieżąco
+z repozytoriów projektów (tylko odczyt); strażnik pokazuje też zadania zakończone
+w ostatnich 15 min. Szczegóły: [wydanie 3.10.0](docs/WDROZENIE-3.10.0-20261112.md).
 
 **Wersja 3.9.0:** menu prawego klawisza przy wiadomościach – w Niewysłanych
 Ponów / Usuń, przy odebranych Odpowiedz / Archiwizuj / Usuń (także w podglądzie).

@@ -14,7 +14,7 @@ namespace Ecxp
 {
     partial class App
     {
-        public const int StraznikMinSek = 10, StraznikMaxSek = 60, StraznikDomyslnieSek = 60, StraznikPytajDomyslnieMin = 10;
+        public const int StraznikMinSek = 10, StraznikMaxSek = 60, StraznikDomyslnieSek = 60, StraznikPytajDomyslnieMin = 10, StraznikZakonczoneMin = 15;
 
         class StanStraznika { public string Klucz = "", Etap = ""; public DateTime Zmiana; public Color Kolor; }
 
@@ -89,9 +89,13 @@ namespace Ecxp
         // Śledzone: zadania i zapytania operatora z ostatnich 7 dni, które czekają jeszcze na wynik (każda kopia = jeden adresat).
         List<Msg> SledzonePrzezStraznika(DateTime teraz)
         {
+            // w toku (bez wyniku adresata) oraz zakończone w ostatnich StraznikZakonczoneMin minutach – zadanie, które skończyło
+            // się między dwoma sprawdzeniami, też jest widoczne (z etapem „FIN po …”)
             return msgs.Where(m => Wyslana(m) && m.Blad == null && P.PoprawnyNadawca(m.Do) && (m.Typ == "zadanie" || m.WymagaOdp)
-                    && m.Czas > teraz.AddDays(-7) && !(m.Dor != null && m.Dor.Wynik == "wycofana") && OdpowiedzNa(m) == null)
-                .OrderByDescending(m => m.Czas).Take(200).ToList();
+                    && m.Czas > teraz.AddDays(-7) && !(m.Dor != null && m.Dor.Wynik == "wycofana"))
+                .Select(m => new { m, odp = OdpowiedzNa(m) })
+                .Where(x => x.odp == null || x.odp.Czas >= teraz.AddMinutes(-StraznikZakonczoneMin))
+                .OrderBy(x => x.odp != null).ThenByDescending(x => x.m.Czas).Select(x => x.m).Take(200).ToList();
         }
 
         // ---------- panel w zakładce Agenci ----------
@@ -169,22 +173,30 @@ namespace Ecxp
         {
             if (lvStraznik == null) return;
             var teraz = DateTime.Now;
+            var ostatnieSprawdzeniePrzed = pierwszeSprawdzenie ? teraz : ostatnieSprawdzenie;
             ostatnieSprawdzenie = teraz;
             List<Msg> sledzone;
             try { sledzone = SledzonePrzezStraznika(teraz); } catch (Exception ex) { Bledy.Wyjatek(ex); return; }
             var zmiany = new List<string>();
             var doPytania = new List<Msg>();
             var wiersze = new List<ListViewItem>();
+            int wToku = 0, zakonczonych = 0;
             foreach (var m in sledzone)
             {
-                Color kolor; string etap, klucz;
-                try { etap = Etap(m, teraz, out kolor); klucz = KluczEtapu(m); } catch (Exception ex) { Bledy.Wyjatek(ex); continue; }
+                Color kolor; string etap, klucz; bool zakonczone;
+                try { etap = Etap(m, teraz, out kolor); klucz = KluczEtapu(m); zakonczone = OdpowiedzNa(m) != null; } catch (Exception ex) { Bledy.Wyjatek(ex); continue; }
+                if (zakonczone) zakonczonych++; else wToku++;
                 StanStraznika s;
-                if (!stanStraznika.TryGetValue(m.Id, out s)) { s = new StanStraznika { Klucz = klucz, Zmiana = teraz }; stanStraznika[m.Id] = s; }
+                if (!stanStraznika.TryGetValue(m.Id, out s))
+                {
+                    s = new StanStraznika { Klucz = klucz, Zmiana = teraz }; stanStraznika[m.Id] = s;
+                    // wysłane i zakończone między dwoma sprawdzeniami: też powiadomienie
+                    if (zakonczone && m.Czas > ostatnieSprawdzeniePrzed) zmiany.Add(P.Baza(m.Temat) + " (" + NazwaW(m.Do) + "): " + etap);
+                }
                 else if (s.Klucz != klucz) { s.Klucz = klucz; s.Zmiana = teraz; zmiany.Add(P.Baza(m.Temat) + " (" + NazwaW(m.Do) + "): " + etap); }
                 s.Etap = etap; s.Kolor = kolor;
                 var pytanie = m.Typ == "zadanie" ? Obieg.OstatniePytanieOEtap(m.Id, m.Do) : DateTime.MinValue;
-                if (straznikPytaj && m.Typ == "zadanie" && m.Dor != null && m.Dor.Dostarczona.HasValue && Obieg.CzekaNaFin(m.Id, m.Do)
+                if (!zakonczone && straznikPytaj && m.Typ == "zadanie" && m.Dor != null && m.Dor.Dostarczona.HasValue && Obieg.CzekaNaFin(m.Id, m.Do)
                     && teraz - s.Zmiana >= TimeSpan.FromMinutes(straznikPytajMin) && teraz - pytanie >= TimeSpan.FromMinutes(straznikPytajMin))
                     doPytania.Add(m);
                 var it = new ListViewItem(m.Czas.ToString("dd.MM HH:mm:ss")) { Tag = m, ForeColor = kolor };
@@ -203,7 +215,7 @@ namespace Ecxp
             if (zaznaczony != null) foreach (ListViewItem it in lvStraznik.Items) if (((Msg)it.Tag).Id == zaznaczony.Id) { it.Selected = true; break; }
             lvStraznik.EndUpdate();
             lblStraznik.Text = Jezyk.T("Strażnik działa") + " · " + Jezyk.T("ostatnie sprawdzenie") + " " + teraz.ToString("HH:mm:ss") + " · " +
-                Jezyk.T("śledzone") + ": " + sledzone.Count + (straznikPytaj ? " · " + Jezyk.T("pytanie o etap po") + " " + straznikPytajMin + " min " + Jezyk.T("bez zmian") : "");
+                Jezyk.T("w toku") + ": " + wToku + " · " + Jezyk.T("zakończone (15 min)") + ": " + zakonczonych + (straznikPytaj ? " · " + Jezyk.T("pytanie o etap po") + " " + straznikPytajMin + " min " + Jezyk.T("bez zmian") : "");
             if (!pierwszeSprawdzenie && straznikDymki && zmiany.Count > 0 && tray != null)
                 try { tray.ShowBalloonTip(5000, Jezyk.T("Strażnik zadań – nowy etap"), string.Join("\n", zmiany.Take(3)) + (zmiany.Count > 3 ? "\n…" : ""), ToolTipIcon.Info); } catch { }
             pierwszeSprawdzenie = false;

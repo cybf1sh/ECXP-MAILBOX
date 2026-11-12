@@ -295,6 +295,7 @@ namespace Ecxp
                     {
                         try {
                             var wynikClaude = js.Deserialize<Dictionary<string, object>>(l);
+                            if (w.Zajety) Aktywnosc.ZClaude(w.Nazwa, wynikClaude);   // „Co robi agent” – tylko w trakcie tury
                             if (wynikClaude != null && P.S(wynikClaude, "type") == "result")
                                 lock (w.Wyniki) { w.Wyniki.Enqueue(l); Monitor.PulseAll(w.Wyniki); }
                         } catch { }
@@ -316,6 +317,7 @@ namespace Ecxp
                         continue;
                     }
                     if (m.ContainsKey("id")) { int id; if (int.TryParse(P.S(m, "id"), out id)) lock (w.Odp) { w.Odp[id] = m; Monitor.PulseAll(w.Odp); } continue; }
+                    if (w.Zajety && (metoda == "item/started" || metoda == "turn/started" || metoda == "turn/completed")) Aktywnosc.ZCodex(w.Nazwa, metoda, pa);
                     if (metoda == "item/completed" && pa != null && pa.ContainsKey("item"))
                     {
                         var it = pa["item"] as Dictionary<string, object>;

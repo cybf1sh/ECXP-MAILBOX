@@ -529,6 +529,11 @@ namespace Ecxp
             });
         }
 
+        // Odpowiedź na końcu tury agenta w tle jest od razu wynikiem (FIN albo odpowiedź) – agent nie wróci do tej pracy.
+        // Bez tej uwagi agent potrafi uruchomić polecenie w tle i obiecać odpowiedź „później”, a obietnica staje się wynikiem.
+        public const string UwagaKoncaTury = "\n\n(Twoja odpowiedź na końcu tej pracy jest od razu wynikiem końcowym – później nie będzie można nic dodać. " +
+            "Nie zostawiaj poleceń działających w tle i nie obiecuj odpowiedzi później: dokończ pracę i dopiero wtedy odpowiedz.)";
+
         static Praca NastepnaPraca(string n)
         {
             var d = Pliki.Czytaj(Path.Combine(Dir, n + ".json"));
@@ -576,13 +581,16 @@ namespace Ecxp
                 });
             }
             catch { }
+            var pracaMsg = praca.Zadanie ?? praca.Pytanie;
+            Aktywnosc.Zapisz(n, "praca", (praca.Zadanie != null ? "📥 zadanie: " : "📥 pytanie: ") + (pracaMsg != null ? P.Baza(pracaMsg.Temat) : "") +
+                (Cieply.Zastepczy(P.S(rec, "strona")) ? " (tryb zastępczy – szczegóły działań niewidoczne)" : ""));
             try
             {
                 var strona = P.S(rec, "strona");
                 var prog = Program(strona);
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
                 // agent dostaje samą treść pracy – jak od człowieka; ECXP jest dla niego niewidoczny
-                var polecenie = praca.Tekst;
+                var polecenie = praca.Tekst + UwagaKoncaTury;
                 if (P.B(rec, "pentest")) polecenie = "Twój identyfikator testera/recenzenta: " + n +
                     ". Zapisuj własne pliki z tym identyfikatorem w nazwie.\n\n" + polecenie;
                 // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
@@ -637,6 +645,8 @@ namespace Ecxp
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
                         d.Remove("tura_od"); d.Remove("tura_praca");
+                        Aktywnosc.Zapisz(n, kod == 0 ? "koniec" : "blad", kod == 0 ? "■ tura zakończona, wynik przekazany (" + P.Wiek(DateTime.Now - start) + ")"
+                            : "⚠ tura zakończona: " + (przyczyna == "odmowa" ? "odmowa dostawcy modelu" : przyczyna) + " (" + P.Wiek(DateTime.Now - start) + ")");
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);
                         if (przezOperatora) ((Dictionary<string, object>)u[u.Count - 1])["wynik"] = "przerwano przez operatora (Stop / Uruchom ponownie)";
                         // alarm dopiero po 3 nieudanych turach z rzędu i najwyżej raz na godzinę – stos ponawia sam

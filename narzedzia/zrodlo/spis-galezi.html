@@ -41,7 +41,7 @@ td.mono,.mono{font-family:Consolas,monospace;font-size:12.5px}
 .galezie{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
 .gal{border:1px solid var(--ramka);border-radius:6px;padding:2px 8px;font-size:12px}
 .gal b{font-weight:600}
-.st-W_GITHUB_ELV3{border-color:var(--a);color:var(--a)}
+.st-W_GITHUB_ELV3,.st-NA_ZDALNYM{border-color:var(--a);color:var(--a)}
 .st-TYLKO_W_KLONIE{border-color:var(--d);color:var(--d);background:var(--tlo-d)}
 .st-W_LOKALNYM_ELV3{border-color:var(--e);color:var(--e)}
 .st-repo{border-color:var(--c);color:var(--c)}
@@ -86,21 +86,21 @@ section h2{font-size:16px;margin:0 0 8px}
 const DANE = /*__DANE__*/null;
 if (DANE && DANE.ciemny) document.body.classList.add('ciemny');
 const GRUPY = {
-  A:['Scalone i czyste','wszystkie gałęzie w elv3, brak zmian'],
+  A:['Scalone i czyste','gałęzie na zdalnym, brak zmian'],
   B:['Niezapisane pliki','zmienione, nowe pliki lub stash'],
   C:['Raporty kontroli','katalogi recenzji, audytów, raportów'],
-  D:['Niescalony kod','gałęzie tylko w klonie lub poza elv3'],
+  D:['Niewypchnięty kod','gałęzie tylko w tym klonie lub z commitami do wypchnięcia'],
   E:['Aktywne worktree','robocze kopie repozytorium'],
-  F:['Bez Git / pliki','katalogi bez repozytorium, łatki']
+  F:['Bez Git / brak','katalogi bez repozytorium albo już nieistniejące']
 };
-const STANY = {W_GITHUB_ELV3:'w elv3 na GitHubie',TYLKO_W_KLONIE:'tylko w tym klonie',W_LOKALNYM_ELV3:'w lokalnym elv3',W_REPO_BEZ_GALEZI:'w repo, bez gałęzi'};
+const STANY = {NA_ZDALNYM:'na zdalnym (origin)',W_GITHUB_ELV3:'w elv3 na GitHubie',TYLKO_W_KLONIE:'tylko w tym klonie',W_LOKALNYM_ELV3:'w lokalnym elv3',W_REPO_BEZ_GALEZI:'w repo, bez gałęzi'};
 const el = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let wiersze = (DANE && DANE.pozycje) || [];
 let grupaWl = null, sortK = 'grupa', sortDir = 1, otwarte = new Set();
 wiersze.forEach(w => {
   w.zmiany = (w.zmienione||0) + (w.nowe||0) + (w.stash||0);
-  w.niescalone = (w.galezie||[]).filter(g => g.stan !== 'W_GITHUB_ELV3' && g.stan !== 'W_LOKALNYM_ELV3').length;
+  w.niescalone = (w.galezie||[]).filter(g => g.stan !== 'W_GITHUB_ELV3' && g.stan !== 'W_LOKALNYM_ELV3' && g.stan !== 'NA_ZDALNYM').length;
   w.odz = w.istnieje ? 1 : w.przeniesiony ? 2 : 3;
 });
 el('meta').textContent = DANE ? `${DANE.plik} · ${wiersze.length} pozycji · wygenerowano ${DANE.wygenerowano}` : 'brak danych';
@@ -150,8 +150,9 @@ function rysuj(){
 }
 document.querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; rysuj(); });
 ['szukaj','tylkoIstn','tylkoNiescal'].forEach(id => el(id).addEventListener('input', rysuj));
-el('legenda').innerHTML = 'Stan gałęzi: ' + [['st-W_GITHUB_ELV3','w elv3 na GitHubie'],['st-W_LOKALNYM_ELV3','w lokalnym elv3'],['st-TYLKO_W_KLONIE','tylko w tym klonie'],['st-repo','w innej gałęzi repozytorium']].map(([c,t]) => `<span class="gal ${c}">${t}</span>`).join(' ') + ' · Zmiany: zmienione/nowe pliki · kliknij wiersz, by zobaczyć gałęzie';
+el('legenda').innerHTML = 'Stan gałęzi: ' + (wiersze.some(w => (w.galezie||[]).some(g => g.stan === 'NA_ZDALNYM')) ? [['st-NA_ZDALNYM','na zdalnym (origin)'],['st-TYLKO_W_KLONIE','tylko w tym klonie / do wypchnięcia']] : [['st-W_GITHUB_ELV3','w elv3 na GitHubie'],['st-W_LOKALNYM_ELV3','w lokalnym elv3'],['st-TYLKO_W_KLONIE','tylko w tym klonie'],['st-repo','w innej gałęzi repozytorium']]).map(([c,t]) => `<span class="gal ${c}">${t}</span>`).join(' ') + ' · Zmiany: zmienione/nowe pliki · kliknij wiersz, by zobaczyć gałęzie';
 el('glowne').innerHTML = ((DANE && DANE.glowne) || []).map(g => badge(g)).join('');
+if (!((DANE && DANE.glowne) || []).length) el('glowne').parentElement.hidden = true;
 el('lokalny').textContent = DANE && DANE.lokalny_elv3 ? 'Lokalny elv3: ' + DANE.lokalny_elv3 : '';
 karty(); rysuj();
 </script>

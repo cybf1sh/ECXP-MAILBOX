@@ -1,4 +1,4 @@
-﻿// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
+// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.9.0.0")]
+[assembly: AssemblyFileVersion("3.10.0.0")]
 
 namespace Ecxp
 {
@@ -632,6 +632,11 @@ namespace Ecxp
             menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję w aplikacjach (Codex + Claude)", null, delegate { UtworzSesjeAplikacji(null); }));
             menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję tylko w Codex", null, delegate { UtworzSesjeAplikacji("codex"); }));
             menuAg.Items.Add(new ToolStripMenuItem("Utwórz sesję tylko w Claude", null, delegate { UtworzSesjeAplikacji("claude"); }));
+            menuAg.Items.Add(new ToolStripSeparator());
+            var miCoCodex = new ToolStripMenuItem("👁  Co robi agent Codex…", null, delegate { var d = WybranaPara(); if (d != null) PokazAktywnosc(P.S(d, "codex")); });
+            var miCoClaude = new ToolStripMenuItem("👁  Co robi agent Claude…", null, delegate { var d = WybranaPara(); if (d != null) PokazAktywnosc(P.S(d, "claude")); });
+            menuAg.Items.Add(miCoCodex); menuAg.Items.Add(miCoClaude);
+            menuAg.Opening += (s, e) => { var d = WybranaPara(); miCoCodex.Enabled = d != null && P.S(d, "codex").Length > 0; miCoClaude.Enabled = d != null && P.S(d, "claude").Length > 0; Jezyk.Zastosuj(menuAg); };
             bBiez.Click += delegate { BiezacaZListy(); };
             bDecyzja.Click += delegate { Decyzja(); };
             bTlo.Click += delegate { UruchomAgenta(); };
@@ -1000,16 +1005,45 @@ namespace Ecxp
         // ---------- spis gałęzi jako strona HTML+JS ----------
         // Dane: najnowszy SPIS-GALEZI-*.json, grupy A–F z opisu SPIS-GALEZI-*.md, bieżący stan katalogów
         // (istnieje / przeniesiony do usunięcia) z pól katalog_agentow i katalog_przeniesionych w projekty\*\projekt.json.
+        // Spis budowany w tle (git dla kilku repozytoriów trwa kilka sekund) – okno konsoli nie zamiera.
+        bool budujeSpis;
         void SpisGalezi()
         {
-            try { System.Diagnostics.Process.Start(ZbudujSpis()); }
-            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie udało się zbudować spisu: ") + ex.Message, Jezyk.T("Spis gałęzi")); }
+            if (budujeSpis) return;
+            budujeSpis = true;
+            if (stInfo != null) stInfo.Text = Jezyk.T("Buduję spis gałęzi…");
+            var ciemny = Motyw.Ciemny;
+            new System.Threading.Thread(() =>
+            {
+                string wy = null; Exception blad = null;
+                try { wy = ZbudujSpis(); } catch (Exception ex) { blad = ex; }
+                try
+                {
+                    form.BeginInvoke((Action)(() =>
+                    {
+                        budujeSpis = false;
+                        if (blad != null) { Bledy.Wyjatek(blad); MessageBox.Show(form, Jezyk.T("Nie udało się zbudować spisu: ") + blad.Message, Jezyk.T("Spis gałęzi")); return; }
+                        if (stInfo != null) stInfo.Text = Jezyk.T("Spis gałęzi gotowy: ") + wy;
+                        try { System.Diagnostics.Process.Start(wy); } catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, Jezyk.T("Spis gałęzi")); }
+                    }));
+                }
+                catch { budujeSpis = false; }
+            }) { IsBackground = true }.Start();
         }
 
         public static string ZbudujSpis()
         {
             var plik = new DirectoryInfo(P.Root).GetFiles("SPIS-GALEZI-*.json").OrderByDescending(f => f.Name).FirstOrDefault();
-            if (plik == null) throw new EcxpException("Brak pliku SPIS-GALEZI-*.json w katalogu skrzynki.");
+            if (plik == null)
+            {
+                // brak gotowego spisu: repozytoria projektów ECXP na bieżąco
+                string opis; List<object> pozycje;
+                try { pozycje = SpisNaZywo(out opis); }
+                catch (System.ComponentModel.Win32Exception) { throw new EcxpException("Nie znaleziono programu git (Git for Windows) w PATH – spis gałęzi czyta repozytoria poleceniem git."); }
+                if (pozycje.Count == 0) throw new EcxpException("Projekty ECXP nie wskazują żadnego repozytorium Git (umowy gałęzi par, katalogi agentów i projektów).");
+                return ZapiszSpis(P.D("plik", opis, "wygenerowano", DateTime.Now.ToString("yyyy-MM-dd HH:mm"), "ciemny", Motyw.Ciemny, "pozycje", pozycje,
+                    "glowne", new object[0], "lokalny_elv3", ""));
+            }
             {
                 var d = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(plik.FullName));
                 var grupy = new Dictionary<string, string>();
@@ -1041,25 +1075,31 @@ namespace Ecxp
                 }
                 var dane = P.D("plik", plik.Name, "wygenerowano", DateTime.Now.ToString("yyyy-MM-dd HH:mm"), "ciemny", Motyw.Ciemny, "pozycje", pozycje,
                     "glowne", d.ContainsKey("main_branches") ? d["main_branches"] : new object[0], "lokalny_elv3", P.S(d, "local_elv3"));
-                string szablon;
-                using (var st = Assembly.GetExecutingAssembly().GetManifestResourceStream("spis-galezi.html"))
-                using (var r = new StreamReader(st, Encoding.UTF8)) szablon = r.ReadToEnd();
-                var html = szablon.Replace("/*__DANE__*/null", P.Js().Serialize(dane));
-                var wy = Path.Combine(P.Root, "stan", "spis-galezi.html");
-                Directory.CreateDirectory(Path.GetDirectoryName(wy));
-                File.WriteAllText(wy, html, new UTF8Encoding(false));
-                return wy;
+                return ZapiszSpis(dane);
             }
+        }
+
+        static string ZapiszSpis(Dictionary<string, object> dane)
+        {
+            string szablon;
+            using (var st = Assembly.GetExecutingAssembly().GetManifestResourceStream("spis-galezi.html"))
+            using (var r = new StreamReader(st, Encoding.UTF8)) szablon = r.ReadToEnd();
+            var js = P.Js(); js.MaxJsonLength = int.MaxValue;
+            var html = szablon.Replace("/*__DANE__*/null", js.Serialize(dane).Replace("</", "<\\/"));
+            var wy = Path.Combine(P.Root, "stan", "spis-galezi.html");
+            Directory.CreateDirectory(Path.GetDirectoryName(wy));
+            File.WriteAllText(wy, html, new UTF8Encoding(false));
+            return wy;
         }
 
         static string Grupa(Dictionary<string, object> w)
         {
             var typ = P.S(w, "typ");
             if (typ == "WORKTREE") return "E";
-            if (typ == "PLIK" || typ == "BEZ_GIT") return "F";
+            if (typ == "PLIK" || typ == "BEZ_GIT" || typ == "BRAK") return "F";
             var gal = P.Lista(w, "galezie");
             if (Regex.IsMatch(P.S(w, "galaz") + " " + P.S(w, "katalog"), "gate-|review|recenz|audit|audyt|raport", RegexOptions.IgnoreCase)) return "C";
-            if (gal.Any(g => P.S(g, "stan") != "W_GITHUB_ELV3" && P.S(g, "stan") != "W_LOKALNYM_ELV3")) return "D";
+            if (gal.Any(g => P.S(g, "stan") != "W_GITHUB_ELV3" && P.S(g, "stan") != "W_LOKALNYM_ELV3" && P.S(g, "stan") != "NA_ZDALNYM")) return "D";
             int zm, nw, st;
             int.TryParse(P.S(w, "zmienione"), out zm); int.TryParse(P.S(w, "nowe"), out nw); int.TryParse(P.S(w, "stash"), out st);
             return zm + nw + st > 0 ? "B" : "A";
@@ -1686,7 +1726,11 @@ namespace Ecxp
             var watki = pasujace.Where(w => kierunek == 0 || kierunek == 3 || w.Any(m => Wyslana(m) == (kierunek == 2)))
                 .OrderByDescending(w => kierunek != 2 && w.Any(m => m.Nowa)).ThenByDescending(w => Reprezentant(w).Czas).ToList();
 
-            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Tryb + biezProj + biezMod + kierunek + teraz.ToString("yyyyMMddHHmm"));
+            // co agenci właśnie robią przy Twoich ostatnich wiadomościach (okno „Co robi agent” w skrócie); w podpisie bez wieku
+            Dictionary<string, string> terazAg;
+            try { terazAg = TerazAgentow(watki); } catch (Exception ex) { Bledy.Wyjatek(ex); terazAg = new Dictionary<string, string>(); }
+            string podpis = P.Sha(PodpisDanych(watki.SelectMany(x => x)) + Jezyk.Kod + Motyw.Tryb + biezProj + biezMod + kierunek + teraz.ToString("yyyyMMddHHmm") +
+                string.Join(";", terazAg.Select(kv => kv.Key + "=" + System.Text.RegularExpressions.Regex.Replace(kv.Value, @" \([^)]*\)$", ""))));
             if (podpis != podpisListy)
             {
             var zaznaczone = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(x => ((Msg)x.Tag).Watek));
@@ -1713,6 +1757,8 @@ namespace Ecxp
                 // stan Twojej wysłanej wiadomości w tej rozmowie: czy dotarła, kto odebrał, etap (Sledzenie.Etap)
                 var wyslanaW = w.LastOrDefault(x => Wyslana(x) && x.Blad == null && P.PoprawnyNadawca(x.Do));
                 if (wyslanaW != null) try { Color ke; it.Etap = "▸ " + Jezyk.T("Twoja wiadomość: ") + Etap(wyslanaW, teraz, out ke); it.EtapKolor = ke; } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                string terazA;
+                if (wyslanaW != null && terazAg.TryGetValue(wyslanaW.Id, out terazA)) it.Etap += "  ·  👁 " + Jezyk.T("agent teraz: ") + terazA;
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
                 it.SubItems.Add(stanW);
                 it.ToolTipText = w.Count + Jezyk.T(" wiadomości") + " · " + Zdanie(w.Last());
@@ -2858,6 +2904,8 @@ namespace Ecxp
             var miZam = new ToolStripMenuItem("⊘  Zamknij wątek…");
             var miArch = new ToolStripMenuItem("🗄  Archiwizuj");
             var miUsun = new ToolStripMenuItem("🗑  Usuń…");
+            var miCoRobi = new ToolStripMenuItem("👁  Co teraz robi agent?");
+            miCoRobi.Click += delegate { PokazAktywnosc(AgentRozmowy(Wybrana())); };
             miPon.Click += delegate { WyslijPonownie(Wybrana()); };
             miObudz.Click += delegate { Obudz(Wybrana()); };
             miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
@@ -2865,7 +2913,7 @@ namespace Ecxp
             miZam.Click += delegate { ZamknijWatki(); };
             miArch.Click += delegate { ArchiwizujWatki(); };
             miUsun.Click += delegate { UsunWatki(); };
-            menu.Items.AddRange(new ToolStripItem[] { miOdp, miArch, miUsun, new ToolStripSeparator(), miPon, miAgenci, miObudz, new ToolStripSeparator(), miOkno, miFolder, new ToolStripSeparator(), miZam });
+            menu.Items.AddRange(new ToolStripItem[] { miOdp, miArch, miUsun, new ToolStripSeparator(), miPon, miAgenci, miObudz, miCoRobi, new ToolStripSeparator(), miOkno, miFolder, new ToolStripSeparator(), miZam });
             menu.Opening += (s, e) =>
             {
                 var m = Wybrana();
@@ -2875,6 +2923,7 @@ namespace Ecxp
                 miObudz.Enabled = Oczekujace(m).Count > 0;
                 miArch.Visible = odebrana;
                 miZam.Visible = !odebrana;
+                miCoRobi.Visible = AgentRozmowy(m) != null;
                 menu.Items.Remove(miUsun);
                 if (odebrana) menu.Items.Insert(2, miUsun); else menu.Items.Add(miUsun);
                 Jezyk.Zastosuj(menu);
@@ -2895,6 +2944,8 @@ namespace Ecxp
             var miPon = new ToolStripMenuItem("↪  Wyślij ponownie…");
             var miPonN = new ToolStripMenuItem("↻  Ponów wysyłkę…");
             var miUsun = new ToolStripMenuItem("🗑  Usuń…");
+            var miCoRobi = new ToolStripMenuItem("👁  Co teraz robi agent?");
+            miCoRobi.Click += delegate { PokazAktywnosc(AgentRozmowy(Wybrana())); };
             var sep = new ToolStripSeparator();
             miKop.Click += delegate { if (det.SelectionLength > 0) det.Copy(); };
             miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
@@ -2902,7 +2953,7 @@ namespace Ecxp
             miPon.Click += delegate { WyslijPonownie(Wybrana()); };
             miPonN.Click += delegate { EdytujNiewyslana(); };
             miUsun.Click += delegate { if (kierunek == 3) UsunNiewyslana(); else UsunWatki(); };
-            menu.Items.AddRange(new ToolStripItem[] { miKop, sep, miOdp, miArch, miPon, miPonN, miUsun });
+            menu.Items.AddRange(new ToolStripItem[] { miKop, sep, miOdp, miArch, miPon, miPonN, miUsun, miCoRobi });
             menu.Opening += (s, e) =>
             {
                 miKop.Enabled = det.SelectionLength > 0;
@@ -2913,6 +2964,7 @@ namespace Ecxp
                 miPon.Visible = m != null && !odebrana;
                 miPonN.Visible = niewysl;
                 miUsun.Visible = m != null || niewysl;
+                miCoRobi.Visible = !niewysl && AgentRozmowy(m) != null;
                 sep.Visible = miUsun.Visible;
                 Jezyk.Zastosuj(menu);
             };
