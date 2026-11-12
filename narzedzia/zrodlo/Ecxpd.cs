@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace Ecxp
 {
@@ -620,6 +620,7 @@ namespace Ecxp
                 case "sesja": TylkoOperator(s); return Doreczanie.Opisz(P.S(a, "nazwa"));
                 case "zarejestruj_sesje": TylkoOperator(s); return Siec.ZarejestrujZnalezione(P.Lista(a, "sesje"));
                 case "wycofaj": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"));
+                case "usun": TylkoOperator(s); return P.Wycofaj(P.L(a, "pliki"), P.S(a, "powod"), P.Kosz);
                 case "nowy_pentest": TylkoOperator(s); return NowyPentest(a);
                 case "nowe_zadanie":
                     {

@@ -629,8 +629,11 @@ namespace Ecxp
         // ---------- zamknięcie wiadomości przez operatora ----------
         // Wiadomość z dowolnej kolejki (także niedoręczona albo pytanie bez odpowiedzi) trafia do archiwum\RRRR-MM.
         // Nic nie jest kasowane. W dzienniku: potwierdzona (wynik „wycofana”, kto: wlasciciel) – strażnik przestaje upominać.
-        public static Dictionary<string, object> Wycofaj(List<string> pliki, string powod)
+        // cel = Kosz („Usuń” w konsoli): plik trafia do kosz\RRRR-MM – znika z konsoli i z archiwum, ale da się go odzyskać ręcznie.
+        public const string Kosz = "kosz";
+        public static Dictionary<string, object> Wycofaj(List<string> pliki, string powod, string cel = "archiwum")
         {
+            if (cel != "archiwum" && cel != Kosz) throw new EcxpException("nieznany cel: " + cel);
             return ZBlokada(delegate
             {
                 string spoj;
@@ -647,7 +650,7 @@ namespace Ecxp
                     }
                     if (f == null) { brak++; continue; }
                     var m = Wczytaj(f, kat, js);
-                    var dir = Path.Combine(Root, "archiwum", m.Czas.ToString("yyyy-MM"));
+                    var dir = Path.Combine(Root, cel, m.Czas.ToString("yyyy-MM"));
                     Directory.CreateDirectory(dir);
                     var dst = Path.Combine(dir, m.Plik);
                     if (File.Exists(dst)) dst = Path.Combine(dir, Path.GetFileNameWithoutExtension(m.Plik) + "-" + Losowe(2) + ".json");
@@ -655,7 +658,7 @@ namespace Ecxp
                     Stan s;
                     if (stany.TryGetValue(m.Id, out s) && !s.Potwierdzona.HasValue)
                         Zdarzenie("potwierdzona", D("id", m.Id, "kto", Wlasciciel, "wynik", "wycofana", "uwagi", string.IsNullOrEmpty(powod) ? "zamknięta przez operatora" : powod));
-                    Zdarzenie("zarchiwizowana", D("id", m.Id, "plik", m.Plik, "z", kat, "kto", Wlasciciel, "powod", powod ?? ""));
+                    Zdarzenie(cel == Kosz ? "usunieta" : "zarchiwizowana", D("id", m.Id, "plik", m.Plik, "z", kat, "kto", Wlasciciel, "powod", powod ?? ""));
                     ok++;
                 }
                 return D("przeniesione", ok, "brak", brak);

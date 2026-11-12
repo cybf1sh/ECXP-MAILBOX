@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.8.0.0")]
+[assembly: AssemblyFileVersion("3.9.0.0")]
 
 namespace Ecxp
 {
@@ -573,6 +573,7 @@ namespace Ecxp
             lvNiewyslane.SelectedIndexChanged += delegate { PokazNiewyslana(); };
             lvNiewyslane.MouseClick += (sender,e) => { if(e.Button==MouseButtons.Left && lvNiewyslane.HitTest(e.Location).Item!=null)EdytujNiewyslana(); };
             lvNiewyslane.KeyDown += (sender,e) => { if(e.KeyCode==Keys.Enter) { e.Handled=true; EdytujNiewyslana(); } };
+            BudujMenuNiewyslanych();
             var listy = new Panel { Dock = DockStyle.Fill }; listy.Controls.Add(lv); listy.Controls.Add(lvNiewyslane);
             split.Panel1.Controls.Add(listy);
             var pasekKier = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(4, 3, 4, 3) };
@@ -2855,20 +2856,164 @@ namespace Ecxp
             var miFolder = new ToolStripMenuItem("📂  Pokaż w folderze");
             miFolder.Click += delegate { PokazWFolderze(Wybrana()); };
             var miZam = new ToolStripMenuItem("⊘  Zamknij wątek…");
+            var miArch = new ToolStripMenuItem("🗄  Archiwizuj");
+            var miUsun = new ToolStripMenuItem("🗑  Usuń…");
             miPon.Click += delegate { WyslijPonownie(Wybrana()); };
             miObudz.Click += delegate { Obudz(Wybrana()); };
             miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
             miOkno.Click += delegate { var m = Wybrana(); if (m != null) OtworzWiadomosc(m); };
             miZam.Click += delegate { ZamknijWatki(); };
-            menu.Items.AddRange(new ToolStripItem[] { miPon, miAgenci, miObudz, new ToolStripSeparator(), miOdp, miOkno, miFolder, new ToolStripSeparator(), miZam });
+            miArch.Click += delegate { ArchiwizujWatki(); };
+            miUsun.Click += delegate { UsunWatki(); };
+            menu.Items.AddRange(new ToolStripItem[] { miOdp, miArch, miUsun, new ToolStripSeparator(), miPon, miAgenci, miObudz, new ToolStripSeparator(), miOkno, miFolder, new ToolStripSeparator(), miZam });
             menu.Opening += (s, e) =>
             {
                 var m = Wybrana();
                 if (m == null) { e.Cancel = true; return; }
+                // odebrana: Odpowiedz, Archiwizuj, Usuń na górze; wysłana: bez Archiwizuj (jest Zamknij wątek), Usuń na końcu
+                bool odebrana = !Wyslana(m);
                 miObudz.Enabled = Oczekujace(m).Count > 0;
+                miArch.Visible = odebrana;
+                miZam.Visible = !odebrana;
+                menu.Items.Remove(miUsun);
+                if (odebrana) menu.Items.Insert(2, miUsun); else menu.Items.Add(miUsun);
                 Jezyk.Zastosuj(menu);
             };
             lv.ContextMenuStrip = menu;
+            lv.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete && Wybrana() != null) { e.Handled = true; UsunWatki(); } };
+            BudujMenuPodgladu();
+        }
+
+        // Prawy klawisz w podglądzie wiadomości: kopiowanie oraz te same akcje co na liście dla pokazanej rozmowy
+        // (odebrana: Odpowiedz / Archiwizuj / Usuń; wysłana: Wyślij ponownie / Usuń; Niewysłane: Ponów / Usuń).
+        void BudujMenuPodgladu()
+        {
+            var menu = new ContextMenuStrip();
+            var miKop = new ToolStripMenuItem("📋  Kopiuj");
+            var miOdp = new ToolStripMenuItem("↩  Odpowiedz…");
+            var miArch = new ToolStripMenuItem("🗄  Archiwizuj");
+            var miPon = new ToolStripMenuItem("↪  Wyślij ponownie…");
+            var miPonN = new ToolStripMenuItem("↻  Ponów wysyłkę…");
+            var miUsun = new ToolStripMenuItem("🗑  Usuń…");
+            var sep = new ToolStripSeparator();
+            miKop.Click += delegate { if (det.SelectionLength > 0) det.Copy(); };
+            miOdp.Click += delegate { var m = Wybrana(); if (m != null) Pisz(m); };
+            miArch.Click += delegate { ArchiwizujWatki(); };
+            miPon.Click += delegate { WyslijPonownie(Wybrana()); };
+            miPonN.Click += delegate { EdytujNiewyslana(); };
+            miUsun.Click += delegate { if (kierunek == 3) UsunNiewyslana(); else UsunWatki(); };
+            menu.Items.AddRange(new ToolStripItem[] { miKop, sep, miOdp, miArch, miPon, miPonN, miUsun });
+            menu.Opening += (s, e) =>
+            {
+                miKop.Enabled = det.SelectionLength > 0;
+                bool niewysl = kierunek == 3 && lvNiewyslane.SelectedItems.Count > 0;
+                var m = Wybrana();
+                bool odebrana = m != null && !Wyslana(m);
+                miOdp.Visible = odebrana; miArch.Visible = odebrana;
+                miPon.Visible = m != null && !odebrana;
+                miPonN.Visible = niewysl;
+                miUsun.Visible = m != null || niewysl;
+                sep.Visible = miUsun.Visible;
+                Jezyk.Zastosuj(menu);
+            };
+            det.ContextMenuStrip = menu;
+        }
+
+        // Menu listy Niewysłane: Ponów (formularz wypełniony szkicem / wiadomością – sprawdzasz i wysyłasz), Usuń.
+        void BudujMenuNiewyslanych()
+        {
+            var menu = new ContextMenuStrip();
+            var miPon = new ToolStripMenuItem("↻  Ponów wysyłkę…");
+            var miUsun = new ToolStripMenuItem("🗑  Usuń…");
+            miPon.Click += delegate { EdytujNiewyslana(); };
+            miUsun.Click += delegate { UsunNiewyslana(); };
+            menu.Items.AddRange(new ToolStripItem[] { miPon, miUsun });
+            menu.Opening += (s, e) =>
+            {
+                if (lvNiewyslane.SelectedItems.Count == 0) { e.Cancel = true; return; }
+                Jezyk.Zastosuj(menu);
+            };
+            lvNiewyslane.ContextMenuStrip = menu;
+            lvNiewyslane.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete && lvNiewyslane.SelectedItems.Count > 0) { e.Handled = true; UsunNiewyslana(); } };
+        }
+
+        void UsunNiewyslana()
+        {
+            if (lvNiewyslane.SelectedItems.Count == 0) return;
+            var obiekt = lvNiewyslane.SelectedItems[0].Tag;
+            var d = obiekt as SzkicWiadomosci;
+            if (d != null)
+            {
+                if (MessageBox.Show(form, string.Format(Jezyk.T("Usunąć szkic „{0}”?\n\nSzkic nie został wysłany. Usunięcia nie można cofnąć."), d.Temat.Length > 0 ? d.Temat : Jezyk.T("(bez tematu)")),
+                        Jezyk.T("Usuń"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                try { magazynSzkicow.Usun(d.Id); SynchronizujSzybkiSzkic(d.Id); OdswiezNiewyslane(); stInfo.Text = Jezyk.T("Usunięto szkic."); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie usunięto: ") + ex.Message, Jezyk.T("Usuń"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                return;
+            }
+            var m = obiekt as Msg;
+            if (m == null) return;
+            // wiadomość z problemem doręczenia: ona sama, jej kopie dla pary i lustra (jedna pozycja na liście)
+            var lista = msgs.Where(x => x.Id == m.Id || x.KopiaDla == m.Id || (m.LustroId.Length > 0 && x.LustroId == m.LustroId)).ToList();
+            PrzeniesDoKosza(lista, string.Format(Jezyk.T("Usunąć niedoręczoną wiadomość „{0}” (plików: {1})?\n\nNie trafi już do adresata, a strażnik przestanie o nią upominać. Wiadomość zniknie z konsoli; plik trafi do {2}\\RRRR-MM, skąd można go odzyskać ręcznie."),
+                P.Baza(m.Temat), lista.Count, Path.Combine(P.Root, P.Kosz)));
+        }
+
+        // Odebrane: rozmowy (zaznaczone wiersze) do archiwum – jak „Zamknij wątek”, nic nie jest kasowane.
+        void ArchiwizujWatki()
+        {
+            var lista = WiadomosciZaznaczonychWatkow();
+            if (lista.Count == 0) return;
+            int nowe = lista.Count(x => x.Nowa);
+            if (MessageBox.Show(form, string.Format(Jezyk.T("Przenieść do archiwum rozmowy ({0}) – wiadomości: {1}?\n\nNic nie zostanie skasowane: pliki trafią do {2}\\RRRR-MM, a rozmowa zniknie z listy."),
+                    lista.Select(x => x.Watek).Distinct().Count(), lista.Count, Path.Combine(P.Root, "archiwum")) +
+                    (nowe > 0 ? "\n\n" + string.Format(Jezyk.T("Uwaga: {0} z nich jeszcze nie przeczytałeś."), nowe) : ""),
+                    Jezyk.T("Archiwizuj"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("wycofaj", P.D("pliki", lista.Select(x => x.Plik).ToList(), "powod", "zarchiwizowana przez operatora w ECXP-MAILBOX"));
+                PoPrzeniesieniu(lista);
+                stInfo.Text = Jezyk.T("Przeniesiono do archiwum: ") + P.S(r, "przeniesione");
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie przeniesiono: ") + ex.Message, Jezyk.T("Archiwizuj"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        // Usuń: rozmowy (zaznaczone wiersze) do kosza – znikają z konsoli i z archiwum, pliki można odzyskać ręcznie.
+        void UsunWatki()
+        {
+            var lista = WiadomosciZaznaczonychWatkow();
+            if (lista.Count == 0) return;
+            var tematy = string.Join("\n", lista.GroupBy(x => x.Watek).Select(g => "• " + P.Baza(g.First().Temat) + " (" + g.Count() + Jezyk.T(" wiad.") + ")").Take(8));
+            int wKolejce = lista.Count(x => x.Katalog != "przeczytane");
+            PrzeniesDoKosza(lista, string.Format(Jezyk.T("Usunąć rozmowy ({0}) – wiadomości: {1}?\n\n{2}\n\nRozmowy znikną z konsoli i z archiwum. Pliki trafią do {3}\\RRRR-MM, skąd można je odzyskać ręcznie. Niedoręczone ({4}) nie trafią już do adresatów."),
+                lista.Select(x => x.Watek).Distinct().Count(), lista.Count, tematy, Path.Combine(P.Root, P.Kosz), wKolejce));
+        }
+
+        List<Msg> WiadomosciZaznaczonychWatkow()
+        {
+            var watki = new HashSet<string>(lv.SelectedItems.Cast<ListViewItem>().Select(it => ((Msg)it.Tag).Watek));
+            return msgs.Where(x => watki.Contains(x.Watek)).ToList();
+        }
+
+        void PrzeniesDoKosza(List<Msg> lista, string pytanie)
+        {
+            if (lista.Count == 0) return;
+            if (MessageBox.Show(form, pytanie, Jezyk.T("Usuń"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("usun", P.D("pliki", lista.Select(x => x.Plik).ToList(), "powod", "usunięta przez operatora w ECXP-MAILBOX"));
+                PoPrzeniesieniu(lista);
+                stInfo.Text = Jezyk.T("Usunięto (do kosza): ") + P.S(r, "przeniesione");
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie usunięto: ") + ex.Message, Jezyk.T("Usuń"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        void PoPrzeniesieniu(List<Msg> lista)
+        {
+            foreach (var x in lista) read.Remove(x.Plik);
+            SaveRead();
+            det.Clear(); pnlZal.Controls.Clear(); pnlZal.Visible = false;
+            Skanuj();
+            OdswiezNiewyslane();
         }
 
         // Plik wiadomości w widoku skrzynki (foldery Odebrane / Wysłane, indeks stan\widok.json tworzony przez stos).

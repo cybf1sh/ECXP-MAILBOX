@@ -159,6 +159,23 @@ class TestyRozmow {
       }
       Call(app,"ZapiszSzybkiSzkic");
       Check(quick.Text.Length==0 && store.Znajdz(quickId)==null && new MagazynSzkicow(draftsPath).Znajdz(quickId)==null,"accepted send stays removed after composer closes and quick autosave runs");
+      // menu prawego klawisza (3.9.0): Niewysłane – Ponów / Usuń; odebrane – Odpowiedz / Archiwizuj / Usuń
+      Check(unsent.ContextMenuStrip!=null && unsent.ContextMenuStrip.Items.Cast<ToolStripItem>().Select(x=>x.Text).SequenceEqual(new[]{"↻  Ponów wysyłkę…","🗑  Usuń…"}),"unsent list right-click offers Retry and Delete");
+      foreach(ListViewItem x in lv.Items) x.Selected=false;
+      lv.Items.Cast<ListViewItem>().First(x=>((Msg)x.Tag).Od!=P.Wlasciciel).Selected=true; Application.DoEvents();
+      var lvMenu=lv.ContextMenuStrip; lvMenu.Show(lv,new Point(5,5)); Application.DoEvents();
+      var widoczneMenu=lvMenu.Items.Cast<ToolStripItem>().Where(x=>x.Available && !(x is ToolStripSeparator)).Select(x=>x.Text).ToList();
+      lvMenu.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
+      Check(widoczneMenu.Take(3).SequenceEqual(new[]{"↩  Odpowiedz…","🗄  Archiwizuj","🗑  Usuń…"}) && !widoczneMenu.Contains("⊘  Zamknij wątek…"),"received conversation right-click starts with Reply, Archive, Delete");
+      det.ContextMenuStrip.Show(det,new Point(5,5)); Application.DoEvents();
+      var menuPodgladu=det.ContextMenuStrip.Items.Cast<ToolStripItem>().Where(x=>x.Available && !(x is ToolStripSeparator)).Select(x=>x.Text).ToList();
+      det.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
+      Check(menuPodgladu.SequenceEqual(new[]{"📋  Kopiuj","↩  Odpowiedz…","🗄  Archiwizuj","🗑  Usuń…"}),"received message preview right-click offers Copy, Reply, Archive, Delete");
+      var doKosza=P.Wyslij(new P.Nowa{Od="codex-demo",Do=P.Wlasciciel,Projekt="demo",Modul="rozmowy",Temat="Do usunięcia",Tresc="Syntetyczna",Watek="test-kosz"});
+      string plikKosza=Path.GetFileName(P.S(doKosza,"plik"));
+      var wynikKosza=P.Wycofaj(new List<string>{plikKosza},"test usuwania",P.Kosz);
+      Check(Convert.ToInt32(wynikKosza["przeniesione"])==1 && Directory.GetFiles(Path.Combine(root,P.Kosz),plikKosza,SearchOption.AllDirectories).Length==1
+        && !P.Foldery.Any(f=>File.Exists(Path.Combine(root,f,plikKosza))) && !P.Wszystkie(true).Any(x=>x.Plik==plikKosza),"delete moves message to recoverable trash outside queues and archive");
       var settings=Descendants(form).OfType<Button>().Single(x=>x.Text=="Ustawienia…");
       settings.PerformClick(); Application.DoEvents();
       settings.ContextMenuStrip.Close(ToolStripDropDownCloseReason.AppClicked); Application.DoEvents();
