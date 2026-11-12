@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.10.0.0")]
+[assembly: AssemblyFileVersion("3.11.0.0")]
 
 namespace Ecxp
 {
@@ -166,8 +166,8 @@ namespace Ecxp
         class Wiersz : ListViewItem
         {
             public Wiersz(string t) : base(t) { }
-            public string Tytul = "", Data = "", Linia = "", Znak = "", Etap = "";
-            public Color ZnakTlo, ZnakTekst, EtapKolor;
+            public string Tytul = "", Data = "", Linia = "", Znak = "", Etap = "", Chip = "";
+            public Color ZnakTlo, ZnakTekst, EtapKolor, ChipTlo;
         }
 
         public App()
@@ -792,10 +792,12 @@ namespace Ecxp
             det.SuspendLayout();
             det.Clear(); zakresyWiadomosci.Clear();
             ZmienSzkic(sel);
-            rozmowaTytul.Text = P.Baza(sel.Temat) + "\n" + sel.Projekt + " / " + sel.Modul + " · " + OpisPary(sel.Projekt, sel.Modul);
             var w = msgs.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ToList();
+            var korzenW = KorzenWatku(w);
+            rozmowaTytul.Text = OpisWatku(korzenW) + " · " + P.Baza(sel.Temat) + "\n" + sel.Projekt + " / " + sel.Modul + " · " + OpisPary(sel.Projekt, sel.Modul);
             var teraz = DateTime.Now;
             wciecie = 0;
+            Dopisz(OpisWatku(korzenW) + "\n", fontB, KolorTagu(Tag(korzenW)));
             Dopisz(P.Baza(sel.Temat) + "\n", fontTytul, Motyw.Tekst);
             Dopisz(w.Count + (w.Count == 1 ? Jezyk.T(" wiadomość") : Jezyk.T(" wiadomości")) + (sel.Projekt.Length > 0 ? Jezyk.T("   ·   projekt ") + sel.Projekt : "") +
                 (sel.Modul.Length > 0 ? Jezyk.T("   ·   moduł ") + sel.Modul : "") + "\n\n", fontS, Motyw.Slaby);
@@ -814,8 +816,25 @@ namespace Ecxp
                 Dopisz(m == sel ? "▶  " : "●  ", fontB, Kolor(m));
                 Dopisz(NazwaW(m.Od) + "  →  " + (m.Lustro.Count > 1 ? Jezyk.T("para: ") + string.Join(" + ", m.Lustro.Select(P.Nazwa)) : NazwaW(m.Do)), fontB, Motyw.Tekst);
                 Dopisz("     " + Jezyk.T(P.Rodzaj(m)) + (m.Pilne ? Jezyk.T(" · PILNE") : "") + (m.KopiaDla.Length > 0 ? Jezyk.T(" · kopia dla pary (1:1)") : "") + "   ·   " + m.Czas.ToString("dd.MM.yyyy HH:mm") + "   ·   ", fontS, Kolor(m));
+                Dopisz(Tag(m), fontB, KolorTagu(Tag(m)));
+                Dopisz("   ·   ", fontS, Kolor(m));
                 { string zn; Color zt, zk; Znacznik(m, w, out zn, out zt, out zk, false); Dopisz((Wyslana(m) ? Jezyk.T("wysłana · ") : Jezyk.T("odebrana · ")) + zn + "\n", fontB, KolorZnacznika(m, w)); }
                 wciecie = 24;
+                // znaczniki: na co odpowiada ta wiadomość i jakie odpowiedzi na nią przyszły (kolor = kolor kodu tamtej wiadomości)
+                { var naCo = OdpowiedzNaOpis(m, false); if (naCo != null) Dopisz(naCo + "\n", fontB, KolorTagu(TagPierwowzoru(m))); }
+                {
+                    var odpowiedzi = OdpowiedziDo(m);
+                    if (odpowiedzi.Count > 0)
+                    {
+                        Dopisz("↪ " + Jezyk.T("odpowiedzi na tę wiadomość: "), fontS, Motyw.Slaby);
+                        for (int io = 0; io < odpowiedzi.Count; io++)
+                        {
+                            var o = odpowiedzi[io];
+                            Dopisz(Tag(o), fontB, KolorTagu(Tag(o)));
+                            Dopisz(" " + NazwaW(o.Od) + " (" + Jezyk.T(P.Rodzaj(o)) + ", " + o.Czas.ToString(o.Czas.Date == m.Czas.Date ? "HH:mm" : "dd.MM HH:mm") + ")" + (io < odpowiedzi.Count - 1 ? ",  " : "\n"), fontS, Motyw.Slaby);
+                        }
+                    }
+                }
                 if (m.Blad != null) Dopisz(Jezyk.T("Nie da się odczytać wiadomości: ") + m.Blad + "\n", fontN, Czerwony);
                 if (m.Uwagi.Trim().Length > 0) Dopisz(TTresc(m.Uwagi.Trim()) + "\n", fontTresc, Motyw.Tekst);
                 foreach (var c in m.Czesci)
@@ -1756,7 +1775,23 @@ namespace Ecxp
                 Znacznik(representative, w, out it.Znak, out it.ZnakTlo, out it.ZnakTekst);
                 // stan Twojej wysłanej wiadomości w tej rozmowie: czy dotarła, kto odebrał, etap (Sledzenie.Etap)
                 var wyslanaW = w.LastOrDefault(x => Wyslana(x) && x.Blad == null && P.PoprawnyNadawca(x.Do));
-                if (wyslanaW != null) try { Color ke; it.Etap = "▸ " + Jezyk.T("Twoja wiadomość: ") + Etap(wyslanaW, teraz, out ke); it.EtapKolor = ke; } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                if (wyslanaW != null) try { Color ke; it.Etap = "▸ " + Jezyk.T("Twoja wiadomość") + " " + Tag(wyslanaW) + ": " + Etap(wyslanaW, teraz, out ke); it.EtapKolor = ke; } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                // znaczniki: do czego jest ten wątek i na którą wiadomość odpowiada najnowsza odebrana
+                try
+                {
+                    var korzen = KorzenWatku(w);
+                    it.Chip = OpisWatku(korzen); it.ChipTlo = TloTagu(Tag(korzen));
+                    if (!Wyslana(representative))
+                    {
+                        var naCo = OdpowiedzNaOpis(representative, true);
+                        if (naCo != null)
+                        {
+                            if (it.Etap.Length == 0) it.EtapKolor = KolorTagu(TagPierwowzoru(representative));
+                            it.Etap = naCo + (it.Etap.Length > 0 ? "  ·  " + it.Etap : "");
+                        }
+                    }
+                }
+                catch (Exception ex) { Bledy.Wyjatek(ex); }
                 string terazA;
                 if (wyslanaW != null && terazAg.TryGetValue(wyslanaW.Id, out terazA)) it.Etap += "  ·  👁 " + Jezyk.T("agent teraz: ") + terazA;
                 it.SubItems.Add(string.Join(", ", w.Select(x => x.Modul).Distinct()));
@@ -1998,7 +2033,18 @@ namespace Ecxp
             else
             {
                 int y = r.Y;
-                TextRenderer.DrawText(e.Graphics, w.Tytul, e.Item.Font, new Rectangle(r.X, y, r.Width, e.Item.Font.Height + 2), e.Item.ForeColor, jedna);
+                int xt = r.X;
+                if (w.Chip.Length > 0)
+                {
+                    // plakietka „Wątek do zadania #c73f” w kolorze znacznika, przed tytułem
+                    var szc = TextRenderer.MeasureText(e.Graphics, w.Chip, fontS, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                    var rc = new Rectangle(xt, y, Math.Min(szc.Width + 12, r.Width), Math.Max(szc.Height + 3, e.Item.Font.Height + 1));
+                    using (var b = new SolidBrush(w.ChipTlo)) e.Graphics.FillRectangle(b, rc);
+                    if (Motyw.Konsolowy) using (var pen = new Pen(Color.White)) e.Graphics.DrawRectangle(pen, rc.X, rc.Y, rc.Width - 1, rc.Height - 1);
+                    TextRenderer.DrawText(e.Graphics, w.Chip, fontS, rc, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | jedna);
+                    xt = rc.Right + 8;
+                }
+                TextRenderer.DrawText(e.Graphics, w.Tytul, e.Item.Font, new Rectangle(xt, y, Math.Max(1, r.Right - xt), e.Item.Font.Height + 2), e.Item.ForeColor, jedna);
                 y += e.Item.Font.Height + 5;
                 int x = r.X;
                 if (w.Znak.Length > 0)
@@ -2282,6 +2328,8 @@ namespace Ecxp
                     string zn; Color zt, zk; Znacznik(m, w, out zn, out zt, out zk, false);
                     znaczki.Controls.Add(znaczek((Wyslana(m) ? Jezyk.T("wysłana · ") : Jezyk.T("odebrana · ")) + zn, zt, zk));
                     if (m.Pilne) znaczki.Controls.Add(znaczek(Jezyk.T("PILNE"), Color.FromArgb(200, 0, 0), Color.White));
+                    znaczki.Controls.Add(znaczek(Tag(m), TloTagu(Tag(m)), Color.White));
+                    { var naCo = OdpowiedzNaOpis(m, true); if (naCo != null) znaczki.Controls.Add(znaczek(naCo, TloTagu(TagPierwowzoru(m)), Color.White)); }
                     if (m.KopiaDla.Length > 0 && !m.KopiaDla.StartsWith("czat:")) znaczki.Controls.Add(znaczek(Jezyk.T("kopia dla pary (1:1)"), Motyw.Ostrz(Color.FromArgb(232, 232, 232)), Motyw.Slaby));
 
                     tekst.Clear();
@@ -2384,6 +2432,8 @@ namespace Ecxp
             sb.AppendLine(Jezyk.T("Do: ") + string.Join(", ", Kopie(m, w).Select(k => NazwaW(k.Do) + " (" + k.Do + ")").Distinct()));
             sb.AppendLine(Jezyk.T("Data: ") + m.Czas.ToString("dd.MM.yyyy HH:mm") + "   " + Jezyk.T("Rodzaj: ") + Jezyk.T(P.Rodzaj(m)) + (m.Pilne ? "   " + Jezyk.T("PILNE") : ""));
             sb.AppendLine(Jezyk.T("Projekt / moduł: ") + (m.Projekt.Length > 0 ? m.Projekt : "—") + " / " + (m.Modul.Length > 0 ? m.Modul : "—"));
+            sb.AppendLine(Jezyk.T("Znacznik: ") + Tag(m));
+            { var naCo = OdpowiedzNaOpis(m, false); if (naCo != null) sb.AppendLine(naCo); }
             sb.AppendLine();
             var body = (m.Uwagi + string.Concat(m.Czesci.Where(c => P.S(c, "rodzaj") == "tekst" && P.S(c, "tekst") != m.Uwagi).Select(c => "\n\n" + P.S(c, "tekst")))).Replace("\r\n", "\n").Trim();
             sb.AppendLine(body.Replace("\n", "\r\n"));

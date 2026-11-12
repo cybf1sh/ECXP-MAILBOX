@@ -230,6 +230,26 @@ class TestyRozmow {
       Check(watcherTimer.Enabled && watcherList.Items.Cast<ListViewItem>().Any(x=>((Msg)x.Tag).Uwagi.Contains("Na jakim etapie jest praca?") && x.SubItems[3].Text.Contains("w kolejce")),"started watcher tracks the operator question with its stage");
       Call(app,"UstawStraznika",false,true); Application.DoEvents();
       Check(!watcherTimer.Enabled,"watcher can be stopped");
+      // znaczniki (3.11.0): kod #xxxx, „Wątek do zadania”, „↩ odpowiedź na zadanie #xxxx”
+      ((TabControl)Field(app,"tabs")).SelectedTab=(TabPage)Field(app,"tabMsg");
+      var zadZn=P.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="codex-demo",Projekt="demo",Modul="rozmowy",Typ="zadanie",Temat="Zadanie ze znacznikiem",Tresc="Zrób A.",Watek="test-znaczniki"});
+      string idZad=P.S(zadZn,"id"), tagZad="#"+idZad.Substring(idZad.Length-4);
+      var odpZn=P.Wyslij(new P.Nowa{Od="codex-demo",Do=P.Wlasciciel,Projekt="demo",Modul="rozmowy",Typ="odpowiedz",Temat="Zadanie ze znacznikiem",Tresc="Zrobione.",Watek="test-znaczniki",OdpNa=idZad});
+      string idOdp=P.S(odpZn,"id"), tagOdp="#"+idOdp.Substring(idOdp.Length-4);
+      Call(app,"Skanuj"); Application.DoEvents();
+      var wierszZn=lv.Items.Cast<ListViewItem>().Single(x=>((Msg)x.Tag).Temat.ToUpperInvariant().Contains("ZNACZNIK"));
+      string chipZn=(string)wierszZn.GetType().GetField("Chip").GetValue(wierszZn), etapZn=(string)wierszZn.GetType().GetField("Etap").GetValue(wierszZn);
+      Check(chipZn=="Wątek do zadania "+tagZad,"conversation row carries a coloured thread marker naming the task code");
+      Check(etapZn.StartsWith("↩ odpowiedź na zadanie "+tagZad+" z ") && etapZn.Contains("Twoja wiadomość "+tagZad+":"),"received reply row names the task it answers by code");
+      foreach(ListViewItem x in lv.Items) x.Selected=false; wierszZn.Selected=true; Application.DoEvents();
+      Check(det.Text.Contains("Wątek do zadania "+tagZad) && det.Text.Contains("↩ odpowiedź na zadanie "+tagZad+" · „") && det.Text.Contains("” · wysłane przez Ciebie ")
+        && det.Text.Contains("↪ odpowiedzi na tę wiadomość: "+tagOdp),"conversation preview links reply and task by their codes in both directions");
+      int pozTag=det.Text.IndexOf("↩ odpowiedź na zadanie "+tagZad); det.Select(pozTag,5); var kolorOdp=det.SelectionColor;
+      det.Select(det.Text.IndexOf(tagZad+"   ·   "),4); var kolorZad=det.SelectionColor;
+      Check(kolorOdp==kolorZad && kolorOdp.ToArgb()!=det.ForeColor.ToArgb(),"reply marker uses the same colour as the code of the task it answers");
+      var odpMsg=((List<Msg>)Field(app,"msgs")).Single(x=>x.Id==idOdp);
+      string schowek=(string)Call(app,"TekstDoSchowka",odpMsg);
+      Check(schowek.Contains("Znacznik: "+tagOdp) && schowek.Contains("↩ odpowiedź na zadanie "+tagZad),"copied message text contains its code and the code it answers");
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
         }

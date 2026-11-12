@@ -461,6 +461,15 @@ namespace Ecxp
             }
         }
 
+        // Znacznik wiadomości: „#” i 4 ostatnie znaki identyfikatora (jak na końcu nazw plików widoku Odebrane / Wysłane).
+        public static string ZnacznikId(string id) { id = id ?? ""; return "#" + (id.Length >= 4 ? id.Substring(id.Length - 4) : id); }
+        // Kopia reprezentująca wiadomość wysłaną do pary (lustro): pierwsza według adresata – jej znacznik dotyczy wszystkich kopii.
+        public static Msg Kanon(Msg m, IEnumerable<Msg> wszystkie)
+        {
+            if (m == null || m.LustroId.Length == 0 || m.Lustro.Count <= 1) return m;
+            return wszystkie.Where(x => x.LustroId == m.LustroId).OrderBy(x => x.Do).ThenBy(x => x.Id).FirstOrDefault() ?? m;
+        }
+
         public static Msg Znajdz(string id)
         {
             if (string.IsNullOrEmpty(id)) return null;
