@@ -183,12 +183,12 @@ namespace Ecxp
             var wiersze = new List<ListViewItem>();
             int wToku = 0, zakonczonych = 0;
             // widok: tylko zadania agentów zaznaczonej pary (śledzenie i powiadomienia dotyczą nadal wszystkich)
-            var para = lvAg != null && lvAg.SelectedItems.Count > 0 ? WybranaPara() : null;
+            var para = lvAg != null ? WybranaPara() : null;
             var agenciPary = para == null ? null : new HashSet<string>(new[] { P.S(para, "codex"), P.S(para, "claude") }.Where(x => x.Length > 0));
             // widok pojedynczych agentów: zaznaczony agent zawęża listę do jego zadań
             bool jedenAgent = agenciPary != null && WidokOsob && wybranaOsoba.Length > 0 && agenciPary.Contains(wybranaOsoba);
             if (jedenAgent) agenciPary = new HashSet<string> { wybranaOsoba };
-            else if (WidokOsob && lvOsoby != null && lvOsoby.SelectedItems.Count == 0) { para = null; agenciPary = null; }
+
             foreach (var m in sledzone)
             {
                 Color kolor; string etap, klucz; bool zakonczone;

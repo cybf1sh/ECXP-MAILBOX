@@ -354,6 +354,30 @@ class TestyRozmow {
       Check(stanStr.Text.StartsWith("Wszystkie pary"),"switching to pairs view shows the pair list and the watcher follows");
       rbOs.Checked=true; Application.DoEvents();
       Check(stanStr.Text.StartsWith("Wszyscy agenci"),"switching back shows individual agents again");
+      // 3.14.1: polecenia menu agenta działają na agencie zaznaczonym w widoku agentów (lista par jest ukryta)
+      Siec.Przypisz("codex-gui","demo","rozmowy","c-gui-session",new List<string>{"programista"},"","codex-gui");
+      Siec.Przypisz("claude-gui","demo","rozmowy","cl-gui-session",new List<string>{"recenzent"},"","claude-gui");
+      Call(app,"RefreshAgenci"); Application.DoEvents();
+      var wierszGui=lvOs.Items.Cast<ListViewItem>().FirstOrDefault(x=>x.SubItems[6].Text=="claude-gui");
+      Check(wierszGui!=null && lvOs.Items.Cast<ListViewItem>().Any(x=>x.SubItems[6].Text=="codex-gui"),"registered pair shows as two individual agents");
+      if(wierszGui!=null){
+        ((TabControl)tabAgenci.Parent).SelectedTab=tabAgenci; Application.DoEvents();
+        wierszGui=lvOs.Items.Cast<ListViewItem>().First(x=>x.SubItems[6].Text=="claude-gui");
+        wierszGui.Selected=true; Application.DoEvents();
+        var paraGui=Call(app,"WybranaPara") as Dictionary<string,object>;
+        Check(paraGui!=null && P.S(paraGui,"claude")=="claude-gui" && (string)Call(app,"StronaOsoby")=="claude","menu commands get the pair and side of the agent selected in the agents view");
+        Check(stanStr.Text.StartsWith("Agent") && stanStr.Text.Contains("claude-gui"),"watcher narrows to the selected agent");
+        Call(app,"RefreshAgenci"); Application.DoEvents();
+        Check(lvOs.SelectedItems.Count==1 && lvOs.SelectedItems[0].SubItems[6].Text=="claude-gui" && Call(app,"WybranaPara")!=null,"selected agent stays selected after the list refreshes");
+        // dodatkowe katalogi z agentami: zapamiętywane i łączone z katalogiem roboczym
+        string kat2=Path.Combine(root,"Agents2");Directory.CreateDirectory(kat2);
+        KatalogAgentow.Utworz(kat2,"claude-inny-agent","claude","Inny — Claude","inny",null);
+        Check((bool)Call(app,"ZapamietajKatalogAgentow",kat2) && !(bool)Call(app,"ZapamietajKatalogAgentow",kat2) && !(bool)Call(app,"ZapamietajKatalogAgentow",katAg),"an extra agent directory is remembered once and the working directory is not duplicated");
+        var wszyscyAg=(List<AgentKatalogu>)Call(app,"AgenciZeWszystkichKatalogow");
+        Check(wszyscyAg.Count==3 && wszyscyAg.Any(x=>x.NazwaFolderu=="claude-inny-agent") && File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("katalogi_agentow_inne="+kat2),"agents from all known directories are offered and the extra directory is persisted");
+        foreach(ListViewItem x in lvOs.SelectedItems) x.Selected=false; Application.DoEvents();
+        Check(Call(app,"WybranaPara")==null && stanStr.Text.StartsWith("Wszyscy agenci"),"clearing the selection shows all agents again");
+      }
       if(args.Contains("--galezie")) { Call(app,"UstawGalezie",true); Application.DoEvents(); }   // do zrzutu ekranu widoku gałęzi
       if(args.Contains("--nowe")) form.BeginInvoke((Action)(()=>Call(app,"NoweZadanie")));   // do zrzutu ekranu okna nowego zadania
       if(args.Contains("--katalog")) form.BeginInvoke((Action)(()=>Call(app,"PokazKatalogAgentow")));

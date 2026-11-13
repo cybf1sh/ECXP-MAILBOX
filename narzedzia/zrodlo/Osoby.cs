@@ -87,16 +87,18 @@ namespace Ecxp
             };
             lvOsoby.ContextMenuStrip = menu;
             lvOsoby.DoubleClick += delegate { var st = StronaOsoby(); if (st != null && !Wylaczeni.Jest(wybranaOsoba)) PrzydzielZadanie(st); };
-            lvOsoby.MouseDown += (s, e) => { if (lvOsoby.HitTest(e.Location).Item == null) foreach (ListViewItem it in lvOsoby.SelectedItems) it.Selected = false; };
+            lvOsoby.MouseDown += (s, e) =>
+            {
+                // prawy klawisz od razu ustawia agenta, którego dotyczy menu; klik w puste miejsce zdejmuje zaznaczenie
+                var trafiony = lvOsoby.HitTest(e.Location).Item;
+                if (trafiony == null) { foreach (ListViewItem it in lvOsoby.SelectedItems) it.Selected = false; wybranaOsoba = ""; }
+                else { wybranaOsoba = (string)((object[])trafiony.Tag)[2]; if (!trafiony.Selected) trafiony.Selected = true; }
+            };
             lvOsoby.SelectedIndexChanged += delegate
             {
                 if (odswiezanieOsob) return;
                 var tag = lvOsoby.SelectedItems.Count > 0 ? (object[])lvOsoby.SelectedItems[0].Tag : null;
                 wybranaOsoba = tag != null ? (string)tag[2] : "";
-                // zaznaczenie agenta zaznacza jego parę – istniejące polecenia (konfiguracja, strażnik) działają na zaznaczonej parze
-                odswiezanieAgentow = true;
-                try { foreach (ListViewItem it in lvAg.Items) it.Selected = tag != null && ReferenceEquals(it.Tag, tag[0]); }
-                finally { odswiezanieAgentow = false; }
                 try { SprawdzStraznikiem(); } catch (Exception ex) { Bledy.Wyjatek(ex); }
             };
         }
@@ -104,8 +106,17 @@ namespace Ecxp
         // Strona („codex” / „claude”) agenta zaznaczonego w widoku agentów; null, gdy nic nie zaznaczono.
         string StronaOsoby()
         {
-            if (lvOsoby == null || lvOsoby.SelectedItems.Count == 0) return null;
-            return (string)((object[])lvOsoby.SelectedItems[0].Tag)[1];
+            var os = WybranaOsobaTag();
+            return os != null ? (string)os[1] : null;
+        }
+
+        // Dane zaznaczonego agenta { para, strona, tożsamość }. Źródłem jest zapamiętana tożsamość (wybranaOsoba), nie zaznaczenie
+        // kontrolki – lista jest przebudowywana przy każdym odświeżeniu, a zaznaczenie kontrolki bywa wtedy chwilowo puste.
+        object[] WybranaOsobaTag()
+        {
+            if (lvOsoby == null || wybranaOsoba.Length == 0) return null;
+            foreach (ListViewItem it in lvOsoby.Items) { var t = (object[])it.Tag; if ((string)t[2] == wybranaOsoba) return t; }
+            return null;
         }
 
         // Zadanie operatora, nad którym agent teraz pracuje: najnowsze zadanie do niego bez odpowiedzi.
@@ -166,7 +177,7 @@ namespace Ecxp
                         if (n == wybranaOsoba) it.Selected = true;
                     }
                 }
-                if (lvOsoby.SelectedItems.Count == 0) wybranaOsoba = "";
+                if (WybranaOsobaTag() == null) wybranaOsoba = "";       // agent zniknął z listy (np. inny projekt)
             }
             finally { lvOsoby.EndUpdate(); odswiezanieOsob = false; }
             if (WidokOsob) tabAg.Text = Jezyk.T("Agenci") + " (" + lvOsoby.Items.Count + ")";

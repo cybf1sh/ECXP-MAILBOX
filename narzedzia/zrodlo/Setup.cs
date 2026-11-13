@@ -25,7 +25,7 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCopyright("EvidSec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.14.0.0")]
+[assembly: AssemblyFileVersion("3.14.1.0")]
 
 namespace EcxpSetup
 {

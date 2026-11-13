@@ -69,3 +69,9 @@ Ponadto „⚙ Skonfiguruj agenta…”: katalog pracy, uprawnienia, model, licz
 
 - zmiana konfiguracji wiadomością wymaga, by agent mógł zapisywać pliki (uprawnienia „edycja” lub „pelne”); okno ostrzega przy „odczyt”,
 - agent pracujący jako sesja w aplikacji bez folderu w katalogu agentów nie ma plików do edycji – „Edytuj agenta” otwiera wtedy katalog agentów.
+
+## Poprawka 3.14.1 (2026-11-14)
+
+- **Menu agenta w widoku „Agenci” nie reagowało** (Skonfiguruj, Edytuj, Wyłącz, Zatrzymaj, Przydziel zadanie): polecenia szukały zaznaczenia na ukrytej liście par. Teraz źródłem jest agent zaznaczony w widoku agentów; prawy klawisz od razu ustawia agenta, którego dotyczy menu. Test okna rejestruje parę i sprawdza to na prawdziwym zaznaczeniu.
+- **Nowe zadanie – elastyczny wybór agentów:** lista „Agent Codex / Agent Claude” obejmuje agentów ze wszystkich znanych katalogów; „➕ Dodaj katalog z agentami…” dodaje kolejny katalog (konsola go pamięta: `katalogi_agentow_inne=` w ustawieniach), a ostatnia pozycja listy „➕ Wskaż folder agenta na dysku…” pozwala wskazać pojedynczego agenta spoza katalogów.
+- Testy: rdzeń 8 zestawów bez błędów, okno 103 PASS, selftest PASS. Okno nowego zadania po tej zmianie nie było oglądane na zrzucie.

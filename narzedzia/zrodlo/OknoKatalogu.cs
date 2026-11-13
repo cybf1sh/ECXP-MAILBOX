@@ -20,8 +20,53 @@ namespace Ecxp
             var m = System.Text.RegularExpressions.Regex.Match(ust ?? "", @"(?m)^katalog_agentow=(.*?)\r?$");
             katalogAgentow = m.Success ? m.Groups[1].Value.Trim() : "";
             if (katalogAgentow.Length == 0 && Directory.Exists(@"E:\Agents")) katalogAgentow = @"E:\Agents";
+            var mi = System.Text.RegularExpressions.Regex.Match(ust ?? "", @"(?m)^katalogi_agentow_inne=(.*?)\r?$");
+            inneKatalogiAgentow = mi.Success ? mi.Groups[1].Value.Split('|').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : new List<string>();
         }
-        string UstawieniaKataloguAgentow() { return katalogAgentow.Length > 0 ? "katalog_agentow=" + katalogAgentow + Environment.NewLine : ""; }
+        string UstawieniaKataloguAgentow()
+        {
+            return (katalogAgentow.Length > 0 ? "katalog_agentow=" + katalogAgentow + Environment.NewLine : "") +
+                   (inneKatalogiAgentow.Count > 0 ? "katalogi_agentow_inne=" + string.Join("|", inneKatalogiAgentow) + Environment.NewLine : "");
+        }
+
+        // Dodatkowe katalogi z agentami (poza katalogiem roboczym): operator dodaje je przy tworzeniu zadania, konsola je pamięta.
+        List<string> inneKatalogiAgentow = new List<string>();
+        const int MaksInnychKatalogow = 12;
+
+        static string CzystaSciezka(string s)
+        {
+            s = (s ?? "").Trim().TrimEnd('\\', '/');
+            if (s.Length == 2 && s[1] == ':') s += "\\";
+            return s;
+        }
+
+        // Katalog roboczy i katalogi dodatkowe, które istnieją na dysku.
+        List<string> WszystkieKatalogiAgentow()
+        {
+            return new[] { katalogAgentow }.Concat(inneKatalogiAgentow).Select(CzystaSciezka).Where(x => x.Length > 0 && Directory.Exists(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // Agenci ze wszystkich znanych katalogów (bez powtórzeń folderów).
+        List<AgentKatalogu> AgenciZeWszystkichKatalogow()
+        {
+            var wynik = new List<AgentKatalogu>();
+            foreach (var k in WszystkieKatalogiAgentow())
+                try { foreach (var a in KatalogAgentow.Znajdz(k)) if (!wynik.Any(x => string.Equals(x.Folder, a.Folder, StringComparison.OrdinalIgnoreCase))) wynik.Add(a); }
+                catch (Exception ex) { Bledy.Wyjatek(ex); }
+            return wynik;
+        }
+
+        // Zapamiętuje dodatkowy katalog z agentami. Zwraca false, gdy to katalog roboczy albo już jest na liście.
+        bool ZapamietajKatalogAgentow(string sciezka)
+        {
+            sciezka = CzystaSciezka(sciezka);
+            if (sciezka.Length == 0 || string.Equals(sciezka, CzystaSciezka(katalogAgentow), StringComparison.OrdinalIgnoreCase)) return false;
+            if (inneKatalogiAgentow.Any(x => string.Equals(CzystaSciezka(x), sciezka, StringComparison.OrdinalIgnoreCase))) return false;
+            inneKatalogiAgentow.Insert(0, sciezka);
+            if (inneKatalogiAgentow.Count > MaksInnychKatalogow) inneKatalogiAgentow.RemoveRange(MaksInnychKatalogow, inneKatalogiAgentow.Count - MaksInnychKatalogow);
+            ZapiszUstawienia();
+            return true;
+        }
 
         // Stan agenta w ECXP: sesja w aplikacji, agent w tle (z jakim katalogiem) albo brak.
         string StanWEcxp(AgentKatalogu a)

@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.14.0.0")]
+[assembly: AssemblyFileVersion("3.14.1.0")]
 
 namespace Ecxp
 {
@@ -3841,6 +3841,12 @@ namespace Ecxp
 
         Dictionary<string, object> WybranaPara()
         {
+            // widok pojedynczych agentów: para zaznaczonego agenta (lista par jest wtedy ukryta i nie ma własnego zaznaczenia)
+            if (WidokOsob && lvOsoby != null)
+            {
+                var os = WybranaOsobaTag();
+                return os != null ? (Dictionary<string, object>)os[0] : null;
+            }
             return lvAg.SelectedItems.Count > 0 ? (Dictionary<string, object>)lvAg.SelectedItems[0].Tag : null;
         }
 
@@ -4178,22 +4184,79 @@ namespace Ecxp
                 var agenci = f.Wybory("Wyślij do agentów:", new[] { "ChatGPT/Codex", "Claude" }, true);
                 var chCx = agenci[0]; var chCl = agenci[1];
                 // agenci z katalogu agentów (zakładka Agenci → Katalog agentów): operator wybiera, który agent wykona zadanie po każdej stronie
-                var zKatalogu = new List<AgentKatalogu>();
-                try { zKatalogu = KatalogAgentow.Znajdz(katalogAgentow); } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                // Lista obejmuje agentów ze wszystkich znanych katalogów; operator może dodać kolejny katalog albo wskazać pojedynczy folder agenta.
+                var zKatalogu = AgenciZeWszystkichKatalogow();
                 var domyslnyAgent = Jezyk.T("domyślny – folder projektu ECXP");
-                Func<string, List<AgentKatalogu>> strony2 = st => zKatalogu.Where(x => x.Strona == st).ToList();
-                Func<string, ComboBox> wyborAgenta = st =>
+                var wskazFolder = Jezyk.T("➕  Wskaż folder agenta na dysku…");
+                var recznieWskazani = new Dictionary<string, List<string>> { { "codex", new List<string>() }, { "claude", new List<string>() } };
+                var foldery = new Dictionary<string, List<string>> { { "codex", new List<string>() }, { "claude", new List<string>() } };   // folder dla każdej pozycji listy; null = „wskaż folder”
+                var cbAg = new Dictionary<string, ComboBox>();
+                bool napelnianie = false;
+                Action<string, string> napelnij = (st, wybierz) =>
                 {
-                    var opcje = new List<string> { domyslnyAgent }.Concat(strony2(st).Select(x => x.Nazwa + "  —  " + x.Folder)).ToList();
-                    var cb = f.Combo(st == "codex" ? "Agent Codex:" : "Agent Claude:", opcje, opcje[0]);
-                    cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.Name = "agent_" + st;
-                    return cb;
+                    var cb = cbAg[st]; napelnianie = true;
+                    try
+                    {
+                        if (wybierz == null) wybierz = cb.SelectedIndex >= 0 && cb.SelectedIndex < foldery[st].Count ? foldery[st][cb.SelectedIndex] ?? "" : "";
+                        cb.Items.Clear(); foldery[st].Clear();
+                        cb.Items.Add(domyslnyAgent); foldery[st].Add("");
+                        foreach (var a in zKatalogu.Where(x => x.Strona == st)) { cb.Items.Add(a.Nazwa + "  —  " + a.Folder); foldery[st].Add(a.Folder); }
+                        foreach (var r in recznieWskazani[st].Where(r => !foldery[st].Any(x => string.Equals(x, r, StringComparison.OrdinalIgnoreCase)))) { cb.Items.Add(Path.GetFileName(r) + "  —  " + r); foldery[st].Add(r); }
+                        cb.Items.Add(wskazFolder); foldery[st].Add(null);
+                        int i = foldery[st].FindIndex(x => x != null && string.Equals(x, wybierz, StringComparison.OrdinalIgnoreCase));
+                        cb.SelectedIndex = i >= 0 ? i : 0;
+                    }
+                    finally { napelnianie = false; }
                 };
-                var cbAgCx = wyborAgenta("codex"); var cbAgCl = wyborAgenta("claude");
-                Func<ComboBox, string, string> katalogWybranego = (cb, st) => cb.SelectedIndex > 0 && cb.SelectedIndex - 1 < strony2(st).Count ? strony2(st)[cb.SelectedIndex - 1].Folder : "";
-                f.Uwaga(zKatalogu.Count > 0
-                    ? "Agent z katalogu pracuje w swoim folderze (" + katalogAgentow + ") i czyta stamtąd swoją instrukcję (AGENTS.md / CLAUDE.md), zakres i skrypty. „Domyślny” pracuje w folderze projektu ECXP bez własnej konfiguracji. Listę agentów i ich pliki zmienisz w zakładce Agenci → „Katalog agentów…”."
-                    : "Brak agentów w katalogu agentów. Dodasz ich w zakładce Agenci → „Katalog agentów…” – wtedy tutaj wybierzesz, który agent wykona zadanie.");
+                foreach (var st0 in new[] { "codex", "claude" })
+                {
+                    var st = st0;
+                    var cb = f.Combo(st == "codex" ? "Agent Codex:" : "Agent Claude:", new List<string> { domyslnyAgent }, domyslnyAgent);
+                    cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.Name = "agent_" + st; cbAg[st] = cb;
+                    napelnij(st, "");
+                    int poprzedni = 0;
+                    cb.SelectedIndexChanged += delegate
+                    {
+                        if (napelnianie) return;
+                        if (cb.SelectedIndex < 0 || foldery[st][cb.SelectedIndex] != null) { poprzedni = Math.Max(0, cb.SelectedIndex); return; }
+                        // „Wskaż folder agenta…”: dowolny folder z plikiem instrukcji tej strony
+                        string wybrany = foldery[st][Math.Min(poprzedni, foldery[st].Count - 1)] ?? "";
+                        using (var fb = new FolderBrowserDialog { Description = string.Format(Jezyk.T("Folder agenta {0} – musi zawierać plik {1}"), st == "codex" ? "Codex" : "Claude", KatalogAgentow.PlikInstrukcji(st)), ShowNewFolderButton = false })
+                        {
+                            if (Directory.Exists(katalogAgentow)) fb.SelectedPath = katalogAgentow;
+                            if (fb.ShowDialog(f) == DialogResult.OK)
+                            {
+                                var fol = fb.SelectedPath.TrimEnd('\\', '/');
+                                if (File.Exists(Path.Combine(fol, KatalogAgentow.PlikInstrukcji(st)))) { recznieWskazani[st].Add(fol); wybrany = fol; }
+                                else MessageBox.Show(f, string.Format(Jezyk.T("W folderze {0} nie ma pliku {1}, więc to nie jest folder agenta {2}.\n\nJeśli to katalog z wieloma agentami, użyj przycisku „Dodaj katalog z agentami…”."), fol, KatalogAgentow.PlikInstrukcji(st), st == "codex" ? "Codex" : "Claude"),
+                                    Jezyk.T("Nowe zadanie / moduł"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                        }
+                        napelnij(st, wybrany); poprzedni = cb.SelectedIndex;
+                    };
+                }
+                var cbAgCx = cbAg["codex"]; var cbAgCl = cbAg["claude"];
+                Func<ComboBox, string, string> katalogWybranego = (cb, st) => cb.SelectedIndex > 0 && cb.SelectedIndex < foldery[st].Count ? foldery[st][cb.SelectedIndex] ?? "" : "";
+                var bDodajKat = new Button { Text = Jezyk.T("➕  Dodaj katalog z agentami…"), AutoSize = true, Margin = new Padding(3, 4, 3, 4), Name = "dodajKatalogAgentow" };
+                var lKatalogi = new Label { AutoSize = true, Margin = new Padding(8, 10, 3, 0), ForeColor = Motyw.Slaby, Name = "znaneKatalogiAgentow" };
+                Action opisKatalogow = delegate { var k = WszystkieKatalogiAgentow(); lKatalogi.Text = k.Count > 0 ? string.Join("   ·   ", k) : Jezyk.T("brak katalogów z agentami"); };
+                opisKatalogow();
+                f.Rzad("Katalogi agentów:", bDodajKat, lKatalogi);
+                bDodajKat.Click += delegate
+                {
+                    using (var fb = new FolderBrowserDialog { Description = Jezyk.T("Katalog z agentami – każdy agent ma w nim własny folder z plikiem AGENTS.md albo CLAUDE.md"), ShowNewFolderButton = false })
+                    {
+                        if (Directory.Exists(katalogAgentow)) fb.SelectedPath = katalogAgentow;
+                        if (fb.ShowDialog(f) != DialogResult.OK) return;
+                        List<AgentKatalogu> nowi;
+                        try { nowi = KatalogAgentow.Znajdz(fb.SelectedPath); } catch (Exception ex) { Bledy.Wyjatek(ex); nowi = new List<AgentKatalogu>(); }
+                        if (nowi.Count == 0) { MessageBox.Show(f, string.Format(Jezyk.T("W katalogu {0} nie znaleziono agentów (folderów z plikiem AGENTS.md albo CLAUDE.md)."), fb.SelectedPath), Jezyk.T("Nowe zadanie / moduł"), MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                        if (katalogAgentow.Length == 0) UstawKatalogAgentow(fb.SelectedPath); else ZapamietajKatalogAgentow(fb.SelectedPath);
+                        zKatalogu = AgenciZeWszystkichKatalogow();
+                        napelnij("codex", null); napelnij("claude", null); opisKatalogow();
+                    }
+                };
+                f.Uwaga("Agent z listy pracuje w swoim folderze i czyta stamtąd swoją instrukcję (AGENTS.md / CLAUDE.md), zakres i skrypty. „Domyślny” pracuje w folderze projektu ECXP bez własnej konfiguracji. Agentów spoza listy dodasz tutaj: całym katalogiem („Dodaj katalog z agentami…” – konsola go zapamięta) albo pojedynczo (ostatnia pozycja listy „Wskaż folder agenta na dysku…”).");
                 f.Zaaw = true;
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
