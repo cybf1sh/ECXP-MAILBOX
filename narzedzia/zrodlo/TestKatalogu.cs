@@ -98,6 +98,16 @@ class TestKatalogu {
   var tz=KatalogAgentow.TrescZmianyKonfiguracji("claude-x","claude",fk,"  testuj tylko host A  ");
   Check(tz.Contains("claude-x") && tz.Contains("testuj tylko host A") && tz.Contains("CLAUDE.md") && tz.Contains(fk) && tz.Contains("niewykonane") && !tz.Contains("AGENTS.md"),"change-by-message task names the agent, the change, its own instruction file and folder");
   Check(KatalogAgentow.TrescZmianyKonfiguracji("codex-x","codex","","zmiana").Contains("AGENTS.md") && Blad(()=>KatalogAgentow.TrescZmianyKonfiguracji("codex-x","codex",fk,"   "))!=null,"Codex gets AGENTS.md and an empty change is refused");
+
+  // ---------- domyślna struktura nowego katalogu ----------
+  var nowyKat=Path.Combine(root,"NowyKatalog");
+  var dom=KatalogAgentow.UtworzDomyslne(nowyKat," Web ","Tester WWW",true,true);
+  Check(dom.Count==2 && Directory.Exists(Path.Combine(nowyKat,"codex-web-agent","scripts")) && Directory.Exists(Path.Combine(nowyKat,"claude-web-agent","reports"))
+    && File.Exists(Path.Combine(nowyKat,"codex-web-agent","AGENTS.md")) && File.Exists(Path.Combine(nowyKat,"claude-web-agent","CLAUDE.md")) && File.Exists(Path.Combine(nowyKat,"claude-web-agent","scope.md"))
+    && KatalogAgentow.Znajdz(nowyKat).Count==2 && dom[0].Tozsamosc=="codex-web" && dom[1].Nazwa.StartsWith("Tester WWW"),"default structure creates a Codex and a Claude agent with instruction, scope and folders in a new directory");
+  Check(Blad(()=>KatalogAgentow.UtworzDomyslne(nowyKat,"web","",true,false))!=null && Blad(()=>KatalogAgentow.UtworzDomyslne(nowyKat,"zły moduł","",true,true))!=null && Blad(()=>KatalogAgentow.UtworzDomyslne(nowyKat,"api","",false,false))!=null
+    && KatalogAgentow.Znajdz(nowyKat).Count==2,"default structure never overwrites an existing agent and refuses bad input without leftovers");
+  Check(KatalogAgentow.UtworzDomyslne(nowyKat,"api","",false,true).Count==1 && KatalogAgentow.Znajdz(nowyKat).Count==3 && !Directory.Exists(Path.Combine(nowyKat,"codex-api-agent")),"default structure can be created for one side only");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

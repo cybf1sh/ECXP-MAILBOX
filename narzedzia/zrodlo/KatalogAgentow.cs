@@ -149,6 +149,24 @@ namespace Ecxp
             return kopia;
         }
 
+        // Domyślna struktura nowego katalogu: po jednym agencie na wybraną stronę (folder <strona>-<moduł>-agent z instrukcją .md,
+        // scope.md, ECXP-START.txt, agent-info.json i podfolderami input, scripts, tests, reports). Niczego nie nadpisuje.
+        public static List<AgentKatalogu> UtworzDomyslne(string katalog, string modul, string nazwa, bool codex, bool claude)
+        {
+            modul = (modul ?? "").Trim().ToLowerInvariant(); nazwa = (nazwa ?? "").Trim();
+            if (!ReModul.IsMatch(modul)) throw new EcxpException("Moduł (specjalizacja): małe litery, cyfry i myślnik, najwyżej 24 znaki, np. cyber.");
+            if (!codex && !claude) throw new EcxpException("Zaznacz co najmniej jednego agenta: Codex albo Claude.");
+            if (string.IsNullOrWhiteSpace(katalog)) throw new EcxpException("Nie wskazano katalogu.");
+            Directory.CreateDirectory(katalog);
+            var strony = new List<string>(); if (codex) strony.Add("codex"); if (claude) strony.Add("claude");
+            foreach (var st in strony)
+                if (Directory.Exists(Path.Combine(katalog, st + "-" + modul + "-agent"))) throw new EcxpException("Folder " + st + "-" + modul + "-agent już istnieje w tym katalogu – niczego nie utworzono.");
+            var wynik = new List<AgentKatalogu>();
+            foreach (var st in strony)
+                wynik.Add(Utworz(katalog, st + "-" + modul + "-agent", st, (nazwa.Length > 0 ? nazwa : modul) + " — " + (st == "codex" ? "Codex" : "Claude"), modul, null));
+            return wynik;
+        }
+
         // Zmiana konfiguracji wiadomością: przed wysłaniem polecenia agentowi kopia jego plików konfiguracji trafia do .kopie.
         public static readonly string[] PlikiZmienianeWiadomoscia = { "AGENTS.md", "CLAUDE.md", "scope.md" };
         public static List<string> KopiaKonfiguracji(string folder)

@@ -56,6 +56,52 @@ namespace Ecxp
             return wynik;
         }
 
+        // Przełącza katalog roboczy na inny; dotychczasowy zostaje na liście znanych katalogów.
+        void PrzelaczKatalogAgentow(string nowy)
+        {
+            nowy = CzystaSciezka(nowy); var stary = CzystaSciezka(katalogAgentow);
+            if (nowy.Length == 0 || string.Equals(nowy, stary, StringComparison.OrdinalIgnoreCase)) return;
+            inneKatalogiAgentow.RemoveAll(x => string.Equals(CzystaSciezka(x), nowy, StringComparison.OrdinalIgnoreCase));
+            if (stary.Length > 0) inneKatalogiAgentow.Insert(0, stary);
+            if (inneKatalogiAgentow.Count > MaksInnychKatalogow) inneKatalogiAgentow.RemoveRange(MaksInnychKatalogow, inneKatalogiAgentow.Count - MaksInnychKatalogow);
+            UstawKatalogAgentow(nowy);
+        }
+
+        // Zdejmuje katalog z listy znanych (pliki na dysku zostają). Gdy to katalog roboczy, roboczym staje się następny z listy.
+        void UsunKatalogAgentowZListy(string sciezka)
+        {
+            sciezka = CzystaSciezka(sciezka);
+            if (sciezka.Length == 0) return;
+            inneKatalogiAgentow.RemoveAll(x => string.Equals(CzystaSciezka(x), sciezka, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(sciezka, CzystaSciezka(katalogAgentow), StringComparison.OrdinalIgnoreCase))
+            {
+                var nast = inneKatalogiAgentow.FirstOrDefault() ?? "";
+                if (nast.Length > 0) inneKatalogiAgentow.RemoveAt(0);
+                UstawKatalogAgentow(nast);
+            }
+            else ZapiszUstawienia();
+        }
+
+        // Pusty katalog (bez agentów): propozycja utworzenia domyślnej struktury. Zwraca true, gdy powstał co najmniej jeden agent.
+        bool UtworzDomyslnaStrukture(IWin32Window rodzic, string katalog)
+        {
+            using (var d = new Formularz(Jezyk.T("Domyślna struktura katalogu agentów") + " – " + katalog, fontN, fontB))
+            {
+                d.Size = new Size(760, 420);
+                var tbModul = d.Tekst("Moduł (specjalizacja):", ""); tbModul.Name = "modulDomyslny";
+                var tbNazwa = d.Tekst("Nazwa wyświetlana:", ""); tbNazwa.Name = "nazwaDomyslna";
+                var ch = d.Wybory("Utwórz agentów:", new[] { "Codex", "Claude" }, true);
+                d.Uwaga("W tym katalogu nie ma jeszcze agentów. Mogę od razu utworzyć domyślną strukturę: dla każdego zaznaczonego agenta folder <model>-<moduł>-agent z plikiem instrukcji (AGENTS.md dla Codex, CLAUDE.md dla Claude), scope.md, ECXP-START.txt, agent-info.json oraz podfolderami input, scripts, tests i reports. Pliki uzupełnisz potem w tym oknie. „Anuluj” zostawia katalog pusty.");
+                d.PrzyciskOk("Utwórz strukturę");
+                while (d.ShowDialog(rodzic) == DialogResult.OK)
+                {
+                    try { return KatalogAgentow.UtworzDomyslne(katalog, tbModul.Text, tbNazwa.Text, ch[0].Checked, ch[1].Checked).Count > 0; }
+                    catch (Exception ex) { if (!(ex is EcxpException)) Bledy.Wyjatek(ex); d.Blad(ex.Message); }
+                }
+                return false;
+            }
+        }
+
         // Zapamiętuje dodatkowy katalog z agentami. Zwraca false, gdy to katalog roboczy albo już jest na liście.
         bool ZapamietajKatalogAgentow(string sciezka)
         {
@@ -104,13 +150,12 @@ namespace Ecxp
                 else
                 {
                     var rodzic = Path.GetDirectoryName(folderAgenta) ?? "";
-                    if (!string.Equals(rodzic.TrimEnd('\\'), katalogAgentow.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    // agent z katalogu, którego konsola jeszcze nie zna: katalog jest dopisywany do listy (okno pokazuje agentów ze wszystkich katalogów)
+                    if (!WszystkieKatalogiAgentow().Any(k => string.Equals(k, CzystaSciezka(rodzic), StringComparison.OrdinalIgnoreCase)))
                     {
-                        if (katalogAgentow.Length > 0 && MessageBox.Show(form, string.Format(Jezyk.T("Ten agent leży w {0}, poza bieżącym katalogiem roboczym agentów ({1}).\n\nPrzełączyć katalog roboczy na {0}?"), rodzic, katalogAgentow),
-                                Jezyk.T("Katalog agentów"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                         if (oknoKatalogu != null && !oknoKatalogu.IsDisposed) oknoKatalogu.Close();
                         if (oknoKatalogu != null && !oknoKatalogu.IsDisposed) return;      // niezapisane zmiany – zamknięcie anulowane
-                        UstawKatalogAgentow(rodzic);
+                        if (katalogAgentow.Length == 0) UstawKatalogAgentow(rodzic); else ZapamietajKatalogAgentow(rodzic);
                     }
                 }
             }
@@ -126,16 +171,21 @@ namespace Ecxp
 
             // --- góra: katalog roboczy ---
             var gora = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, WrapContents = false, Padding = new Padding(8, 8, 8, 0) };
-            var lblKat = new Label { Text = "Katalog roboczy agentów:", AutoSize = true, Margin = new Padding(0, 7, 6, 0), Font = fontB };
-            var tbKat = new TextBox { Name = "katalogAgentow", ReadOnly = true, Width = 420, Text = katalogAgentow, Margin = new Padding(0, 3, 6, 0) };
-            var bZmien = Btn("Zmień…"); var bEksplorator = Btn("📂  Otwórz"); var bOdswiez = Btn("Odśwież");
-            gora.Controls.AddRange(new Control[] { lblKat, tbKat, bZmien, bEksplorator, bOdswiez });
+            var lblKat = new Label { Text = "Nowy agent powstanie w katalogu:", AutoSize = true, Margin = new Padding(0, 7, 6, 0), Font = fontB };
+            // lista znanych katalogów z agentami: wybór przełącza katalog roboczy, „Dodaj katalog…” dopisuje kolejny
+            var tbKat = new ComboBox { Name = "katalogAgentow", DropDownStyle = ComboBoxStyle.DropDownList, Width = 420, Margin = new Padding(0, 3, 6, 0) };
+            var bZmien = Btn("➕  Dodaj katalog…"); bZmien.Name = "dodajKatalog";
+            var bUsunKat = Btn("Usuń z listy"); bUsunKat.Name = "usunKatalogZListy";
+            var bEksplorator = Btn("📂  Otwórz"); var bOdswiez = Btn("Odśwież");
+            new ToolTip().SetToolTip(bUsunKat, "Zdejmuje wybrany katalog z listy w konsoli. Foldery i pliki agentów na dysku zostają.");
+            gora.Controls.AddRange(new Control[] { lblKat, tbKat, bZmien, bUsunKat, bEksplorator, bOdswiez });
+            bool listaKatalogow = false;
 
             var podzial = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, Size = new Size(1160, 660), SplitterDistance = 430, Panel1MinSize = 300, Panel2MinSize = 380 };
 
             // --- lewa strona: agenci i ich pliki ---
             var lista = new ListView { Name = "listaAgentowKatalogu", View = View.Details, FullRowSelect = true, HideSelection = false, Dock = DockStyle.Top, Height = 190, MultiSelect = false };
-            lista.Columns.Add("Agent", 150); lista.Columns.Add("Model", 60); lista.Columns.Add("Tożsamość ECXP", 110); lista.Columns.Add("W ECXP", 200);
+            lista.Columns.Add("Agent", 150); lista.Columns.Add("Model", 60); lista.Columns.Add("Tożsamość ECXP", 110); lista.Columns.Add("W ECXP", 200); lista.Columns.Add("Katalog", 220);
             var pasekAg = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, WrapContents = false, Padding = new Padding(4, 4, 4, 0) };
             var bDodaj = Btn("＋  Dodaj agenta…"); bDodaj.Font = fontB; bDodaj.BackColor = Zolty; bDodaj.FlatStyle = FlatStyle.Flat;
             var bUruchom = Btn("▶  Uruchom w ECXP…"); var bFolder = Btn("📂  Folder");
@@ -220,8 +270,18 @@ namespace Ecxp
             };
             Action<string> odswiez = zaznaczFolder =>
             {
-                tbKat.Text = katalogAgentow.Length > 0 ? katalogAgentow : Jezyk.T("(nie wybrano)");
-                agenci = KatalogAgentow.Znajdz(katalogAgentow);
+                listaKatalogow = true;
+                try
+                {
+                    tbKat.Items.Clear();
+                    var znane = new[] { katalogAgentow }.Concat(inneKatalogiAgentow).Select(CzystaSciezka).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (znane.Count == 0) tbKat.Items.Add(Jezyk.T("(nie wybrano)")); else foreach (var k in znane) tbKat.Items.Add(k);
+                    tbKat.SelectedIndex = 0;
+                }
+                finally { listaKatalogow = false; }
+                bUsunKat.Enabled = katalogAgentow.Length > 0;
+                // agenci ze wszystkich znanych katalogów naraz – każdy pracuje w swoim folderze, niezależnie od pozostałych
+                agenci = AgenciZeWszystkichKatalogow();
                 ladowanie = true;
                 lista.BeginUpdate();
                 try
@@ -230,7 +290,7 @@ namespace Ecxp
                     foreach (var a in agenci)
                     {
                         var it = new ListViewItem(a.Nazwa) { Tag = a, ToolTipText = a.Folder };
-                        it.SubItems.Add(a.Strona == "codex" ? "Codex" : "Claude"); it.SubItems.Add(a.Tozsamosc.Length > 0 ? a.Tozsamosc : "—"); it.SubItems.Add(StanWEcxp(a));
+                        it.SubItems.Add(a.Strona == "codex" ? "Codex" : "Claude"); it.SubItems.Add(a.Tozsamosc.Length > 0 ? a.Tozsamosc : "—"); it.SubItems.Add(StanWEcxp(a)); it.SubItems.Add(Path.GetDirectoryName(a.Folder) ?? "");
                         lista.Items.Add(it);
                         if (zaznaczFolder != null && string.Equals(a.Folder, zaznaczFolder, StringComparison.OrdinalIgnoreCase)) it.Selected = true;
                     }
@@ -239,7 +299,7 @@ namespace Ecxp
                 if (lista.SelectedItems.Count == 0)
                 {
                     wybrany = null; pokazPliki(null); otworz(null);
-                    if (katalogAgentow.Length == 0) lblPlik.Text = Jezyk.T("Wybierz katalog roboczy agentów przyciskiem „Zmień…”.");
+                    if (katalogAgentow.Length == 0) lblPlik.Text = Jezyk.T("Dodaj katalog z agentami przyciskiem „Dodaj katalog…”.");
                     else if (agenci.Count == 0) lblPlik.Text = Jezyk.T("W tym katalogu nie ma agentów (folderów z AGENTS.md albo CLAUDE.md). Dodaj pierwszego przyciskiem „Dodaj agenta…”.");
                 }
                 bDodaj.Enabled = katalogAgentow.Length > 0 && Directory.Exists(katalogAgentow);
@@ -288,7 +348,32 @@ namespace Ecxp
             {
                 if (!opuscPlik()) return;
                 using (var d = new FolderBrowserDialog { Description = Jezyk.T("Katalog roboczy z folderami agentów Codex i Claude"), SelectedPath = Directory.Exists(katalogAgentow) ? katalogAgentow : "", ShowNewFolderButton = true })
-                    if (d.ShowDialog(f) == DialogResult.OK) { UstawKatalogAgentow(d.SelectedPath); odswiez(null); }
+                    if (d.ShowDialog(f) == DialogResult.OK)
+                    {
+                        PrzelaczKatalogAgentow(d.SelectedPath);
+                        // nowy albo pusty katalog: od razu propozycja domyślnej struktury plików i folderów agentów
+                        bool pusty = false; try { pusty = KatalogAgentow.Znajdz(d.SelectedPath).Count == 0; } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                        if (pusty) UtworzDomyslnaStrukture(f, d.SelectedPath);
+                        odswiez(null);
+                    }
+            };
+            tbKat.SelectedIndexChanged += delegate
+            {
+                if (listaKatalogow || tbKat.SelectedIndex < 0) return;
+                var k = tbKat.SelectedItem as string ?? "";
+                if (string.Equals(CzystaSciezka(k), CzystaSciezka(katalogAgentow), StringComparison.OrdinalIgnoreCase)) return;
+                if (!opuscPlik() || !Directory.Exists(k))
+                {
+                    if (!Directory.Exists(k)) MessageBox.Show(f, string.Format(Jezyk.T("Katalog {0} nie istnieje albo jest niedostępny."), k), Jezyk.T("Katalog agentów"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    odswiez(wybrany != null ? wybrany.Folder : null); return;
+                }
+                PrzelaczKatalogAgentow(k); odswiez(wybrany != null ? wybrany.Folder : null);
+            };
+            bUsunKat.Click += delegate
+            {
+                if (katalogAgentow.Length == 0 || !opuscPlik()) return;
+                if (MessageBox.Show(f, string.Format(Jezyk.T("Zdjąć katalog {0} z listy?\n\nFoldery i pliki agentów na dysku zostają – katalog można dodać ponownie."), katalogAgentow), Jezyk.T("Katalog agentów"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                UsunKatalogAgentowZListy(katalogAgentow); odswiez(null);
             };
             bDodaj.Click += delegate
             {

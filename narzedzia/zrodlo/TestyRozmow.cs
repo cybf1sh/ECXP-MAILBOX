@@ -313,7 +313,7 @@ class TestyRozmow {
       var listaKat=Descendants(oknoKat).OfType<ListView>().Single(x=>x.Name=="listaAgentowKatalogu");
       var drzewoKat=Descendants(oknoKat).OfType<TreeView>().Single(x=>x.Name=="plikiAgenta");
       var edytorKat=Descendants(oknoKat).OfType<TextBox>().Single(x=>x.Name=="edytorPliku");
-      Check(Descendants(oknoKat).OfType<TextBox>().Single(x=>x.Name=="katalogAgentow").Text==katAg && listaKat.Items.Count==2
+      Check(Descendants(oknoKat).OfType<ComboBox>().Single(x=>x.Name=="katalogAgentow").Text==katAg && listaKat.Items.Count==2
         && listaKat.Items.Cast<ListViewItem>().Any(x=>x.SubItems[1].Text=="Codex" && x.SubItems[2].Text=="codex-demo") && listaKat.Items.Cast<ListViewItem>().Any(x=>x.SubItems[1].Text=="Claude" && x.SubItems[2].Text=="claude-demo"),"catalogue window lists Codex and Claude agents from the working directory");
       foreach(ListViewItem x in listaKat.Items) x.Selected=x.SubItems[1].Text=="Codex"; Application.DoEvents();
       var grupyKat=drzewoKat.Nodes.Cast<TreeNode>().Select(x=>x.Text).ToList();
@@ -375,6 +375,18 @@ class TestyRozmow {
         Check((bool)Call(app,"ZapamietajKatalogAgentow",kat2) && !(bool)Call(app,"ZapamietajKatalogAgentow",kat2) && !(bool)Call(app,"ZapamietajKatalogAgentow",katAg),"an extra agent directory is remembered once and the working directory is not duplicated");
         var wszyscyAg=(List<AgentKatalogu>)Call(app,"AgenciZeWszystkichKatalogow");
         Check(wszyscyAg.Count==3 && wszyscyAg.Any(x=>x.NazwaFolderu=="claude-inny-agent") && File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("katalogi_agentow_inne="+kat2),"agents from all known directories are offered and the extra directory is persisted");
+        // okno katalogu pokazuje agentów ze wszystkich katalogów naraz; przełączenie katalogu roboczego nie gubi poprzedniego
+        foreach(var of in Application.OpenForms.Cast<Form>().Where(x=>x.Name=="oknoKatalogu").ToList()) of.Close();
+        Call(app,"PokazKatalogAgentow"); Application.DoEvents();
+        var okno2=Application.OpenForms.Cast<Form>().Single(x=>x.Name=="oknoKatalogu");
+        var lista2=Descendants(okno2).OfType<ListView>().Single(x=>x.Name=="listaAgentowKatalogu");
+        var cbKat2=Descendants(okno2).OfType<ComboBox>().Single(x=>x.Name=="katalogAgentow");
+        Check(lista2.Items.Count==3 && cbKat2.Items.Count==2 && lista2.Items.Cast<ListViewItem>().Any(x=>x.SubItems[4].Text==kat2) && lista2.Items.Cast<ListViewItem>().Any(x=>x.SubItems[4].Text==katAg),"catalogue window lists agents from all directories at once with their directory");
+        Call(app,"PrzelaczKatalogAgentow",kat2);
+        Check(((List<AgentKatalogu>)Call(app,"AgenciZeWszystkichKatalogow")).Count==3 && File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("katalog_agentow="+kat2),"switching the directory for new agents keeps the previous directory and its agents");
+        Call(app,"UsunKatalogAgentowZListy",kat2);
+        Check(((List<AgentKatalogu>)Call(app,"AgenciZeWszystkichKatalogow")).Count==2 && Directory.Exists(Path.Combine(kat2,"claude-inny-agent")) && File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("katalog_agentow="+katAg),"removing a directory from the list keeps its files and falls back to the other directory");
+        okno2.Close(); Application.DoEvents();
         foreach(ListViewItem x in lvOs.SelectedItems) x.Selected=false; Application.DoEvents();
         Check(Call(app,"WybranaPara")==null && stanStr.Text.StartsWith("Wszyscy agenci"),"clearing the selection shows all agents again");
       }

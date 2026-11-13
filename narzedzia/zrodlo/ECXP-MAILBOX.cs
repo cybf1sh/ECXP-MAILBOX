@@ -4244,13 +4244,14 @@ namespace Ecxp
                 f.Rzad("Katalogi agentów:", bDodajKat, lKatalogi);
                 bDodajKat.Click += delegate
                 {
-                    using (var fb = new FolderBrowserDialog { Description = Jezyk.T("Katalog z agentami – każdy agent ma w nim własny folder z plikiem AGENTS.md albo CLAUDE.md"), ShowNewFolderButton = false })
+                    using (var fb = new FolderBrowserDialog { Description = Jezyk.T("Katalog z agentami – każdy agent ma w nim własny folder z plikiem AGENTS.md albo CLAUDE.md"), ShowNewFolderButton = true })
                     {
                         if (Directory.Exists(katalogAgentow)) fb.SelectedPath = katalogAgentow;
                         if (fb.ShowDialog(f) != DialogResult.OK) return;
                         List<AgentKatalogu> nowi;
                         try { nowi = KatalogAgentow.Znajdz(fb.SelectedPath); } catch (Exception ex) { Bledy.Wyjatek(ex); nowi = new List<AgentKatalogu>(); }
-                        if (nowi.Count == 0) { MessageBox.Show(f, string.Format(Jezyk.T("W katalogu {0} nie znaleziono agentów (folderów z plikiem AGENTS.md albo CLAUDE.md)."), fb.SelectedPath), Jezyk.T("Nowe zadanie / moduł"), MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                        // pusty katalog: propozycja utworzenia domyślnej struktury (agent Codex i Claude z plikami .md, scope.md, scripts…)
+                        if (nowi.Count == 0 && !UtworzDomyslnaStrukture(f, fb.SelectedPath)) return;
                         if (katalogAgentow.Length == 0) UstawKatalogAgentow(fb.SelectedPath); else ZapamietajKatalogAgentow(fb.SelectedPath);
                         zKatalogu = AgenciZeWszystkichKatalogow();
                         napelnij("codex", null); napelnij("claude", null); opisKatalogow();
