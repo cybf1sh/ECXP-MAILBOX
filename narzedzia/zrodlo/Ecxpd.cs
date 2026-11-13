@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.6.1.0")]
+[assembly: AssemblyFileVersion("1.7.0.0")]
 
 namespace Ecxp
 {
@@ -82,6 +82,8 @@ namespace Ecxp
                 P.PoZmianieZadania = (id, stan, kto, uwagi) => { try { Lancuchy.PoZmianieZadania(id, stan, kto, uwagi); } catch (Exception ex) { Log("łańcuch: " + ex.Message); } };
                 Agenci.Log = Log; Lustro.Log = Log;
                 new Thread(Agenci.Petla) { IsBackground = true, Name = "ecxp-agenci" }.Start();
+                // po restarcie stosu żadna tura nie trwa: znaczniki „agent pracuje od…” z poprzedniego uruchomienia znikają
+                try { int st = Agenci.SprzatnijTury(); if (st > 0) Log("start: usunięto znaczniki przerwanych tur: " + st); } catch (Exception ex) { Log("start: " + ex.Message); }
                 new Thread(Lustro.Petla) { IsBackground = true, Name = "ecxp-lustro" }.Start();
                 Log("start, potok " + nazwaPotoku + ", katalog " + P.Root);
                 for (int i = 0; i < 4; i++) new Thread(Akceptuj) { IsBackground = true, Name = "ecxp-akceptuj" }.Start();
@@ -237,6 +239,8 @@ namespace Ecxp
                         // nadzór obiegu zadań w sesjach aplikacji (agentów w tle pilnuje Agenci.Petla)
                         var wTle = Agenci.ObslugiwaniWTle();
                         al.AddRange(P.ZBlokada(() => Obieg.Nadzor(wTle)));
+                        // operacje przerwane w środku (awaria stosu): domknięcie obiegów i dosłanie brakujących kopii dla pary
+                        try { if (P.ZBlokada(() => Obieg.Dokoncz(Log)) + Zamiary.Dokoncz(Log) > 0) zmiana = 1; } catch (Exception ex) { Log("dokończenie: " + ex.Message); }
                         P.ZBlokada(() => Pentest.Nadzor());
                         foreach (var k in Agenci.Lista().Select(x => P.S(x, "podwyzszone_klucz")).Where(x => x.Length > 0).Distinct().ToList())
                         {
@@ -522,6 +526,7 @@ namespace Ecxp
                 case "wyslij":
                     {
                         int dummy;
+                        P.SprawdzPolaWyslij(a);
                         var n = new P.Nowa
                         {
                             Od = Agent(s, a), Do = P.S(a, "do").Trim(), Typ = P.S(a, "typ").Trim().ToLowerInvariant(), Projekt = P.S(a, "projekt").Trim(),
@@ -538,7 +543,11 @@ namespace Ecxp
                         if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)
                             n.Ograniczenia = "Wiadomość operatora przez ECXP (konsola ECXP-MAILBOX, tożsamość potwierdzona przez stos).";
-                        return Siec.Wyslij(n);
+                        // identyfikator żądania: jawny (pole klucz, 24 h) albo – dla agentów – ta sama treść do tego samego adresata w ciągu 60 s
+                        var kluczK = P.S(a, "klucz").Trim();
+                        string powt = kluczK.Length > 0 ? "k|" + n.Od + "|" + kluczK
+                            : !s.Operator && n.Typ != "postep" && n.Typ != "w_trakcie" ? "a|" + n.Od + "|" + n.Do + "|" + n.Typ + "|" + n.OdpNa + "|" + n.Wynik + "|" + P.Sha(n.Temat + "\n" + n.Tresc) : "";
+                        return Powtorki.Raz(powt, kluczK.Length > 0 ? TimeSpan.FromHours(24) : TimeSpan.FromSeconds(60), () => Siec.Wyslij(n));
                     }
                 case "odbierz":
                     {

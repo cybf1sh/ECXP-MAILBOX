@@ -70,7 +70,7 @@ namespace Ecxp
             var p = Path.Combine(P.Root, "stan", "agenci", m.Do + ".json");
             if (!File.Exists(p)) return false;
             var d = Pliki.Czytaj(p);
-            if (P.S(d, "tura_praca") != m.Id) return false;
+            if (P.S(d, "tura_praca") != m.Id || !Agenci.TuraZyje(d)) return false;
             DateTimeOffset t; if (!DateTimeOffset.TryParse(P.S(d, "tura_od"), out t)) return false;
             od = t.LocalDateTime;
             return od > DateTime.Now.AddMinutes(-35);

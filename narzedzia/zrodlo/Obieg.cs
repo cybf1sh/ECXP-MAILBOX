@@ -206,6 +206,43 @@ namespace Ecxp
             return FinWspolny(r, w, n);
         }
 
+        // Domknięcie obiegów przerwanych w środku (awaria stosu między zapisem FIN-ów a wspólnym FIN): wszyscy skończyli,
+        // a zadanie nie jest zakończone. Jeśli wspólny FIN już istnieje – tylko oznaczenie; inaczej FIN powstaje teraz.
+        public static int Dokoncz(Action<string> log)
+        {
+            int ile = 0;
+            foreach (var r in Otwarte())
+            {
+                try
+                {
+                    var ag = Agenci(r);
+                    var czynni = ag.Where(kv => !P.B(kv.Value as Dictionary<string, object>, "wycofane")).ToList();
+                    if (czynni.Count == 0 || czynni.Any(kv => P.S(kv.Value as Dictionary<string, object>, "stan") != "fin")) continue;
+                    // ostatnia zmiana co najmniej 10 s temu – operacja w toku ma własną blokadę, to tylko dodatkowy margines
+                    var ost = czynni.Select(kv => { DateTimeOffset t; return DateTimeOffset.TryParse(P.S(kv.Value as Dictionary<string, object>, "zmiana"), out t) ? t : DateTimeOffset.MinValue; }).Max();
+                    if (ost > DateTimeOffset.Now.AddSeconds(-10)) continue;
+                    var zadania = new HashSet<string>(ag.Values.Cast<Dictionary<string, object>>().Select(x => P.S(x, "zadanie")).Where(x => x.Length > 0));
+                    var jest = P.Wszystkie(true).FirstOrDefault(m => m.EtapObiegu == "fin_wspolny" && zadania.Contains(m.OdpNa));
+                    if (jest != null)
+                    {
+                        r["zakonczone"] = true; r["zakonczone_czas"] = P.Teraz(); r["fin_do_operatora"] = jest.Id; if (jest.Wynik.Length > 0) r["wynik"] = jest.Wynik;
+                        Zapisz(r);
+                    }
+                    else
+                    {
+                        var ostatni = czynni.OrderBy(kv => P.S(kv.Value as Dictionary<string, object>, "zmiana")).Last();
+                        var w = (Dictionary<string, object>)ostatni.Value;
+                        FinWspolny(r, w, new P.Nowa { Od = ostatni.Key, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Tresc = P.S(w, "fin"), Wynik = P.S(w, "wynik"), ZeStosu = true });
+                    }
+                    P.Zdarzenie("obieg_dokonczony", P.D("klucz", r["klucz"], "fin_istnial", jest != null));
+                    if (log != null) log("obieg " + P.S(r, "klucz") + ": domknięty po przerwanej operacji" + (jest != null ? " (wspólny FIN już był)" : " (wspólny FIN wysłany teraz)"));
+                    ile++;
+                }
+                catch (Exception ex) { if (log != null) log("obieg " + P.S(r, "klucz") + ": nie domknięto – " + ex.Message); }
+            }
+            return ile;
+        }
+
         // Wszyscy skończyli: jeden FIN do operatora (wynik każdej strony; wycofane wpisy pominięte).
         static Dictionary<string, object> FinWspolny(Dictionary<string, object> r, Dictionary<string, object> w, P.Nowa n)
         {

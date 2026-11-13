@@ -79,7 +79,7 @@ namespace Ecxp
         Msg KorzenWatku(List<Msg> w)
         {
             var ids = new HashSet<string>(w.Select(x => x.Id));
-            return Kanon(w.OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) ? 1 : 0).ThenBy(x => x.Seq).First());
+            return Kanon(w.OrderBy(x => x.Czas).ThenBy(x => x.Nr).ThenBy(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) ? 1 : 0).ThenBy(x => x.Seq).First());
         }
 
         // Kolor wątku: kolor kodu jego pierwszej wiadomości. Wszystkie wiadomości rozmowy – wysłane i odebrane – mają ten sam kolor.

@@ -14,7 +14,7 @@ using System.Text;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
 
 namespace Ecxp
 {
@@ -66,6 +66,7 @@ namespace Ecxp
                       "temat", Pole("string", "Krótki temat, np. ELAN24."), "tresc", Pole("string", "Treść po polsku: co zrobiono, wynik, czego potrzeba."),
                       "odpowiedz_na", Pole("string", "id wiadomości, na którą odpowiadasz."), "pilne", Pole("boolean", "Termin potwierdzenia 15 min."),
                         "krok", Pole("integer", "Tylko dla typ=postep: numer bieżącego kroku."), "z_krokow", Pole("integer", "Tylko dla typ=postep: liczba wszystkich kroków."),
+                        "klucz", Pole("string", "Opcjonalny identyfikator żądania: ponowienie z tym samym kluczem nie tworzy drugiej wiadomości."),
                         "wynik", Pole("string", "Tylko dla typ=fin (wymagane): pozytywny – wykonane, wynik dobry; negatywny – wykonane, wynik zły; niewykonane – zadania nie wykonano.", P.WynikiFin),
                       "commit", Pole("string", "Pełny hash commitu."), "kontrole", Pole("array", "'[PASS] polecenie – szczegóły' / '[FAIL] …'."),
                       "pliki", Pole("array", "Ścieżki plików."), "ograniczenia", Pole("string", "Czego nie sprawdzono."),

@@ -18,7 +18,12 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.12.1: `builds/release-3.12.1/narzedzia/`.
+Aktualny pakiet 3.13.0: `builds/release-3.13.0/narzedzia/`.
+
+**Wersja 3.13.0 (niezawodność i szybkość):** indeks wiadomości w pamięci i przyrostowy stan
+doręczeń (wyszukanie wiadomości 68 → 3,7 ms), identyfikator żądania przeciw podwójnej wysyłce,
+dokańczanie operacji przerwanych awarią, numer kolejny wiadomości, dzierżawa tury z pulsem,
+sprawdzanie pól przy przyjęciu. Szczegóły: [wydanie 3.13.0](docs/WDROZENIE-3.13.0-20261113.md).
 
 **Wersja 3.12.0 (protokół ECXP 1.1):** wynik FIN jako pole, jeden identyfikator wiadomości
 dla pary, wątek z identyfikatorem i oryginalnym tytułem, typ `postep`, lista możliwości stosu,

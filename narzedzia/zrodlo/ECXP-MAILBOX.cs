@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.12.2.0")]
+[assembly: AssemblyFileVersion("3.13.0.0")]
 
 namespace Ecxp
 {
@@ -224,7 +224,7 @@ namespace Ecxp
             {
                 ZapiszSzybkiSzkic();
                 if ((klient == null || !klient.Polaczony) && (DateTime.Now - ostatniaProba).TotalSeconds >= 5) Polacz();
-                if (brudne == 1 || (DateTime.Now - ostatniPelny).TotalSeconds >= 15) { brudne = 0; Skanuj(); }
+                if (brudne == 1 || (DateTime.Now - ostatniPelny).TotalSeconds >= 30) { brudne = 0; Skanuj(); }   // zmiany zgłasza stos i obserwator plików; pełny przegląd co 30 s to tylko zabezpieczenie
                 // status CLI: co 3 min, po uruchomieniu z konsoli co 10 s przez 5 min
                 var odstep = DateTime.Now < czujDo ? 10 : 180;
                 if ((DateTime.Now - ostatnieCli).TotalSeconds >= odstep) { ostatnieCli = DateTime.Now; SprawdzCliTlo(); }
@@ -811,7 +811,7 @@ namespace Ecxp
             det.SuspendLayout();
             det.Clear(); zakresyWiadomosci.Clear();
             ZmienSzkic(sel);
-            var w = Zrodlo.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 ? 1 : 0).ToList();
+            var w = Zrodlo.Where(x => x.Watek == sel.Watek).OrderBy(x => x.Czas).ThenBy(x => x.Nr).ThenBy(x => x.OdpNa.Length > 0 ? 1 : 0).ToList();
             var korzenW = KorzenWatku(w);
             var kolorW = KolorTagu(Tag(korzenW));
             rozmowaTytul.Text = OpisWatku(korzenW) + " · " + P.TytulWiadomosci(korzenW) + "\n" + sel.Projekt + " / " + sel.Modul + " · " + OpisPary(sel.Projekt, sel.Modul);
@@ -1759,7 +1759,7 @@ namespace Ecxp
             var wybrana = Wybrana();
 
             // rozmowy bieżące po filtrach (bez podfolderu projektu) – liczniki drzewka; lista – wybrany folder / podfolder
-            var rozmowyDrzewa = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList())
+            var rozmowyDrzewa = msgs.GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ThenBy(m => m.Nr).ToList())
                 .Where(w => PasujeWatek(w, teraz) && w.Any(PasujeBezFolderu)).ToList();
             var pasujace = FolderOdczytu
                 ? RozmowyOdczytu(kierunek).Where(w => w.Any(Pasuje)).OrderByDescending(w => w.Last().Czas).Take(MaksRozmowArchiwum).ToList()
@@ -3421,7 +3421,7 @@ namespace Ecxp
                     var czesci = WyslijZalaczniki(f.zal.Pliki);
                     czesci.AddRange(f.Czesci);           // załączniki z oryginału („Wyślij ponownie”) – istniejące obiekty kontekstu
                     var r = (Dictionary<string, object>)Stos("wyslij", P.D("czesci", czesci, "do", f.AdresatDoWyslania, "bez_kopii", f.BezKopii, "projekt", f.Projekt, "modul", f.Modul, "typ", f.Typ,
-                        "temat", f.tbTemat.Text, "tresc", f.tbTresc.Text, "odpowiedz_na", f.OdpNa, "pilne", f.chPilne.Checked,
+                        "temat", f.tbTemat.Text, "tresc", f.tbTresc.Text, "odpowiedz_na", f.OdpNa, "pilne", f.chPilne.Checked, "klucz", "form-" + f.SzkicId,
                         "ograniczenia", "Wiadomość operatora przez ECXP. Push, merge, USER_ACCEPTED, usuwanie, zmiany rezerwacji i ustawień bezpieczeństwa wymagają zgody operatora w czacie."));
                     przyjeto=true;
                     OznaczSzkicWyslany(f);

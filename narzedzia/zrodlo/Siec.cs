@@ -373,6 +373,8 @@ namespace Ecxp
                 if (lustroId.Length > 0 && n.Watek.Length == 0 && n.OdpNa.Length == 0) n.Watek = lustroId;
                 var wyslane = new List<object>();
                 Dictionary<string, object> pierwsza = null;
+                // zamiar wysyłki do pary: gdyby stos padł między kopiami, po starcie dośle brakujące (Zamiary.Dokoncz)
+                if (lustroId.Length > 0) Zamiary.Zapisz(lustroId, n, cele);
                 // ecxp/1.1: jedna wiadomość = jeden identyfikator (id kopii dla pierwszego adresata według nazwy); pozostałe kopie go niosą
                 foreach (var c in cele.Count > 1 ? cele.OrderBy(x => x).ToList() : cele)
                 {
@@ -387,6 +389,7 @@ namespace Ecxp
                 var kopie = new List<object>();
                 var zrodlo = (string)pierwsza["id"];
                 if (n.Od == P.Wlasciciel && Typ(n.Typ) == "zadanie") Obieg.Zalozone(n.Projekt, n.Modul, n.Temat.Length > 0 ? n.Temat : P.Baza((string)P.Znajdz(zrodlo).Temat), wyslane, lustroId);
+                if (lustroId.Length > 0) Zamiary.Koniec(lustroId);
                 var wynik = new Dictionary<string, object>(pierwsza);
                 // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
                 var ostrz = new List<string>();

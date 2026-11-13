@@ -60,17 +60,20 @@ namespace Ecxp
 
         public static Dictionary<string, object> Odswiez()
         {
-            lock (Blokada) return P.ZBlokada(OdswiezPodBlokada);
+            lock (Blokada) return OdswiezWidok();
         }
-        static Dictionary<string, object> OdswiezPodBlokada()
+        // Globalna blokada stosu jest trzymana tylko na czas odczytu wiadomości i stanu doręczeń. Budowa i zapis plików widoku
+        // (nawet kilkaset plików) dzieją się poza nią – wysyłka i odbiór nie czekają na widok. Pliki widoku pisze tylko ten wątek.
+        static Dictionary<string, object> OdswiezWidok()
         {
-            List<Msg> msgs; Dictionary<string, Stan> stany;
-            lock (Blokada)
+            List<Msg> msgs = null; Dictionary<string, Stan> stany = null;
+            P.ZBlokada(delegate
             {
                 msgs = P.Wszystkie(true);
                 string spoj;
                 stany = P.Stany(out spoj);
-            }
+                return 0;
+            });
             foreach (var m in msgs) { Stan s; if (stany.TryGetValue(m.Id, out s)) m.Dor = s; }
             P.Powiaz(msgs);
             var pozycje = Zbuduj(msgs);

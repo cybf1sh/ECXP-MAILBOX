@@ -42,6 +42,7 @@ namespace Ecxp
         // ecxp/1.1: wynik FIN jako pole; identyfikator wiadomości wspólny dla wszystkich kopii (para 1:1) i odpowiedź na niego
         public string Wynik = "", Logiczne = "", OdpNaLogiczne = "";
         public string Tytul = "";      // oryginalny tytuł (temat to jego skrót bez polskich znaków i spacji)
+        public long Nr;                // numer kolejny wiadomości w całym stosie (kolejność niezależna od zegara; 0 = starsza wiadomość)
         public Msg Rodzic;
         public Stan Dor;   // stan doręczenia z dziennika (null = wiadomość starego formatu)
         // Kopia do wydania z pamięci podręcznej: pola wyliczane przez wywołującego (wątek, rodzic, stan doręczenia) są puste.
@@ -205,6 +206,40 @@ namespace Ecxp
             "lancuchy", "nowe_zadanie", "nowy_pentest", "obecnosc", "obudz", "odbierz", "para_wznow", "ping", "podwyzszone_wygas", "potwierdz", "projekt_usun_bilet", "przekaz", "przypisz",
             "przywroc", "rola", "sesja", "sprawdz_decyzje", "stan", "stan_galezi", "straz", "sygnal", "trasy", "umowa_galezi", "uruchom_agenta", "usluga", "uslugi", "uslugi_po_starcie",
             "uslugi_zakoncz", "usun", "watek", "wycofaj", "wyslij", "zadanie", "zapytaj_o_etap", "zarejestruj_sesje", "zatrzymaj_agenta" };
+        // Pola przyjmowane przez „wyslij” (ecxp_wyslij). Nieznane pole albo zły typ = błąd od razu, zamiast cichego pominięcia.
+        public static readonly string[] PolaWyslij = { "ja", "do", "typ", "projekt", "modul", "temat", "tresc", "odpowiedz_na", "pilne", "commit", "kontrole", "pliki",
+            "ograniczenia", "czesci", "bez_kopii", "wynik", "krok", "z_krokow", "klucz" };
+        public static void SprawdzPolaWyslij(Dictionary<string, object> a)
+        {
+            if (a == null) return;
+            var nieznane = a.Keys.Where(k => !PolaWyslij.Contains(k)).OrderBy(k => k).ToList();
+            if (nieznane.Count > 0)
+                throw new EcxpException("Nieznane pole: " + string.Join(", ", nieznane) + ". Dozwolone: " + string.Join(", ", PolaWyslij) + ".");
+            foreach (var k in new[] { "pilne", "bez_kopii" })
+            {
+                object v;
+                if (a.TryGetValue(k, out v) && v != null && !(v is bool) && !Regex.IsMatch(Convert.ToString(v, CultureInfo.InvariantCulture), "^(true|false|0|1)$", RegexOptions.IgnoreCase))
+                    throw new EcxpException("Pole " + k + " musi być wartością logiczną (true albo false).");
+            }
+            foreach (var k in new[] { "kontrole", "pliki", "czesci" })
+            {
+                object v;
+                if (a.TryGetValue(k, out v) && v != null && (v is string || !(v is IEnumerable)))
+                    throw new EcxpException("Pole " + k + " musi być listą.");
+            }
+            foreach (var k in new[] { "krok", "z_krokow" })
+            {
+                object v; int liczba;
+                if (a.TryGetValue(k, out v) && v != null && Convert.ToString(v, CultureInfo.InvariantCulture).Length > 0 && (!int.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), out liczba) || liczba < 1))
+                    throw new EcxpException("Pole " + k + " musi być liczbą całkowitą większą od zera.");
+            }
+            foreach (var k in new[] { "ja", "do", "typ", "projekt", "modul", "temat", "tresc", "odpowiedz_na", "commit", "ograniczenia", "wynik", "klucz" })
+            {
+                object v;
+                if (a.TryGetValue(k, out v) && v != null && !(v is string))
+                    throw new EcxpException("Pole " + k + " musi być tekstem.");
+            }
+        }
         public static Dictionary<string, object> Mozliwosci(string stos)
         {
             return D("stos", stos, "protokol", Protokol, "wersja_protokolu", WersjaProtokolu, "polecenia", PoleceniaStosu.ToList(),
@@ -519,6 +554,7 @@ namespace Ecxp
             m.Id = S(d, "id");
             if (m.Id.Length == 0) m.Id = Path.GetFileNameWithoutExtension(f.Name);
             long.TryParse(S(d, "seq"), out m.Seq);
+            long.TryParse(S(d, "nr"), out m.Nr);
             m.Czas = CzasZ(S(d, "czas"), f.Name, f.LastWriteTime);
             if (blad == null && (m.Od.Length == 0 || m.Do.Length == 0)) m.Blad = "brak pola od albo do";
             if (blad == null && m.NowyFormat)
@@ -749,6 +785,21 @@ namespace Ecxp
             return n;
         }
 
+        // Jeden rosnący numer na cały stos (pod blokadą): kolejność wiadomości nie zależy od zegara ani od tej samej milisekundy.
+        static long NastepnyNr()
+        {
+            var dir = Path.Combine(Root, "stan", "seq");
+            Directory.CreateDirectory(dir);
+            var p = Path.Combine(dir, "_nr.txt");
+            long n = 0;
+            long.TryParse(Czytaj(p).Trim(), out n);
+            n++;
+            var tmp = p + ".tmp";
+            File.WriteAllText(tmp, n.ToString(CultureInfo.InvariantCulture), Utf8);
+            if (File.Exists(p)) File.Replace(tmp, p, null); else File.Move(tmp, p);
+            return n;
+        }
+
         // Wysyła wiadomość. Zwraca id, seq, ścieżkę i termin potwierdzenia.
         public static Dictionary<string, object> Wyslij(Nowa n)
         {
@@ -783,7 +834,7 @@ namespace Ecxp
                 var id = DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + modul + "-" + temat + "-" + Losowe(2);
                 var termin = Termin(n.Do, n.Pilne);
                 var d = new Dictionary<string, object>();
-                d["protokol"] = Protokol; d["id"] = id; d["seq"] = seq; d["czas"] = Teraz();
+                d["protokol"] = Protokol; d["id"] = id; d["seq"] = seq; d["nr"] = NastepnyNr(); d["czas"] = Teraz();
                 d["od"] = n.Od; d["do"] = n.Do;
                 var projekt = Slug(n.Projekt.Length > 0 ? n.Projekt : (org != null ? org.Projekt : ""), 32, false);
                 if (modul == "wspolne" && org != null && org.Modul.Length > 0) modul = org.Modul;

@@ -117,7 +117,7 @@ namespace Ecxp
         List<List<Msg>> RozmowyOdczytu(int k)
         {
             var kat = KatalogFolderu(k);
-            return odczyt[k].Where(PasujeBezFolderu).GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ToList()).Where(w => w.Any(m => m.Katalog == kat)).ToList();
+            return odczyt[k].Where(PasujeBezFolderu).GroupBy(m => m.Watek).Select(g => g.OrderBy(m => m.Czas).ThenBy(m => m.Nr).ToList()).Where(w => w.Any(m => m.Katalog == kat)).ToList();
         }
 
         // Liczniki i podfoldery projektów. rozmowy: bieżące rozmowy po filtrach (bez podfolderu projektu), każda jako lista wiadomości.

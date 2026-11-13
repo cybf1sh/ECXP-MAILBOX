@@ -70,6 +70,82 @@ class TestNiezawodnosci {
   File.SetLastWriteTimeUtc(dz,DateTime.UtcNow.AddSeconds(3));
   P.Stany(out sp);
   Check(sp.StartsWith("NARUSZONY"),"an edited journal entry is detected even with the in-memory state");
+
+  // dziennik po teście naruszenia: nowy, spójny (kolejne testy dopisują zdarzenia)
+  File.Delete(dz); P.Stany(out sp);
+
+  // ---------- identyfikator żądania: ponowione „wyślij” nie tworzy drugiej wiadomości ----------
+  int przed=Do("codex-p").Count;
+  Func<Dictionary<string,object>> wyslij=()=>Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="codex-p",Projekt="test",Modul="test",Typ="informacja",Temat="Raz",Tresc="Tylko raz.",BezKopii=true});
+  var w1=Powtorki.Raz("k|wlasciciel|form-1",TimeSpan.FromHours(24),wyslij);
+  var w2=Powtorki.Raz("k|wlasciciel|form-1",TimeSpan.FromHours(24),wyslij);
+  Check(Do("codex-p").Count==przed+1 && P.S(w1,"id")==P.S(w2,"id") && P.B(w2,"powtorzone") && !w1.ContainsKey("powtorzone"),"a repeated request with the same key creates no second message");
+  var w3=Powtorki.Raz("k|wlasciciel|form-2",TimeSpan.FromHours(24),wyslij);
+  Check(Do("codex-p").Count==przed+2 && P.S(w3,"id")!=P.S(w1,"id"),"a different key is a new message");
+  int proby=0;
+  Check(Blad(()=>Powtorki.Raz("k|x|blad",TimeSpan.FromHours(1),()=>{proby++;throw new EcxpException("celowy błąd");}))!=null
+    && Blad(()=>Powtorki.Raz("k|x|blad",TimeSpan.FromHours(1),()=>{proby++;throw new EcxpException("celowy błąd");}))!=null && proby==2,"a failed request is not remembered and can be retried");
+  var w4=Powtorki.Raz("k|wlasciciel|okno",TimeSpan.FromMilliseconds(1),wyslij);System.Threading.Thread.Sleep(30);
+  var w5=Powtorki.Raz("k|wlasciciel|okno",TimeSpan.FromMilliseconds(1),wyslij);
+  Check(P.S(w4,"id")!=P.S(w5,"id"),"after the time window the same key sends again");
+
+  // ---------- kolejność według numeru stosu ----------
+  var n1=P.Znajdz(P.S(w1,"id"));var n3=P.Znajdz(P.S(w3,"id"));
+  Check(n1.Nr>0 && n3.Nr>n1.Nr && P.Wszystkie(true).Where(m=>m.Nr>0).Select(m=>m.Nr).Distinct().Count()==P.Wszystkie(true).Count(m=>m.Nr>0),"every message gets a unique, increasing stack number");
+  var ten=new DateTime(2026,1,1,12,0,0);
+  var para=new List<Msg>{new Msg{Id="b",Czas=ten,Nr=8},new Msg{Id="a",Czas=ten,Nr=7}}.OrderBy(m=>m.Czas).ThenBy(m=>m.Nr).Select(m=>m.Id).ToList();
+  Check(para[0]=="a","messages from the same instant are ordered by the stack number");
+
+  // ---------- sprawdzanie pól przy przyjęciu ----------
+  var bladPola=Blad(()=>P.SprawdzPolaWyslij(P.D("do","codex-p","tresc","x","priorytet","wysoki")));
+  Check(bladPola!=null && bladPola.Contains("priorytet"),"an unknown field is refused by name");
+  Check(Blad(()=>P.SprawdzPolaWyslij(P.D("do","codex-p","tresc","x","pilne","może")))!=null && Blad(()=>P.SprawdzPolaWyslij(P.D("do","codex-p","pliki","a.txt")))!=null
+    && Blad(()=>P.SprawdzPolaWyslij(P.D("do","codex-p","krok","drugi")))!=null && Blad(()=>P.SprawdzPolaWyslij(P.D("do",5,"tresc","x")))!=null,"wrong field types are refused");
+  Check(Blad(()=>P.SprawdzPolaWyslij(P.D("ja","codex-p","do","wlasciciel","typ","fin","wynik","pozytywny","tresc","ok","odpowiedz_na","id","pilne",true,"pliki",new List<object>{"a"},"krok",2,"z_krokow","5","klucz","k1")))==null,"a correct message passes validation");
+
+  // ---------- dzierżawa tury ----------
+  Directory.CreateDirectory(Path.Combine(P.Root,"stan","agenci"));
+  string ag=Path.Combine(P.Root,"stan","agenci","claude-dz.json");
+  Pliki.Zapisz(ag,P.D("nazwa","claude-dz","strona","claude","katalog",P.Root,"aktywny",true,"tura_od",P.Teraz(),"tura_puls",P.Teraz(),"tura_praca","x"));
+  Check(Agenci.TuraZyje(Pliki.Czytaj(ag)) && Aktywnosc.Podglad("claude-dz").Pracuje,"a turn with a fresh heartbeat is shown as working");
+  Pliki.Zapisz(ag,P.D("nazwa","claude-dz","strona","claude","katalog",P.Root,"aktywny",true,"tura_od",DateTimeOffset.Now.AddMinutes(-9).ToString("o"),"tura_puls",DateTimeOffset.Now.AddMinutes(-5).ToString("o"),"tura_praca","x"));
+  Check(!Agenci.TuraZyje(Pliki.Czytaj(ag)) && !Aktywnosc.Podglad("claude-dz").Pracuje,"a turn whose heartbeat stopped is no longer shown as working");
+  Pliki.Zapisz(ag,P.D("nazwa","claude-dz","strona","claude","katalog",P.Root,"tura_od",P.Teraz()));
+  Check(Agenci.TuraZyje(Pliki.Czytaj(ag)),"a record without heartbeat (older stack) keeps the previous behaviour");
+  Check(Agenci.SprzatnijTury()==1 && !Pliki.Czytaj(ag).ContainsKey("tura_od") && Agenci.SprzatnijTury()==0,"turn markers are cleared when the stack starts");
+  Check(Agenci.LimitTury(P.D())==30 && Agenci.LimitTury(P.D("limit_tury_min","90"))==90 && Agenci.LimitTury(P.D("limit_tury_min","1"))==30,"turn time limit is 30 min by default and configurable per agent");
+
+  // ---------- dokończenie przerwanych operacji ----------
+  // (a) wysyłka do pary przerwana po pierwszej kopii
+  string lid="L-test-przerwana";var cele=new List<string>{"claude-p","codex-p"};
+  var np=new P.Nowa{Od=P.Wlasciciel,Do="para:test",Projekt="test",Modul="test",Typ="zadanie",Temat="Przerwana wysyłka",Tresc="Zadanie wysłane tylko do jednej strony."};
+  Zamiary.Zapisz(lid,np,cele);
+  var k1=np.Kopia();k1.Do="claude-p";k1.Lustro=cele;k1.LustroId=lid;
+  var pierwsza=P.Wyslij(k1);
+  Check(Zamiary.Dokoncz(null)==0,"a fresh intent (send still in progress) is left alone");
+  File.SetLastWriteTime(Path.Combine(P.Root,"stan","zamiary",lid+".json"),DateTime.Now.AddMinutes(-2));
+  int dosl=Zamiary.Dokoncz(null);
+  var kopie=P.Wszystkie(false).Where(m=>m.LustroId==lid).ToList();
+  Check(dosl==1 && kopie.Count==2 && kopie.Any(m=>m.Do=="codex-p") && kopie.All(m=>m.Logiczne==P.S(pierwsza,"id")) && !File.Exists(Path.Combine(P.Root,"stan","zamiary",lid+".json")),"an interrupted pair send is completed: the missing copy is delivered with the same message id");
+  Check(Obieg.Znajdz(P.S(pierwsza,"id"))!=null && Zamiary.Dokoncz(null)==0,"the task flow is created for the recovered pair; recovery runs once");
+  // (b) wszyscy skończyli, wspólny FIN nie powstał
+  P.Odbierz("codex-p",50);P.Odbierz("claude-p",50);
+  var zc=kopie.Single(m=>m.Do=="codex-p");var zs=kopie.Single(m=>m.Do=="claude-p");
+  Siec.Wyslij(new P.Nowa{Od="codex-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="fin",Wynik="pozytywny",OdpNa=zc.Id,Tresc="wykonane"});
+  Siec.Wyslij(new P.Nowa{Od="claude-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="fin",Wynik="pozytywny",OdpNa=zs.Id,Tresc="sprawdzone"});
+  var fin=Do(P.Wlasciciel).Single(m=>m.EtapObiegu=="fin_wspolny" && (m.OdpNa==zc.Id||m.OdpNa==zs.Id));
+  string rek=Directory.GetFiles(Path.Combine(P.Root,"stan","obieg"),"*.json").Single(f=>File.ReadAllText(f).Contains(zc.Id));
+  Action cofnij=()=>{var r=Pliki.Czytaj(rek);r.Remove("zakonczone");r.Remove("zakonczone_czas");r.Remove("fin_do_operatora");
+    foreach(var kv in (Dictionary<string,object>)r["agenci"]) ((Dictionary<string,object>)kv.Value)["zmiana"]=DateTimeOffset.Now.AddMinutes(-1).ToString("o");Pliki.Zapisz(rek,r);};
+  cofnij();
+  Check(Obieg.Otwarte().Count==1 && P.ZBlokada(()=>Obieg.Dokoncz(null))==1 && Obieg.Otwarte().Count==0 && Do(P.Wlasciciel).Count(m=>m.EtapObiegu=="fin_wspolny" && (m.OdpNa==zc.Id||m.OdpNa==zs.Id))==1,"a flow left open although its joint FIN exists is closed without a duplicate FIN");
+  cofnij();File.Delete(fin.Sciezka);
+  Check(P.ZBlokada(()=>Obieg.Dokoncz(null))==1 && Obieg.Otwarte().Count==0,"a flow whose joint FIN was never written is completed");
+  var nowyFin=Do(P.Wlasciciel).Single(m=>m.EtapObiegu=="fin_wspolny" && (m.OdpNa==zc.Id||m.OdpNa==zs.Id));
+  Check(nowyFin.Id!=fin.Id && nowyFin.Wynik=="pozytywny" && nowyFin.Uwagi.Contains("wykonane") && nowyFin.Uwagi.Contains("sprawdzone"),"the recovered joint FIN carries both results");
+  Check(P.ZBlokada(()=>Obieg.Dokoncz(null))==0 && File.ReadLines(dz).Count(l=>l.Contains("\"obieg_dokonczony\""))==2 && File.ReadLines(dz).Any(l=>l.Contains("\"zamiar_dokonczony\"")),"recovery is idempotent and recorded in the audit log");
+  P.Stany(out sp);
+  Check(sp.StartsWith("spójny"),"the journal stays consistent after all operations");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

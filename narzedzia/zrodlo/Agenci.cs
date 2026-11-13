@@ -534,6 +534,40 @@ namespace Ecxp
         public const string UwagaKoncaTury = "\n\n(Twoja odpowiedź na końcu tej pracy jest od razu wynikiem końcowym – później nie będzie można nic dodać. " +
             "Nie zostawiaj poleceń działających w tle i nie obiecuj odpowiedzi później: dokończ pracę i dopiero wtedy odpowiedz.)";
 
+        // Limit czasu tury: domyślnie 30 min; pole limit_tury_min w zapisie agenta (5–240) zmienia go dla tego agenta.
+        public static int LimitTury(Dictionary<string, object> rec)
+        {
+            int v; return int.TryParse(P.S(rec, "limit_tury_min"), out v) && v >= 5 && v <= 240 ? v : 30;
+        }
+
+        // Czy tura zapisana w rekordzie agenta naprawdę trwa: jest znacznik tura_od, a puls (jeśli stos go zapisuje) jest świeży.
+        public const int PulsMaxSek = 60;
+        public static bool TuraZyje(Dictionary<string, object> d)
+        {
+            if (P.S(d, "tura_od").Length == 0) return false;
+            DateTimeOffset p;
+            if (P.S(d, "tura_puls").Length == 0 || !DateTimeOffset.TryParse(P.S(d, "tura_puls"), out p)) return true;     // starszy stos: bez pulsu
+            return DateTimeOffset.Now - p < TimeSpan.FromSeconds(PulsMaxSek);
+        }
+
+        // Start stosu: żadna tura nie trwa – znaczniki z poprzedniego uruchomienia są usuwane.
+        public static int SprzatnijTury()
+        {
+            if (!Directory.Exists(Dir)) return 0;
+            return P.ZBlokada(delegate
+            {
+                int ile = 0;
+                foreach (var f in Directory.GetFiles(Dir, "*.json"))
+                {
+                    var d = Pliki.Czytaj(f);
+                    if (P.S(d, "nazwa").Length == 0 || !d.ContainsKey("tura_od")) continue;
+                    d.Remove("tura_od"); d.Remove("tura_praca"); d.Remove("tura_puls");
+                    Pliki.Zapisz(f, d); ile++;
+                }
+                return ile;
+            });
+        }
+
         // ecxp/1.1: wynik zadania jest polem FIN – agent w tle podaje go pierwszą linią odpowiedzi.
         public const string UwagaWyniku = "\n(Pierwsza linia odpowiedzi to wynik – dokładnie jedna z trzech: „WYNIK: POZYTYWNY” (wykonane, wynik dobry), " +
             "„WYNIK: NEGATYWNY” (wykonane, wynik zły) albo „WYNIK: NIEWYKONANE” (nie udało się wykonać). Potem krótko, co zrobiłeś.)";
@@ -580,7 +614,7 @@ namespace Ecxp
                 P.ZBlokada(delegate
                 {
                     var p = Path.Combine(Dir, n + ".json"); var d = Pliki.Czytaj(p);
-                    d["tura_od"] = P.Teraz(); d["tura_praca"] = praca.Zadanie != null ? praca.Zadanie.Id : praca.Pytanie != null ? praca.Pytanie.Id : "";
+                    d["tura_od"] = P.Teraz(); d["tura_puls"] = P.Teraz(); d["tura_praca"] = praca.Zadanie != null ? praca.Zadanie.Id : praca.Pytanie != null ? praca.Pytanie.Id : "";
                     Pliki.Zapisz(p, d); return 0;
                 });
             }
@@ -599,7 +633,13 @@ namespace Ecxp
                 if (P.B(rec, "pentest")) polecenie = "Twój identyfikator testera/recenzenta: " + n +
                     ". Zapisuj własne pliki z tym identyfikatorem w nazwie.\n\n" + polecenie;
                 // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
-                var cw = Cieply.Wykonaj(rec, polecenie, 30, pr => { lock (trwa) procesy[n] = pr; });
+                // dzierżawa tury: co 15 s potwierdzenie, że tura żyje (tura_puls) – konsola nie pokazuje „pracuje” po cichej awarii
+                using (var puls = new System.Threading.Timer(delegate
+                {
+                    try { P.ZBlokada(delegate { var pp = Path.Combine(Dir, n + ".json"); var dd = Pliki.Czytaj(pp); if (dd.ContainsKey("tura_od")) { dd["tura_puls"] = P.Teraz(); Pliki.Zapisz(pp, dd); } return 0; }); } catch { }
+                }, null, 15000, 15000))
+                {
+                var cw = Cieply.Wykonaj(rec, polecenie, LimitTury(rec), pr => { lock (trwa) procesy[n] = pr; });
                 kod = cw.Kod; wynik = cw.Wyjscie; odpowiedz = cw.Odpowiedz;
                 // tokeny tury w tle (Claude: usage z wyniku JSON); Codex w tle – z jego zapisu rozmowy (lustro)
                 if (strona == "claude")
@@ -608,6 +648,7 @@ namespace Ecxp
                     try { var tt = Tury.ZZapisuCodex(cw.DomCodex, cw.WatekCodex); if (tt != null) { tt.Nazwa = n; Tury.Zapisz(tt); } } catch { }
                 if (kod == 0 && odpowiedz.Length == 0) { kod = 2; wynik = "bez wyniku: tura zakończona bez odpowiedzi agenta.\n" + wynik; }
                 File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + " (" + (int)(DateTime.Now - start).TotalMilliseconds + " ms)\n" + wynik + "\n", new UTF8Encoding(false));
+                }
             }
             catch (Exception ex) { wynik = "błąd: " + ex.Message; }
             finally
@@ -657,7 +698,7 @@ namespace Ecxp
                             "wynik", wynik.Length > 400 ? wynik.Substring(0, 400) : wynik));
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
-                        d.Remove("tura_od"); d.Remove("tura_praca");
+                        d.Remove("tura_od"); d.Remove("tura_praca"); d.Remove("tura_puls");
                         P.Sygnal(n, "tura_koniec");
                         Aktywnosc.Zapisz(n, kod == 0 ? "koniec" : "blad", kod == 0 ? "■ tura zakończona, wynik przekazany (" + P.Wiek(DateTime.Now - start) + ")"
                             : "⚠ tura zakończona: " + (przyczyna == "odmowa" ? "odmowa dostawcy modelu" : przyczyna) + " (" + P.Wiek(DateTime.Now - start) + ")");

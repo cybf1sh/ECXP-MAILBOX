@@ -59,7 +59,7 @@ namespace Ecxp
             naglowek.Etap = "";
             if (zwinieta) return wynik;
             var lustra = new HashSet<string>();
-            foreach (var m in w.OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 ? 1 : 0))
+            foreach (var m in w.OrderBy(x => x.Czas).ThenBy(x => x.Nr).ThenBy(x => x.OdpNa.Length > 0 ? 1 : 0))
             {
                 if (m.LustroId.Length > 0 && m.Lustro.Count > 1 && !lustra.Add(m.LustroId)) continue;     // wiadomość do pary: jedna pozycja
                 var c = new Wiersz(P.TytulWiadomosci(m)) { Tag = m, Name = "m:" + m.Id, ForeColor = Motyw.Tekst, BackColor = Motyw.Pole, Wciecie = 26, Pasek = kolor };

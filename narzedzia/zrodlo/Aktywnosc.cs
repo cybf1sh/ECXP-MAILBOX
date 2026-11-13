@@ -434,7 +434,7 @@ namespace Ecxp
                 st.Wpisy = CzytajWlasne(nazwa);
                 var od = P.S(rec, "tura_od");
                 DateTimeOffset t;
-                if (od.Length > 0 && DateTimeOffset.TryParse(od, CultureInfo.InvariantCulture, DateTimeStyles.None, out t)) { st.Pracuje = true; st.Od = t.LocalDateTime; }
+                if (od.Length > 0 && Agenci.TuraZyje(rec) && DateTimeOffset.TryParse(od, CultureInfo.InvariantCulture, DateTimeStyles.None, out t)) { st.Pracuje = true; st.Od = t.LocalDateTime; }
                 st.Praca = P.S(rec, "tura_praca");
                 if (st.Wpisy.Count == 0) st.Uwaga = "Brak zapisanych działań – pojawią się przy następnej turze (w trybie zastępczym widać tylko początek i koniec tury).";
                 return st;
