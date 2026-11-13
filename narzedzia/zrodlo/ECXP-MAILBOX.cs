@@ -727,6 +727,7 @@ namespace Ecxp
             // usługi Claude i Codex: wariant A – pasek w nagłówku, wariant B – karty pod nagłówkiem
             BudujUslugi(head);
             tabAg.Controls.Add(lvAg);
+            BudujOsoby(tabAg);          // widok pojedynczych agentów (domyślny) i przełącznik Agenci / Pary 1:1
             tabAg.Controls.Add(lblAg);
             tabAg.Controls.Add(agTop);
             BudujStraznika(tabAg);
@@ -2632,6 +2633,14 @@ namespace Ecxp
             using (var f = new PiszForm(adresaci, nazwyProjektow, moduly, fontN, fontB))
             {
                 if (projAkt.Length > 0) f.cbProjekt.Text = projAkt;
+                if (przydzielDo != null && odp == null && ponownie == null && szkic == null)
+                {
+                    // „Przydziel zadanie” z widoku agentów: adres tylko tego agenta, jego projekt i moduł, typ „zadanie”
+                    f.UstawAdresata(adresaci.FirstOrDefault(a => a.StartsWith(przydzielDo + " ")) ?? przydzielDo);
+                    f.cbProjekt.Text = przydzielProjekt; f.cbModul.Text = przydzielModul;
+                    f.UstawTyp("zadanie");
+                    f.Text = Jezyk.T("Przydziel zadanie") + " – " + ImieAgenta(wybranaOsoba);
+                }
                 if (odp != null)
                 {
                     var komu = odp.Od == P.Wlasciciel ? odp.Do : odp.Od;
@@ -3592,6 +3601,7 @@ namespace Ecxp
             }
             } finally { lvAg.EndUpdate(); odswiezanieAgentow = false; }
             tabAg.Text = Jezyk.T("Agenci") + " (" + lvAg.Items.Count + ")";
+            try { RefreshOsoby(); } catch (Exception ex) { Bledy.Wyjatek(ex); }
         }
 
         bool Biezaca(Msg m) { return biezMod.Length > 0 && m.Modul == biezMod && (m.Projekt.Length == 0 || m.Projekt == biezProj); }
@@ -3712,7 +3722,10 @@ namespace Ecxp
 
         // „Zmień konfigurację wiadomością”: operator pisze, co ma się zmienić w zadaniach i konfiguracji; każdy wybrany agent
         // zaznaczonej pary dostaje zadanie naniesienia zmiany w swoich plikach. Przed wysłaniem powstaje kopia plików w .kopie.
-        void ZmienKonfiguracjeWiadomoscia()
+        void ZmienKonfiguracjeWiadomoscia() { ZmienKonfiguracjeWiadomoscia(null); }
+
+        // tylko != null: wejście z widoku agentów – zaznaczony jest wyłącznie ten agent (drugiego można dodać w oknie).
+        void ZmienKonfiguracjeWiadomoscia(string tylko)
         {
             var d = WybranaPara();
             if (d == null) return;
@@ -3722,7 +3735,7 @@ namespace Ecxp
             {
                 f.Size = new Size(820, 560);
                 var ch = f.Wybory("Dla agentów:", strony.Select(st => P.S(d, st) + (Wylaczeni.Jest(P.S(d, st)) ? "  ⏸" : "")).ToArray(), true);
-                for (int i = 0; i < ch.Length; i++) { ch[i].Name = "zmiana_" + strony[i]; if (Wylaczeni.Jest(P.S(d, strony[i]))) { ch[i].Checked = false; ch[i].Enabled = false; } }
+                for (int i = 0; i < ch.Length; i++) { ch[i].Name = "zmiana_" + strony[i]; if (tylko != null && strony[i] != tylko) ch[i].Checked = false; if (Wylaczeni.Jest(P.S(d, strony[i]))) { ch[i].Checked = false; ch[i].Enabled = false; } }
                 var tb = f.Wielowiersz("Co zmienić:", ""); tb.Name = "trescZmiany"; tb.Height = 220;
                 var tylkoOdczyt = strony.Where(st => { var rec = Agenci.Lista().FirstOrDefault(x => P.S(x, "nazwa") == P.S(d, st)); return rec != null && P.S(rec, "uprawnienia") == "odczyt"; }).Select(st => P.S(d, st)).ToList();
                 f.Uwaga("Napisz zwykłym tekstem, co ma się zmienić w zadaniach, zakresie albo zasadach pracy agenta. Każdy zaznaczony agent dostanie to jako zadanie, sam naniesie zmianę w swoich plikach (instrukcja, scope.md, skrypty) i odpowie, co zmienił. Poprzednia wersja plików trafia do folderu .kopie. Wyłączony agent (⏸) nie dostanie wiadomości. Te same pliki możesz też edytować ręcznie: prawy klawisz → „Edytuj agenta”.");

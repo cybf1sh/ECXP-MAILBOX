@@ -718,6 +718,7 @@ namespace Ecxp
                             P.S(a, "uprawnienia").Length > 0 ? P.S(a, "uprawnienia") : "odczyt", P.L(a, "role"), P.S(a, "opis"), ng > 0 ? ng : 6);
                     }
                 case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
+                case "profil_agenta": { TylkoOperator(s); var rp = Profile.Ustaw(P.S(a, "nazwa"), P.S(a, "imie"), P.S(a, "opis")); zmiana = 1; return rp; }
                 case "ustaw_agenta": { TylkoOperator(s); var ru = Agenci.Ustaw(P.S(a, "nazwa").Trim().ToLowerInvariant(), a); zmiana = 1; return ru; }
                 case "wylacz_agenta":
                     {

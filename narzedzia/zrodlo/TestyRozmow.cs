@@ -338,10 +338,22 @@ class TestyRozmow {
       var naglStr=Descendants(tabAgenci).OfType<Label>().Single(x=>x.Name=="naglowekStraznika");
       var stanStr=Descendants(tabAgenci).OfType<Label>().Single(x=>x.Name=="stanStraznika");
       Call(app,"UstawStraznika",false,false); Application.DoEvents();
-      Check(naglStr.Text.Contains("WYŁĄCZONY") && stanStr.Text.StartsWith("Wszystkie pary"),"watcher header says clearly that it is off and whose tasks are listed");
+      Check(naglStr.Text.Contains("WYŁĄCZONY") && stanStr.Text.StartsWith("Wszyscy agenci"),"watcher header says clearly that it is off and whose tasks are listed");
       Call(app,"UstawStraznika",true,false); Application.DoEvents();
       Check(naglStr.Text.Contains("WŁĄCZONY") && naglStr.Text.Contains("sprawdza co"),"watcher header says clearly that it is on and how often it checks");
       Call(app,"UstawStraznika",false,false); Application.DoEvents();
+      // 3.14.0: spersonalizowani agenci – widok pojedynczych agentów z własnym menu
+      var lvOs=Descendants(tabAgenci).OfType<ListView>().Single(x=>x.Name=="listaOsob");
+      var rbOs=Descendants(tabAgenci).OfType<RadioButton>().Single(x=>x.Name=="widokOsoby");
+      var rbPa=Descendants(tabAgenci).OfType<RadioButton>().Single(x=>x.Name=="widokPary");
+      Check(rbOs.Checked && lvOs.Columns.Count==9 && lvOs.Columns[0].Text.Length>0,"Agents tab opens on the list of individual agents");
+      var menuOs=lvOs.ContextMenuStrip.Items.Cast<ToolStripItem>().Select(x=>x.Name).ToList();
+      Check(new[]{"osobaZadanie","osobaCoRobi","osobaEdytuj","osobaZmienWiadomoscia","osobaKonfiguruj","osobaProfil","osobaWylacz","osobaZatrzymaj","osobaKatalog"}.All(menuOs.Contains),"single-agent menu offers assign task, activity, edit, change by message, configure, name, disable, stop and catalogue");
+      rbPa.Checked=true; Application.DoEvents();
+      Call(app,"UstawStraznika",false,false); Application.DoEvents();
+      Check(stanStr.Text.StartsWith("Wszystkie pary"),"switching to pairs view shows the pair list and the watcher follows");
+      rbOs.Checked=true; Application.DoEvents();
+      Check(stanStr.Text.StartsWith("Wszyscy agenci"),"switching back shows individual agents again");
       if(args.Contains("--galezie")) { Call(app,"UstawGalezie",true); Application.DoEvents(); }   // do zrzutu ekranu widoku gałęzi
       if(args.Contains("--nowe")) form.BeginInvoke((Action)(()=>Call(app,"NoweZadanie")));   // do zrzutu ekranu okna nowego zadania
       if(args.Contains("--katalog")) form.BeginInvoke((Action)(()=>Call(app,"PokazKatalogAgentow")));

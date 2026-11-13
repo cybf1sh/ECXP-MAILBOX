@@ -181,6 +181,14 @@ class TestNiezawodnosci {
     && Blad(()=>Agenci.Ustaw("codex-ust",P.D("limit_tury_min","1")))!=null && Blad(()=>Agenci.Ustaw("codex-brak",P.D("model","x")))!=null && P.S(Pliki.Czytaj(agU),"katalog")==kat2,"bad directory, permissions, limit or unknown agent are refused and nothing changes");
   Check(Agenci.PrzerwijTure("codex-ust")==0,"stopping an agent without a running turn interrupts nothing");
   Check(File.ReadLines(dz).Count(l=>l.Contains("\"agent_ustawienia\""))==1,"settings change is recorded in the audit log once");
+
+  // ---------- profil agenta: nazwa własna i opis ----------
+  var rp1=Profile.Ustaw("Codex-Ust","  Tester sieci ","skanuje hosty");
+  Check(P.B(rp1,"zmiana") && Profile.Imie("codex-ust")=="Tester sieci" && Profile.Opis("codex-ust")=="skanuje hosty" && Profile.Imie("codex-inny")=="","operator gives an agent its own name and description");
+  Check(!P.B(Profile.Ustaw("codex-ust","Tester sieci","skanuje hosty"),"zmiana") && File.ReadLines(dz).Count(l=>l.Contains("\"agent_profil\""))==1,"saving the same profile changes nothing and is logged once");
+  Check(Blad(()=>Profile.Ustaw("zly agent","x",""))!=null && Blad(()=>Profile.Ustaw("codex-ust",new string('a',41),""))!=null && Blad(()=>Profile.Ustaw("codex-ust","x",new string('b',301)))!=null && Profile.Imie("codex-ust")=="Tester sieci","bad agent name and too long texts are refused, profile stays");
+  Profile.Ustaw("codex-ust","","");
+  Check(Profile.Imie("codex-ust")=="" && Profile.Opis("codex-ust")=="","empty fields remove the profile");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

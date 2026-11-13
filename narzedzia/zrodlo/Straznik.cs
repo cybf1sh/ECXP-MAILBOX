@@ -185,6 +185,10 @@ namespace Ecxp
             // widok: tylko zadania agentów zaznaczonej pary (śledzenie i powiadomienia dotyczą nadal wszystkich)
             var para = lvAg != null && lvAg.SelectedItems.Count > 0 ? WybranaPara() : null;
             var agenciPary = para == null ? null : new HashSet<string>(new[] { P.S(para, "codex"), P.S(para, "claude") }.Where(x => x.Length > 0));
+            // widok pojedynczych agentów: zaznaczony agent zawęża listę do jego zadań
+            bool jedenAgent = agenciPary != null && WidokOsob && wybranaOsoba.Length > 0 && agenciPary.Contains(wybranaOsoba);
+            if (jedenAgent) agenciPary = new HashSet<string> { wybranaOsoba };
+            else if (WidokOsob && lvOsoby != null && lvOsoby.SelectedItems.Count == 0) { para = null; agenciPary = null; }
             foreach (var m in sledzone)
             {
                 Color kolor; string etap, klucz; bool zakonczone;
@@ -227,7 +231,8 @@ namespace Ecxp
                     : Jezyk.T("WYŁĄCZONY") + " · " + Jezyk.T("lista nie odświeża się sama – kliknij „Uruchom strażnika”"));
                 lblNaglowekStraznika.ForeColor = straznikWlaczony ? Zielony : Motyw.K(Color.FromArgb(190, 90, 0));
             }
-            string czyje = para == null ? Jezyk.T("Wszystkie pary")
+            string czyje = para == null ? Jezyk.T(WidokOsob ? "Wszyscy agenci" : "Wszystkie pary")
+                : jedenAgent ? Jezyk.T("Agent") + " " + ImieAgenta(wybranaOsoba) + " (" + wybranaOsoba + (Wylaczeni.Jest(wybranaOsoba) ? " ⏸" : "") + ")"
                 : Jezyk.T("Para") + " " + P.S(para, "projekt") + " / " + P.S(para, "modul") + " (" + string.Join(", ", agenciPary.Select(x => x + (Wylaczeni.Jest(x) ? " ⏸" : ""))) + ")";
             lblStraznik.Text = czyje + ":  " + (wToku + zakonczonych == 0
                     ? Jezyk.T("brak zadań i pytań w toku. Pojawią się tu po wysłaniu – z informacją, kto odebrał i na jakim są etapie.")

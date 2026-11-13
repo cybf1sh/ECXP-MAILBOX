@@ -4,6 +4,13 @@ Data: 2026-11-13 · konsola 3.14.0 · ecxpd 1.8 · gałąź `claude/katalog-agen
 
 ## Co się zmienia dla operatora
 
+**Spersonalizowani agenci** (zakładka Agenci, widok „👤 Agenci” – domyślny; „🔗 Pary 1:1” to drugi widok)
+- jeden wiersz = jeden agent: nazwa własna, strona, stan (pracuje od…, ma zadanie i czeka na turę, wolny, WYŁĄCZONY), bieżące zadanie, projekt / moduł, role, tożsamość ECXP, katalog pracy, opis,
+- nazwa własna i opis: „🏷 Nazwa własna i opis agenta…” (polecenie stosu `profil_agenta`, plik `stan\profile-agentow.json`); bez niej widać nazwę z katalogu agentów albo tożsamość ECXP. Adresowanie się nie zmienia,
+- prawy klawisz na agencie: przydziel zadanie, co robi, edytuj pliki, zmień konfigurację wiadomością, skonfiguruj, nazwij, wyłącz / włącz, zatrzymaj teraz, katalog agentów,
+- „✉ Przydziel zadanie temu agentowi…” (także dwuklik): okno „Napisz” z adresem tylko tego agenta i typem „zadanie” – druga strona pary nie dostaje kopii,
+- zaznaczenie agenta zawęża strażnika do jego zadań.
+
 **Katalog agentów** (zakładka Agenci → „🗂 Katalog agentów…”, także z prawego menu)
 - katalog roboczy agentów Codex i Claude jest ustawieniem konsoli (domyślnie `E:\Agents`, jeśli istnieje) – można go zmienić,
 - dodawanie nowego agenta (folder, strona, nazwa, moduł, opcjonalnie wzór z istniejącego agenta),
@@ -34,15 +41,15 @@ Ponadto „⚙ Skonfiguruj agenta…”: katalog pracy, uprawnienia, model, licz
 
 ## Zmiany w stosie
 
-- `wylacz_agenta` (z opcją `przerwij`), `ustaw_agenta` – oba w `P.PoleceniaStosu`,
-- `stan\wylaczeni.json`, zdarzenia `agent_wylaczony`, `agent_wlaczony`, `agent_ustawienia`,
+- `wylacz_agenta` (z opcją `przerwij`), `ustaw_agenta`, `profil_agenta` – wszystkie w `P.PoleceniaStosu`,
+- `stan\wylaczeni.json`, `stan\profile-agentow.json`, zdarzenia `agent_wylaczony`, `agent_wlaczony`, `agent_ustawienia`, `agent_profil`,
 - `nowe_zadanie`: pola `katalog_codex`, `katalog_claude` (katalog pracy strony; folder projektu pozostaje katalogiem zapisu), `narzedzia_testow`.
 
 ## Testy
 
 | Zestaw | Wynik |
 |---|---|
-| TestNiezawodnosci | 47 PASS |
+| TestNiezawodnosci | 51 PASS |
 | TestProtokolu | 39 PASS |
 | TestKatalogu | 29 PASS |
 | TestStraznika | 21 PASS |
@@ -50,12 +57,12 @@ Ponadto „⚙ Skonfiguruj agenta…”: katalog pracy, uprawnienia, model, licz
 | TestPentestu | 21 PASS |
 | TestStartuPentestu | 14 PASS |
 | TestAktywnosci | 24 PASS |
-| TestyRozmow (okno) | 92 PASS |
+| TestyRozmow (okno) | 96 PASS |
 | selftest konsoli | PASS |
 
 ## Czego nie sprawdzono
 
-- na żywych agentach: `nowe_zadanie` z agentem z katalogu, zmiana konfiguracji wiadomością (agent faktycznie edytuje plik i odsyła FIN), „Zatrzymaj teraz” na trwającej turze,
+- na żywych agentach: `nowe_zadanie` z agentem z katalogu, zmiana konfiguracji wiadomością (agent faktycznie edytuje plik i odsyła FIN), „Zatrzymaj teraz” na trwającej turze, „Przydziel zadanie” wysłane do prawdziwego agenta,
 - prawe menu i panel strażnika nie były oglądane na zrzucie z prawdziwymi parami (dane testowe nie mają par) – sprawdzane testami okna po nazwach pozycji i tekstach.
 
 ## Ograniczenia
