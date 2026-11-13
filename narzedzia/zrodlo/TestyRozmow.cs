@@ -10,7 +10,7 @@ namespace Ecxp {
 class TestyRozmow {
     static readonly BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
     static object Field(App a, string n) { return typeof(App).GetField(n, Flags).GetValue(a); }
-    static object Call(App a, string n, params object[] args) { return typeof(App).GetMethod(n, Flags).Invoke(a, args); }
+    static object Call(App a, string n, params object[] args) { return typeof(App).GetMethods(Flags).Single(m => m.Name == n && m.GetParameters().Length == args.Length).Invoke(a, args); }
     [DllImport("user32.dll", EntryPoint="SendMessage")] static extern IntPtr PointMsg(IntPtr h, int msg, IntPtr wp, ref Point p);
     static IEnumerable<Control> Descendants(Control parent) { foreach (Control c in parent.Controls) { yield return c; foreach (var d in Descendants(c)) yield return d; } }
     static int failed;
@@ -330,7 +330,21 @@ class TestyRozmow {
       Check(edytorKat.Text.Contains("python narzedzie.py"),"a script can be opened from the tree");
       oknoKat.Close(); Application.DoEvents();
       Check(!Application.OpenForms.Cast<Form>().Any(x=>x.Name=="oknoKatalogu"),"catalogue window closes without prompts when nothing is unsaved");
+      // 3.14.0: menu agenta (wyłącz, zatrzymaj, skonfiguruj) i czytelny nagłówek strażnika
+      var lvAgT=(ListView)Field(app,"lvAg");
+      var nazwyMenu=lvAgT.ContextMenuStrip.Items.Cast<ToolStripItem>().Select(x=>x.Name).ToList();
+      Check(new[]{"zmienKonfiguracjeWiadomoscia","katalogZMenu","edytujCodex","edytujClaude","wylaczCodex","zatrzymajCodex","konfigurujCodex","wylaczClaude","zatrzymajClaude","konfigurujClaude"}.All(nazwyMenu.Contains),"agent right-click menu offers edit files, configure, disable and stop now for both sides");
+      Check(Descendants(tabAgenci).OfType<Button>().Any(x=>x.Name=="wylaczAgentaPrzycisk"),"Agents tab has the disable / enable button");
+      var naglStr=Descendants(tabAgenci).OfType<Label>().Single(x=>x.Name=="naglowekStraznika");
+      var stanStr=Descendants(tabAgenci).OfType<Label>().Single(x=>x.Name=="stanStraznika");
+      Call(app,"UstawStraznika",false,false); Application.DoEvents();
+      Check(naglStr.Text.Contains("WYŁĄCZONY") && stanStr.Text.StartsWith("Wszystkie pary"),"watcher header says clearly that it is off and whose tasks are listed");
+      Call(app,"UstawStraznika",true,false); Application.DoEvents();
+      Check(naglStr.Text.Contains("WŁĄCZONY") && naglStr.Text.Contains("sprawdza co"),"watcher header says clearly that it is on and how often it checks");
+      Call(app,"UstawStraznika",false,false); Application.DoEvents();
       if(args.Contains("--galezie")) { Call(app,"UstawGalezie",true); Application.DoEvents(); }   // do zrzutu ekranu widoku gałęzi
+      if(args.Contains("--nowe")) form.BeginInvoke((Action)(()=>Call(app,"NoweZadanie")));   // do zrzutu ekranu okna nowego zadania
+      if(args.Contains("--katalog")) form.BeginInvoke((Action)(()=>Call(app,"PokazKatalogAgentow")));
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
         }

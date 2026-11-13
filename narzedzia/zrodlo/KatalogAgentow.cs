@@ -149,6 +149,51 @@ namespace Ecxp
             return kopia;
         }
 
+        // Zmiana konfiguracji wiadomością: przed wysłaniem polecenia agentowi kopia jego plików konfiguracji trafia do .kopie.
+        public static readonly string[] PlikiZmienianeWiadomoscia = { "AGENTS.md", "CLAUDE.md", "scope.md" };
+        public static List<string> KopiaKonfiguracji(string folder)
+        {
+            var kopie = new List<string>();
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return kopie;
+            var dir = Path.Combine(folder, KatalogKopii);
+            foreach (var n in PlikiZmienianeWiadomoscia)
+            {
+                var p = Path.Combine(folder, n);
+                if (!File.Exists(p)) continue;
+                Directory.CreateDirectory(dir);
+                var k = Path.Combine(dir, n + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff"));
+                File.Copy(p, k, false); kopie.Add(k);
+            }
+            return kopie;
+        }
+
+        // Treść zadania dla agenta: operator opisuje zmianę słowami, agent sam nanosi ją w swoich plikach konfiguracji.
+        public static string TrescZmianyKonfiguracji(string nazwa, string strona, string folder, string zmiana)
+        {
+            if (string.IsNullOrWhiteSpace(zmiana)) throw new EcxpException("Opisz, co ma się zmienić w konfiguracji agenta.");
+            var plik = PlikInstrukcji(strona);
+            var sb = new StringBuilder();
+            sb.AppendLine("ZMIANA KONFIGURACJI AGENTA " + nazwa + " – polecenie operatora.");
+            sb.AppendLine();
+            sb.AppendLine("Co ma się zmienić:");
+            sb.AppendLine(zmiana.Trim());
+            sb.AppendLine();
+            sb.AppendLine("Jak to wykonać:");
+            if (!string.IsNullOrEmpty(folder))
+            {
+                sb.AppendLine("1. Nanieś tę zmianę w swoich plikach konfiguracji w folderze " + folder + ": instrukcja " + plik + ", zakres scope.md, skrypty w scripts\\ – tylko w tych, których zmiana dotyczy.");
+                sb.AppendLine("2. Zmień wyłącznie to, o co prosi operator. Reszty treści nie ruszaj, niczego nie usuwaj bez polecenia. Kopia poprzedniej wersji jest w folderze " + KatalogKopii + ".");
+            }
+            else
+            {
+                sb.AppendLine("1. Nanieś tę zmianę w swoim pliku instrukcji (" + plik + ") w katalogu, w którym pracujesz. Jeśli pliku nie ma, utwórz go.");
+                sb.AppendLine("2. Zmień wyłącznie to, o co prosi operator. Reszty treści nie ruszaj, niczego nie usuwaj bez polecenia.");
+            }
+            sb.AppendLine("3. Nie wykonuj teraz żadnego innego zadania. Jeśli zmiany nie da się nanieść (brak uprawnień do zapisu, niejasne polecenie), nie zgaduj – odpowiedz wynik=niewykonane z powodem.");
+            sb.Append("4. Zakończ jednym FIN: które pliki zmieniłeś i co dokładnie się w nich zmieniło.");
+            return sb.ToString();
+        }
+
         public static string NowySkrypt(AgentKatalogu a, string nazwa)
         {
             nazwa = (nazwa ?? "").Trim();

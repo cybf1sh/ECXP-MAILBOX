@@ -10,6 +10,7 @@ Nadrzędna zasada to **1:1**. W projekcie i module pracuje para, Codex i Claude,
 
 | Dokument | Zawartość |
 |---|---|
+| [Wydanie 3.14.0](WDROZENIE-3.14.0-20261113.md) | katalog agentów, wybór, wyłączanie i konfiguracja agentów (plikiem albo wiadomością), czytelny strażnik |
 | [Wydanie 3.13.0](WDROZENIE-3.13.0-20261113.md) | niezawodność i szybkość: indeks, stan doręczeń, powtórki, dokańczanie, dzierżawa tury |
 | [Wydanie 3.12.0](WDROZENIE-3.12.0-20261113.md) | protokół ECXP 1.1 (7 zmian), kolor wątku, gałęzie wątków, Kosz, tokeny |
 | [Wydanie 3.11.0](WDROZENIE-3.11.0-20261113.md) | znaczniki wiadomości (kod, wątek do…, odpowiedź na…), drzewko folderów z archiwum |

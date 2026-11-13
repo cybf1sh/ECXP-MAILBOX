@@ -129,7 +129,7 @@ namespace Ecxp
         {
             if (strona != "claude" && strona != "codex") throw new EcxpException("Strona usługi: claude albo codex.");
             if (akcja != "start" && akcja != "stop" && akcja != "restart") throw new EcxpException("Akcja usługi: start, stop albo restart.");
-            int ile = akcja == "start" ? 0 : PrzerwijTury(strona);
+            int ile = akcja == "start" ? 0 : PrzerwijTury(x => x.StartsWith(strona + "-"));
             if (akcja != "start") Cieply.Zamknij(x => x.StartsWith(strona + "-"));
             var u = Uslugi();
             u[strona + "_zatrzymana"] = akcja == "stop";
@@ -149,7 +149,7 @@ namespace Ecxp
         // przyZamknieciu: konsola się zamyka – usługi, które działały, wznowi następny start konsoli (WznowPoZamknieciu).
         public static Dictionary<string, object> Zakoncz(bool przyZamknieciu)
         {
-            int ile = PrzerwijTury("claude") + PrzerwijTury("codex");
+            int ile = PrzerwijTury(x => x.StartsWith("claude-") || x.StartsWith("codex-"));
             Cieply.ZamknijWszystko();
             int sieroty = 0;
             try { sieroty = ZamknijOsierocone(); } catch (Exception ex) { Log("zakończenie usług – procesy osierocone: " + ex.Message); }
@@ -220,10 +220,60 @@ namespace Ecxp
             return n;
         }
 
-        static int PrzerwijTury(string strona)
+        // Przerwanie trwającej tury jednego agenta (operator: „Zatrzymaj teraz”). Zwraca liczbę przerwanych tur (0 albo 1).
+        public static int PrzerwijTure(string nazwa)
+        {
+            int ile = PrzerwijTury(x => x == nazwa);
+            Cieply.Zamknij(x => x == nazwa);
+            if (ile > 0) P.Zdarzenie("tura_przerwana", P.D("nazwa", nazwa, "kto", P.Wlasciciel));
+            return ile;
+        }
+
+        // Ustawienia pracy agenta w tle zmieniane przez operatora (bez zakładania agenta od nowa): katalog pracy, uprawnienia,
+        // model, limit tur na godzinę i limit czasu tury. Obowiązują od następnej tury.
+        public static Dictionary<string, object> Ustaw(string nazwa, Dictionary<string, object> a)
+        {
+            return P.ZBlokada(delegate
+            {
+                var p = Path.Combine(Dir, Path.GetFileName(nazwa ?? "") + ".json");
+                if (!File.Exists(p)) throw new EcxpException("Nie ma agenta w tle '" + nazwa + "'.");
+                var d = Pliki.Czytaj(p);
+                var zmiany = new List<string>();
+                if (a.ContainsKey("katalog"))
+                {
+                    var k = P.S(a, "katalog").Trim();
+                    if (k.Length == 0 || !Directory.Exists(k)) throw new EcxpException("Katalog pracy agenta nie istnieje: " + k);
+                    k = Path.GetFullPath(k);
+                    if (!string.Equals(P.S(d, "katalog"), k, StringComparison.OrdinalIgnoreCase)) { d["katalog"] = k; d["sesja_zalozona"] = false; zmiany.Add("katalog"); }
+                }
+                if (a.ContainsKey("uprawnienia"))
+                {
+                    var u = P.S(a, "uprawnienia");
+                    if (!Uprawnienia.Contains(u)) throw new EcxpException("Uprawnienia: odczyt, edycja albo pelne.");
+                    if (P.S(d, "uprawnienia") != u) { d["uprawnienia"] = u; zmiany.Add("uprawnienia"); }
+                }
+                if (a.ContainsKey("model") && P.S(d, "model") != P.S(a, "model").Trim()) { d["model"] = P.S(a, "model").Trim(); zmiany.Add("model"); }
+                int v;
+                if (a.ContainsKey("na_godzine") && int.TryParse(P.S(a, "na_godzine"), out v) && v >= 1 && v <= 120 && P.S(d, "na_godzine") != v.ToString()) { d["na_godzine"] = v; zmiany.Add("na_godzine"); }
+                if (a.ContainsKey("limit_tury_min"))
+                {
+                    if (!int.TryParse(P.S(a, "limit_tury_min"), out v) || v < 5 || v > 240) throw new EcxpException("Limit czasu tury: od 5 do 240 minut.");
+                    if (P.S(d, "limit_tury_min") != v.ToString() && !(v == 30 && P.S(d, "limit_tury_min").Length == 0)) { d["limit_tury_min"] = v; zmiany.Add("limit_tury_min"); }
+                }
+                if (zmiany.Count > 0)
+                {
+                    Pliki.Zapisz(p, d);
+                    Cieply.Zamknij(x => x == nazwa);          // ciepły proces z poprzednimi ustawieniami nie zostaje
+                    P.Zdarzenie("agent_ustawienia", P.D("nazwa", nazwa, "kto", P.Wlasciciel, "zmiany", zmiany));
+                }
+                return P.D("nazwa", nazwa, "zmiany", zmiany, "katalog", P.S(d, "katalog"), "uprawnienia", P.S(d, "uprawnienia"));
+            });
+        }
+
+        static int PrzerwijTury(Func<string, bool> ktore)
         {
             List<KeyValuePair<string, Process>> l;
-            lock (trwa) { l = procesy.Where(x => x.Key.StartsWith(strona + "-")).ToList(); foreach (var x in l) przerwane.Add(x.Key); }
+            lock (trwa) { l = procesy.Where(x => ktore(x.Key)).ToList(); foreach (var x in l) przerwane.Add(x.Key); }
             foreach (var x in l)
             {
                 try

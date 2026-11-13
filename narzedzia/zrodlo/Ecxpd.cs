@@ -291,17 +291,23 @@ namespace Ecxp
         // w istniejących katalogach ścieżek, które operator podał w treści zadania (np. plik na pulpicie).
         // claudeWAplikacji: strona Claude nie pracuje w tle – konsola otwiera dla niej sesję w aplikacji Claude (widoczną na pasku),
         // która sama odbiera zadanie i daje FIN przez MCP ECXP.
-        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false, string modelCodex = "", string modelClaude = "", bool pentest = false, Dictionary<string, object> opcjePentestu = null)
+        static List<object> AgenciWTle(Dictionary<string, object> r, string opis, List<string> roleCodex, List<string> roleClaude, string podwyzszone = "", bool pokazSesje = false, bool claudeWAplikacji = false, string modelCodex = "", string modelClaude = "", bool pentest = false, Dictionary<string, object> opcjePentestu = null,
+            Dictionary<string, string> katalogiAgentow = null)
         {
             var projekt = P.S(r, "projekt"); var modul = P.S(r, "modul");
-            var katalog = Path.Combine(P.Root, "projekty", projekt);
-            Directory.CreateDirectory(katalog);
-            var zapis = KatalogiZTresci(opis);
+            var katalogProjektu = Path.Combine(P.Root, "projekty", projekt);
+            Directory.CreateDirectory(katalogProjektu);
+            var zapisZTresci = KatalogiZTresci(opis);
             var wynik = new List<object>();
             var pk = (Dictionary<string, object>)r["pakiety"];
             foreach (var strona in pk.Keys.ToList())
             {
                 var p = (Dictionary<string, object>)pk[strona];
+                // katalog pracy tej strony: folder agenta wybranego przez operatora (katalog agentów) albo folder projektu ECXP.
+                // Agent z własnym katalogiem może też zapisywać w folderze projektu.
+                string wlasny;
+                var katalog = katalogiAgentow != null && katalogiAgentow.TryGetValue(strona, out wlasny) && wlasny.Length > 0 ? Path.GetFullPath(wlasny) : katalogProjektu;
+                var zapis = katalog == katalogProjektu ? zapisZTresci : zapisZTresci.Concat(new[] { katalogProjektu }).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (strona == "claude" && claudeWAplikacji)
                 {
                     Cieply.ZaufajClaude(katalog);
@@ -666,7 +672,17 @@ namespace Ecxp
                             var zd = (Dictionary<string, object>)r["zadanie"];
                             klucz = P.S(zd, "lustro_id").Length > 0 ? P.S(zd, "lustro_id") : P.S(zd, "id");
                         }
-                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), klucz, P.B(a, "pokaz_sesje"), P.B(a, "claude_w_aplikacji"));
+                        // agenci wybrani przez operatora z katalogu agentów: katalog pracy każdej strony (pusty = folder projektu)
+                        var katalogiAg = new Dictionary<string, string>();
+                        foreach (var st in new[] { "codex", "claude" })
+                        {
+                            var k = P.S(a, "katalog_" + st).Trim();
+                            if (k.Length == 0) continue;
+                            if (!Directory.Exists(k)) throw new EcxpException("Katalog agenta " + st + " nie istnieje: " + k);
+                            katalogiAg[st] = k;
+                        }
+                        if (P.B(a, "w_tle")) r["agenci_w_tle"] = AgenciWTle(r, P.S(a, "opis"), P.L(a, "role_codex"), P.L(a, "role_claude"), klucz, P.B(a, "pokaz_sesje"), P.B(a, "claude_w_aplikacji"),
+                            "", "", P.B(a, "narzedzia_testow"), null, katalogiAg);
                         if (klucz.Length > 0)
                         {
                             r["podwyzszone_klucz"] = klucz;
@@ -702,11 +718,14 @@ namespace Ecxp
                             P.S(a, "uprawnienia").Length > 0 ? P.S(a, "uprawnienia") : "odczyt", P.L(a, "role"), P.S(a, "opis"), ng > 0 ? ng : 6);
                     }
                 case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
+                case "ustaw_agenta": { TylkoOperator(s); var ru = Agenci.Ustaw(P.S(a, "nazwa").Trim().ToLowerInvariant(), a); zmiana = 1; return ru; }
                 case "wylacz_agenta":
                     {
                         // operator wybiera, którzy agenci pracują: wylacz = false włącza agenta z powrotem
                         TylkoOperator(s);
                         var rw = Wylaczeni.Ustaw(P.S(a, "nazwa"), !a.ContainsKey("wylacz") || P.B(a, "wylacz"), P.S(a, "uwagi"));
+                        // „Zatrzymaj teraz”: wyłączenie i przerwanie trwającej tury tego agenta
+                        if (P.B(rw, "wylaczony") && P.B(a, "przerwij")) rw["przerwane_tury"] = Agenci.PrzerwijTure(P.S(rw, "agent"));
                         zmiana = 1;
                         return rw;
                     }

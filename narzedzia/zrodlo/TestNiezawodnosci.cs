@@ -168,6 +168,19 @@ class TestNiezawodnosci {
   Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="para:test",Projekt="test",Modul="test",Typ="zadanie",Temat="Znowu oboje",Tresc="Po włączeniu."});
   Check(Wylaczeni.Lista().Count==0 && Do("claude-p").Count==doClaude+1,"after enabling, the pair address reaches both agents again");
   Check(File.ReadLines(dz).Count(l=>l.Contains("\"agent_wylaczony\""))==2 && File.ReadLines(dz).Count(l=>l.Contains("\"agent_wlaczony\""))==2 && Blad(()=>Wylaczeni.Ustaw("zła nazwa",true,""))!=null,"disabling and enabling are recorded in the audit log; bad names are refused");
+
+  // ---------- ustawienia agenta w tle zmieniane przez operatora ----------
+  string agU=Path.Combine(P.Root,"stan","agenci","codex-ust.json");
+  string kat1=Path.Combine(P.Root,"kat1"),kat2=Path.Combine(P.Root,"kat2");Directory.CreateDirectory(kat1);Directory.CreateDirectory(kat2);
+  Pliki.Zapisz(agU,P.D("nazwa","codex-ust","strona","codex","katalog",kat1,"uprawnienia","odczyt","model","","na_godzine",6,"aktywny",true,"sesja_zalozona",true));
+  var ru=Agenci.Ustaw("codex-ust",P.D("katalog",kat2,"uprawnienia","edycja","model","gpt-test","na_godzine","12","limit_tury_min","45"));
+  var poU=Pliki.Czytaj(agU);
+  Check(P.L(ru,"zmiany").Count==5 && P.S(poU,"katalog")==kat2 && P.S(poU,"uprawnienia")=="edycja" && P.S(poU,"model")=="gpt-test" && P.S(poU,"na_godzine")=="12" && Agenci.LimitTury(poU)==45 && !P.B(poU,"sesja_zalozona") && P.B(poU,"aktywny"),"operator can change an agent's working directory, permissions, model and limits without recreating it");
+  Check(P.L(Agenci.Ustaw("codex-ust",P.D("katalog",kat2,"uprawnienia","edycja","model","gpt-test","na_godzine","12","limit_tury_min","45")),"zmiany").Count==0,"saving the same settings changes nothing");
+  Check(Blad(()=>Agenci.Ustaw("codex-ust",P.D("katalog",Path.Combine(P.Root,"nie-ma"))))!=null && Blad(()=>Agenci.Ustaw("codex-ust",P.D("uprawnienia","wszystko")))!=null
+    && Blad(()=>Agenci.Ustaw("codex-ust",P.D("limit_tury_min","1")))!=null && Blad(()=>Agenci.Ustaw("codex-brak",P.D("model","x")))!=null && P.S(Pliki.Czytaj(agU),"katalog")==kat2,"bad directory, permissions, limit or unknown agent are refused and nothing changes");
+  Check(Agenci.PrzerwijTure("codex-ust")==0,"stopping an agent without a running turn interrupts nothing");
+  Check(File.ReadLines(dz).Count(l=>l.Contains("\"agent_ustawienia\""))==1,"settings change is recorded in the audit log once");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

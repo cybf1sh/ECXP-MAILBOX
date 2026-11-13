@@ -20,6 +20,10 @@ Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
 Aktualny pakiet 3.13.0: `builds/release-3.13.0/narzedzia/`.
 
+**Wersja 3.14.0 (agenci pod kontrolą operatora, przygotowana na gałęzi):** katalog agentów z edycją
+plików konfiguracji, wybór agenta przy nowym zadaniu, wyłączanie i zatrzymywanie agentów, konfiguracja
+plikiem albo wiadomością, czytelny strażnik. Szczegóły: [wydanie 3.14.0](docs/WDROZENIE-3.14.0-20261113.md).
+
 **Wersja 3.13.0 (niezawodność i szybkość):** indeks wiadomości w pamięci i przyrostowy stan
 doręczeń (wyszukanie wiadomości 68 → 3,7 ms), identyfikator żądania przeciw podwójnej wysyłce,
 dokańczanie operacji przerwanych awarią, numer kolejny wiadomości, dzierżawa tury z pulsem,

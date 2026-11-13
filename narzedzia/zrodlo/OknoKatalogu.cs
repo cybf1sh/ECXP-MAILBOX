@@ -39,12 +39,42 @@ namespace Ecxp
             catch (Exception ex) { Bledy.Wyjatek(ex); return "?"; }
         }
 
-        void PokazKatalogAgentow()
+        Action<string> wybierzWKatalogu;      // zaznacza agenta o podanym folderze w otwartym oknie katalogu
+
+        void PokazKatalogAgentow() { PokazKatalogAgentow(null); }
+
+        // folderAgenta != null: okno otwiera się na tym agencie (wejście z „Skonfiguruj agenta”).
+        void PokazKatalogAgentow(string folderAgenta)
         {
+            if (!string.IsNullOrEmpty(folderAgenta))
+            {
+                folderAgenta = folderAgenta.TrimEnd('\\', '/');
+                bool maInstrukcje = File.Exists(Path.Combine(folderAgenta, "AGENTS.md")) || File.Exists(Path.Combine(folderAgenta, "CLAUDE.md"));
+                if (!maInstrukcje)
+                {
+                    MessageBox.Show(form, string.Format(Jezyk.T("Folder {0} nie zawiera pliku instrukcji agenta (AGENTS.md albo CLAUDE.md), więc nie ma tu czego konfigurować.\n\nUtwórz agenta w katalogu agentów i wskaż jego folder jako katalog pracy."), folderAgenta),
+                        Jezyk.T("Katalog agentów"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    folderAgenta = null;
+                }
+                else
+                {
+                    var rodzic = Path.GetDirectoryName(folderAgenta) ?? "";
+                    if (!string.Equals(rodzic.TrimEnd('\\'), katalogAgentow.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (katalogAgentow.Length > 0 && MessageBox.Show(form, string.Format(Jezyk.T("Ten agent leży w {0}, poza bieżącym katalogiem roboczym agentów ({1}).\n\nPrzełączyć katalog roboczy na {0}?"), rodzic, katalogAgentow),
+                                Jezyk.T("Katalog agentów"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                        if (oknoKatalogu != null && !oknoKatalogu.IsDisposed) oknoKatalogu.Close();
+                        if (oknoKatalogu != null && !oknoKatalogu.IsDisposed) return;      // niezapisane zmiany – zamknięcie anulowane
+                        UstawKatalogAgentow(rodzic);
+                    }
+                }
+            }
             if (oknoKatalogu != null && !oknoKatalogu.IsDisposed)
             {
                 if (oknoKatalogu.WindowState == FormWindowState.Minimized) oknoKatalogu.WindowState = FormWindowState.Normal;
-                oknoKatalogu.Activate(); return;
+                oknoKatalogu.Activate();
+                if (folderAgenta != null && wybierzWKatalogu != null) wybierzWKatalogu(folderAgenta);
+                return;
             }
             var f = oknoKatalogu = new Form { Name = "oknoKatalogu", Text = Jezyk.T("🗂 Katalog agentów") + " – ECXP-MAILBOX", Size = new Size(1180, 760), MinimumSize = new Size(820, 520),
                 StartPosition = FormStartPosition.CenterScreen, Icon = form.Icon, Font = form.Font, KeyPreview = true };
@@ -245,12 +275,18 @@ namespace Ecxp
                 catch (Exception ex) { MessageBox.Show(f, ex.Message, Jezyk.T("Usuń skrypt"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
             f.FormClosing += (s, e) => { if (!opuscPlik()) e.Cancel = true; };
-            f.FormClosed += delegate { oknoKatalogu = null; };
+            f.FormClosed += delegate { oknoKatalogu = null; wybierzWKatalogu = null; };
+            wybierzWKatalogu = folder =>
+            {
+                if (!opuscPlik()) return;
+                foreach (ListViewItem it in lista.Items) it.Selected = string.Equals(((AgentKatalogu)it.Tag).Folder.TrimEnd('\\'), folder.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            };
 
             Motyw.Zastosuj(f); Jezyk.Zastosuj(f);
             edytor.BackColor = Motyw.Pole; edytor.ForeColor = Motyw.Tekst; drzewo.BackColor = Motyw.Pole; drzewo.ForeColor = Motyw.Tekst;
             odswiez(null);
-            if (lista.Items.Count > 0) lista.Items[0].Selected = true;
+            if (folderAgenta != null) wybierzWKatalogu(folderAgenta);
+            if (lista.SelectedItems.Count == 0 && lista.Items.Count > 0) lista.Items[0].Selected = true;
             stan();
             f.Show();
         }

@@ -26,6 +26,7 @@ namespace Ecxp
         bool pierwszeSprawdzenie = true;
         Button bStraznik; TrackBar suwakStraznika; Label lblSuwak, lblStraznik; CheckBox chPytaj, chDymki; NumericUpDown nudPytaj;
         ListView lvStraznik;
+        Label lblNaglowekStraznika;
 
         // ---------- ustawienia (ustawienia-wlasciciel.txt: straznik=włączony|sekundy|pytaj|minuty|dymki) ----------
         void WczytajStraznika(string ust)
@@ -102,9 +103,9 @@ namespace Ecxp
         void BudujStraznika(TabPage tab)
         {
             var panel = new Panel { Dock = DockStyle.Bottom, Height = 270, Padding = new Padding(6, 4, 6, 6), Name = "panelStraznika" };
-            var naglowek = new Label { Dock = DockStyle.Top, Height = 24, Font = fontB, Text = "🛡  Strażnik zadań" };
+            var naglowek = lblNaglowekStraznika = new Label { Dock = DockStyle.Top, Height = 24, Font = fontB, Text = "🛡  Strażnik zadań", Name = "naglowekStraznika" };
             var opis = new Label { Dock = DockStyle.Top, Height = 34, ForeColor = Motyw.Slaby, Font = fontS,
-                Text = "Hook konsoli: co ustawiony czas sprawdza, czy Twoje zadania i zapytania są wykonywane i na jakim są etapie. Gdy zadanie stoi bez zmian, pyta sesję agenta o etap (odpowiedź „w trakcie”, nie FIN)." };
+                Text = "Pokazuje, co dzieje się z zadaniami i pytaniami wysłanymi do agentów: czy dotarły, kto je odebrał, na jakim są etapie i czy jest wynik. Zaznacz parę na liście powyżej, aby zobaczyć tylko jej zadania; kliknij puste miejsce listy, aby zobaczyć wszystkie." };
             var rzad = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, WrapContents = false, AutoScroll = true };
             bStraznik = Btn("▶  Uruchom strażnika"); bStraznik.Name = "przyciskStraznika";
             var lblCo = new Label { Text = "Sprawdzaj co:", AutoSize = true, Margin = new Padding(12, 10, 2, 0) };
@@ -117,7 +118,7 @@ namespace Ecxp
             chDymki = new CheckBox { Text = "Powiadomienia", AutoSize = true, Checked = straznikDymki, Margin = new Padding(8, 9, 8, 0) };
             var bTeraz = Btn("Zapytaj agenta teraz"); bTeraz.Name = "zapytajTeraz";
             rzad.Controls.AddRange(new Control[] { bStraznik, lblCo, suwakStraznika, lblSuwak, chPytaj, nudPytaj, lblMin, chDymki, bTeraz });
-            lblStraznik = new Label { Dock = DockStyle.Top, Height = 22, ForeColor = Motyw.Slaby, Font = fontS };
+            lblStraznik = new Label { Dock = DockStyle.Top, Height = 22, Font = fontN, Name = "stanStraznika", AutoEllipsis = true };
             lvStraznik = new ListView { Name = "listaStraznika", View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
             foreach (var c in new object[][] { new object[] { "Wysłano", 120 }, new object[] { "Do", 150 }, new object[] { "Temat", 220 }, new object[] { "Etap", 430 },
                 new object[] { "Ostatnia zmiana", 110 }, new object[] { "Pytanie o etap", 110 } })
@@ -163,8 +164,8 @@ namespace Ecxp
             straznikWlaczony = wl;
             if (bStraznik != null) bStraznik.Text = Jezyk.T(wl ? "■  Zatrzymaj strażnika" : "▶  Uruchom strażnika");
             if (timerStraznika != null) { timerStraznika.Interval = straznikSek * 1000; timerStraznika.Enabled = wl; }
-            if (wl) { pierwszeSprawdzenie = true; SprawdzStraznikiem(); }
-            else if (lblStraznik != null) lblStraznik.Text = Jezyk.T("Strażnik zatrzymany. Uruchom go, aby śledzić etap zadań i zapytań.");
+            if (wl) pierwszeSprawdzenie = true;
+            SprawdzStraznikiem();          // także po zatrzymaniu: jednorazowy obraz stanu z wyraźnym napisem, że lista nie odświeża się sama
             if (zapisz) ZapiszUstawienia();
         }
 
@@ -181,11 +182,15 @@ namespace Ecxp
             var doPytania = new List<Msg>();
             var wiersze = new List<ListViewItem>();
             int wToku = 0, zakonczonych = 0;
+            // widok: tylko zadania agentów zaznaczonej pary (śledzenie i powiadomienia dotyczą nadal wszystkich)
+            var para = lvAg != null && lvAg.SelectedItems.Count > 0 ? WybranaPara() : null;
+            var agenciPary = para == null ? null : new HashSet<string>(new[] { P.S(para, "codex"), P.S(para, "claude") }.Where(x => x.Length > 0));
             foreach (var m in sledzone)
             {
                 Color kolor; string etap, klucz; bool zakonczone;
                 try { etap = Etap(m, teraz, out kolor); klucz = KluczEtapu(m); zakonczone = OdpowiedzNa(m) != null; } catch (Exception ex) { Bledy.Wyjatek(ex); continue; }
-                if (zakonczone) zakonczonych++; else wToku++;
+                bool widoczne = agenciPary == null || agenciPary.Contains(m.Do);
+                if (widoczne) { if (zakonczone) zakonczonych++; else wToku++; }
                 StanStraznika s;
                 if (!stanStraznika.TryGetValue(m.Id, out s))
                 {
@@ -205,7 +210,7 @@ namespace Ecxp
                 it.SubItems.Add(etap);
                 it.SubItems.Add(CzasOd(teraz - s.Zmiana) + " " + Jezyk.T("temu"));
                 it.SubItems.Add(pytanie > DateTime.MinValue ? CzasOd(teraz - pytanie) + " " + Jezyk.T("temu") : "—");
-                wiersze.Add(it);
+                if (widoczne) wiersze.Add(it);
             }
             foreach (var id in stanStraznika.Keys.Where(k => !sledzone.Any(m => m.Id == k)).ToList()) stanStraznika.Remove(id);
             var zaznaczony = lvStraznik.SelectedItems.Count > 0 ? (lvStraznik.SelectedItems[0].Tag as Msg) : null;
@@ -214,8 +219,21 @@ namespace Ecxp
             lvStraznik.Items.AddRange(wiersze.ToArray());
             if (zaznaczony != null) foreach (ListViewItem it in lvStraznik.Items) if (((Msg)it.Tag).Id == zaznaczony.Id) { it.Selected = true; break; }
             lvStraznik.EndUpdate();
-            lblStraznik.Text = Jezyk.T("Strażnik działa") + " · " + Jezyk.T("ostatnie sprawdzenie") + " " + teraz.ToString("HH:mm:ss") + " · " +
-                Jezyk.T("w toku") + ": " + wToku + " · " + Jezyk.T("zakończone (15 min)") + ": " + zakonczonych + (straznikPytaj ? " · " + Jezyk.T("pytanie o etap po") + " " + straznikPytajMin + " min " + Jezyk.T("bez zmian") : "");
+            // nagłówek: czy strażnik działa; wiersz stanu: czyje zadania widać i ile
+            if (lblNaglowekStraznika != null)
+            {
+                lblNaglowekStraznika.Text = "🛡  " + Jezyk.T("Strażnik zadań") + " — " + (straznikWlaczony
+                    ? Jezyk.T("WŁĄCZONY") + " · " + Jezyk.T("sprawdza co") + " " + (straznikSek >= 60 ? "1 min" : straznikSek + " s") + " · " + Jezyk.T("ostatnio") + " " + teraz.ToString("HH:mm:ss")
+                    : Jezyk.T("WYŁĄCZONY") + " · " + Jezyk.T("lista nie odświeża się sama – kliknij „Uruchom strażnika”"));
+                lblNaglowekStraznika.ForeColor = straznikWlaczony ? Zielony : Motyw.K(Color.FromArgb(190, 90, 0));
+            }
+            string czyje = para == null ? Jezyk.T("Wszystkie pary")
+                : Jezyk.T("Para") + " " + P.S(para, "projekt") + " / " + P.S(para, "modul") + " (" + string.Join(", ", agenciPary.Select(x => x + (Wylaczeni.Jest(x) ? " ⏸" : ""))) + ")";
+            lblStraznik.Text = czyje + ":  " + (wToku + zakonczonych == 0
+                    ? Jezyk.T("brak zadań i pytań w toku. Pojawią się tu po wysłaniu – z informacją, kto odebrał i na jakim są etapie.")
+                    : Jezyk.T("w toku") + ": " + wToku + " · " + Jezyk.T("zakończone (15 min)") + ": " + zakonczonych)
+                + (straznikWlaczony && straznikPytaj ? "   ·   " + Jezyk.T("pytanie o etap po") + " " + straznikPytajMin + " min " + Jezyk.T("bez zmian") : "");
+            lblStraznik.ForeColor = Motyw.Tekst;
             if (!pierwszeSprawdzenie && straznikDymki && zmiany.Count > 0 && tray != null)
                 try { tray.ShowBalloonTip(5000, Jezyk.T("Strażnik zadań – nowy etap"), string.Join("\n", zmiany.Take(3)) + (zmiany.Count > 3 ? "\n…" : ""), ToolTipIcon.Info); } catch { }
             pierwszeSprawdzenie = false;

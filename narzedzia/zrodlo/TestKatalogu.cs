@@ -89,6 +89,15 @@ class TestKatalogu {
     && Blad(()=>KatalogAgentow.Utworz(kat,"ok-agent","claude","x","zły moduł",null))!=null && Blad(()=>KatalogAgentow.Utworz(Path.Combine(root,"nie-ma"),"ok-agent","claude","x","web",null))!=null
     && !Directory.Exists(Path.Combine(kat,"ok-agent")),"existing folder, path escape, bad names, unknown model and missing directory are refused without leftovers");
   Check(KatalogAgentow.Znajdz(kat).Count==4,"all agents are listed after creation");
+
+  // ---------- zmiana konfiguracji wiadomością ----------
+  var fk=Path.Combine(root,"msg-agent");Directory.CreateDirectory(fk);File.WriteAllText(Path.Combine(fk,"CLAUDE.md"),"stara instrukcja");File.WriteAllText(Path.Combine(fk,"scope.md"),"stary zakres");
+  var kopieK=KatalogAgentow.KopiaKonfiguracji(fk);
+  Check(kopieK.Count==2 && kopieK.All(File.Exists) && kopieK.All(x=>Path.GetDirectoryName(x)==Path.Combine(fk,".kopie")) && File.ReadAllText(kopieK[0])=="stara instrukcja" && File.ReadAllText(Path.Combine(fk,"CLAUDE.md"))=="stara instrukcja","configuration files are backed up before a change by message and the originals stay untouched");
+  Check(KatalogAgentow.KopiaKonfiguracji(Path.Combine(root,"nie-ma-folderu")).Count==0 && KatalogAgentow.KopiaKonfiguracji("").Count==0,"backup of a missing folder does nothing");
+  var tz=KatalogAgentow.TrescZmianyKonfiguracji("claude-x","claude",fk,"  testuj tylko host A  ");
+  Check(tz.Contains("claude-x") && tz.Contains("testuj tylko host A") && tz.Contains("CLAUDE.md") && tz.Contains(fk) && tz.Contains("niewykonane") && !tz.Contains("AGENTS.md"),"change-by-message task names the agent, the change, its own instruction file and folder");
+  Check(KatalogAgentow.TrescZmianyKonfiguracji("codex-x","codex","","zmiana").Contains("AGENTS.md") && Blad(()=>KatalogAgentow.TrescZmianyKonfiguracji("codex-x","codex",fk,"   "))!=null,"Codex gets AGENTS.md and an empty change is refused");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

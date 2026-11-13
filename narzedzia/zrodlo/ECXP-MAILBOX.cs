@@ -284,6 +284,7 @@ namespace Ecxp
             stStos.ForeColor = ok ? Zielony : Czerwony;
         }
 
+        bool odswiezanieAgentow;            // lista par jest właśnie przebudowywana (bez reakcji strażnika na chwilowy brak zaznaczenia)
         HashSet<string> poleceniaStosu;      // polecenia znane działającemu stosowi (null = stos sprzed ecxp/1.1, bez listy)
         string wersjaStosu = "";
         object Stos(string op, Dictionary<string, object> a, int limitMs = 60000)
@@ -662,7 +663,37 @@ namespace Ecxp
             menuAg.Items.Add(new ToolStripSeparator());
             var miWylCodex = new ToolStripMenuItem("⏸  Wyłącz agenta Codex", null, delegate { PrzelaczAgenta("codex"); }) { Name = "wylaczCodex" };
             var miWylClaude = new ToolStripMenuItem("⏸  Wyłącz agenta Claude", null, delegate { PrzelaczAgenta("claude"); }) { Name = "wylaczClaude" };
-            menuAg.Items.Add(miWylCodex); menuAg.Items.Add(miWylClaude);
+            var miStopCodex = new ToolStripMenuItem("■  Zatrzymaj teraz agenta Codex", null, delegate { ZatrzymajAgentaTeraz("codex"); }) { Name = "zatrzymajCodex" };
+            var miStopClaude = new ToolStripMenuItem("■  Zatrzymaj teraz agenta Claude", null, delegate { ZatrzymajAgentaTeraz("claude"); }) { Name = "zatrzymajClaude" };
+            var miKonfCodex = new ToolStripMenuItem("⚙  Skonfiguruj agenta Codex…", null, delegate { KonfigurujAgenta("codex"); }) { Name = "konfigurujCodex" };
+            var miKonfClaude = new ToolStripMenuItem("⚙  Skonfiguruj agenta Claude…", null, delegate { KonfigurujAgenta("claude"); }) { Name = "konfigurujClaude" };
+            // „Edytuj agenta”: od razu pliki konfiguracyjne agenta na dysku (instrukcja, zakres, skrypty)
+            var miEdCodex = new ToolStripMenuItem("📝  Edytuj agenta Codex (pliki konfiguracji)…", null, delegate { EdytujAgenta("codex"); }) { Name = "edytujCodex" };
+            var miEdClaude = new ToolStripMenuItem("📝  Edytuj agenta Claude (pliki konfiguracji)…", null, delegate { EdytujAgenta("claude"); }) { Name = "edytujClaude" };
+            // drugi sposób konfiguracji: operator opisuje zmianę wiadomością, agent sam nanosi ją w swoich plikach
+            var miZmien = new ToolStripMenuItem("✉  Zmień konfigurację agentów wiadomością…", null, delegate { ZmienKonfiguracjeWiadomoscia(); }) { Name = "zmienKonfiguracjeWiadomoscia" };
+            menuAg.Items.Add(miZmien);
+            menuAg.Items.Add(new ToolStripMenuItem("🗂  Katalog agentów: dodaj agenta, zmień katalog…", null, delegate { PokazKatalogAgentow(); }) { Name = "katalogZMenu" });
+            menuAg.Items.Add(new ToolStripSeparator());
+            menuAg.Opening += (s, e) => { miZmien.Enabled = WybranaPara() != null; };
+            menuAg.Items.Add(miEdCodex); menuAg.Items.Add(miKonfCodex); menuAg.Items.Add(miWylCodex); menuAg.Items.Add(miStopCodex);
+            menuAg.Items.Add(new ToolStripSeparator());
+            menuAg.Items.Add(miEdClaude); menuAg.Items.Add(miKonfClaude); menuAg.Items.Add(miWylClaude); menuAg.Items.Add(miStopClaude);
+            menuAg.Opening += (s, e) =>
+            {
+                var d = WybranaPara();
+                miEdCodex.Enabled = d != null && P.S(d, "codex").Length > 0; miEdClaude.Enabled = d != null && P.S(d, "claude").Length > 0;
+            };
+            menuAg.Opening += (s, e) =>
+            {
+                var d = WybranaPara();
+                foreach (var para in new[] { new object[] { miStopCodex, miKonfCodex, "codex" }, new object[] { miStopClaude, miKonfClaude, "claude" } })
+                {
+                    var n = d != null ? P.S(d, (string)para[2]) : "";
+                    ((ToolStripMenuItem)para[0]).Enabled = n.Length > 0 && !Wylaczeni.Jest(n);
+                    ((ToolStripMenuItem)para[1]).Enabled = n.Length > 0;
+                }
+            };
             menuAg.Opening += (s, e) =>
             {
                 var d = WybranaPara(); miCoCodex.Enabled = d != null && P.S(d, "codex").Length > 0; miCoClaude.Enabled = d != null && P.S(d, "claude").Length > 0;
@@ -705,6 +736,9 @@ namespace Ecxp
             bPakiet.Click += delegate { PakietyStartowe(); };
             bNazwy.Click += delegate { NazwySesji(); };
             lvAg.DoubleClick += delegate { BiezacaZListy(); };
+            // wybór pary zawęża panel strażnika do jej zadań; klik w puste miejsce listy pokazuje wszystkie
+            lvAg.SelectedIndexChanged += delegate { if (!odswiezanieAgentow) try { SprawdzStraznikiem(); } catch (Exception ex) { Bledy.Wyjatek(ex); } };
+            lvAg.MouseDown += (s, e) => { if (lvAg.HitTest(e.Location).Item == null) foreach (ListViewItem it in lvAg.SelectedItems) it.Selected = false; };
             lvAg.ContextMenuStrip = menuAg;
             cbProjekt.SelectedIndexChanged += delegate { RefreshView(); };
 
@@ -3507,7 +3541,12 @@ namespace Ecxp
             Dictionary<string, object> o;
             try { o = Siec.Opis(projAkt); } catch { return; }
             var trasy = Siec.Trasy().Where(x => x.Aktywna).ToList();
+            // zaznaczona para zostaje zaznaczona po przebudowie listy (panel strażnika pokazuje jej zadania)
+            var zaznPara = WybranaPara();
+            string zaznKlucz = zaznPara != null ? P.S(zaznPara, "projekt") + "|" + P.S(zaznPara, "modul") : null;
+            odswiezanieAgentow = true;
             lvAg.BeginUpdate();
+            try {
             lvAg.Items.Clear();
             foreach (Dictionary<string, object> d in (List<object>)o["pary"])
             {
@@ -3549,8 +3588,9 @@ namespace Ecxp
                 if (pr == biezProj && mod == biezMod) { it.Text = "▶ " + pr; it.Font = fontB; it.BackColor = Akcent; }
                 it.Tag = d;
                 lvAg.Items.Add(it);
+                if (zaznKlucz != null && pr + "|" + mod == zaznKlucz) it.Selected = true;
             }
-            lvAg.EndUpdate();
+            } finally { lvAg.EndUpdate(); odswiezanieAgentow = false; }
             tabAg.Text = Jezyk.T("Agenci") + " (" + lvAg.Items.Count + ")";
         }
 
@@ -3621,6 +3661,152 @@ namespace Ecxp
             pnlBiez.BackColor = ostrz ? Motyw.Ostrz(Color.FromArgb(255, 226, 200)) : Akcent;
             lblBiez.ForeColor = Motyw.Tekst;
             bBiezFiltr.Text = tylkoBiez ? Jezyk.T("Pokaż wszystkie rozmowy") : Jezyk.T("Pokaż tylko tę sesję");
+        }
+
+        // „Zatrzymaj teraz”: przerwanie trwającej tury agenta i wyłączenie go (nie zacznie tej pracy od nowa, dopóki go nie włączysz).
+        void ZatrzymajAgentaTeraz(string strona)
+        {
+            var d = WybranaPara(); var n = d != null ? P.S(d, strona) : "";
+            if (n.Length == 0) return;
+            if (MessageBox.Show(form, string.Format(Jezyk.T("Zatrzymać teraz agenta {0}?\n\nTrwająca tura zostanie przerwana (jej wynik przepadnie), a agent zostanie wyłączony – nie dostanie nowych zadań i nie zacznie przerwanej pracy od nowa, dopóki go nie włączysz."), n),
+                    Jezyk.T("Zatrzymaj agenta"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            try
+            {
+                var r = (Dictionary<string, object>)Stos("wylacz_agenta", P.D("nazwa", n, "wylacz", true, "przerwij", true, "uwagi", "zatrzymany teraz z konsoli ECXP-MAILBOX"));
+                stInfo.Text = Jezyk.T("Agent zatrzymany: ") + n + (P.S(r, "przerwane_tury") == "1" ? " · " + Jezyk.T("przerwano trwającą turę") : " · " + Jezyk.T("nie miał trwającej tury"));
+                Skanuj();
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, Jezyk.T("Zatrzymaj agenta"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        // Folder z plikami konfiguracji agenta: jego katalog pracy (agent w tle) albo folder agenta o tej tożsamości w katalogu agentów.
+        string FolderKonfiguracjiAgenta(string nazwa, string strona)
+        {
+            var rec = Agenci.Lista().FirstOrDefault(x => P.S(x, "nazwa") == nazwa);
+            string katalog = rec != null ? P.S(rec, "katalog") : "";
+            if (katalog.Length > 0 && File.Exists(Path.Combine(katalog, KatalogAgentow.PlikInstrukcji(strona)))) return katalog;
+            try
+            {
+                var wKat = KatalogAgentow.Znajdz(katalogAgentow).FirstOrDefault(x => x.Strona == strona && x.Tozsamosc == nazwa);
+                if (wKat != null) return wKat.Folder;
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); }
+            return katalog;
+        }
+
+        // „Edytuj agenta” z prawego menu: otwiera edytor plików konfiguracyjnych wybranego agenta (pliki na dysku).
+        void EdytujAgenta(string strona)
+        {
+            var d = WybranaPara(); var n = d != null ? P.S(d, strona) : "";
+            if (n.Length == 0) return;
+            var folder = FolderKonfiguracjiAgenta(n, strona);
+            if (folder.Length == 0)
+            {
+                MessageBox.Show(form, string.Format(Jezyk.T("Agent {0} nie ma własnego folderu konfiguracji – pracuje jako sesja w aplikacji i nie ma go w katalogu agentów.\n\nOtworzy się katalog agentów: tam dodasz agenta albo wybierzesz istniejącego do edycji."), n),
+                    Jezyk.T("Edytuj agenta"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                PokazKatalogAgentow();
+                return;
+            }
+            PokazKatalogAgentow(folder);
+        }
+
+        // „Zmień konfigurację wiadomością”: operator pisze, co ma się zmienić w zadaniach i konfiguracji; każdy wybrany agent
+        // zaznaczonej pary dostaje zadanie naniesienia zmiany w swoich plikach. Przed wysłaniem powstaje kopia plików w .kopie.
+        void ZmienKonfiguracjeWiadomoscia()
+        {
+            var d = WybranaPara();
+            if (d == null) return;
+            var strony = new[] { "codex", "claude" }.Where(st => P.S(d, st).Length > 0).ToList();
+            if (strony.Count == 0) return;
+            using (var f = new Formularz(Jezyk.T("Zmień konfigurację agentów wiadomością") + " – " + P.S(d, "projekt") + " / " + P.S(d, "modul"), fontN, fontB))
+            {
+                f.Size = new Size(820, 560);
+                var ch = f.Wybory("Dla agentów:", strony.Select(st => P.S(d, st) + (Wylaczeni.Jest(P.S(d, st)) ? "  ⏸" : "")).ToArray(), true);
+                for (int i = 0; i < ch.Length; i++) { ch[i].Name = "zmiana_" + strony[i]; if (Wylaczeni.Jest(P.S(d, strony[i]))) { ch[i].Checked = false; ch[i].Enabled = false; } }
+                var tb = f.Wielowiersz("Co zmienić:", ""); tb.Name = "trescZmiany"; tb.Height = 220;
+                var tylkoOdczyt = strony.Where(st => { var rec = Agenci.Lista().FirstOrDefault(x => P.S(x, "nazwa") == P.S(d, st)); return rec != null && P.S(rec, "uprawnienia") == "odczyt"; }).Select(st => P.S(d, st)).ToList();
+                f.Uwaga("Napisz zwykłym tekstem, co ma się zmienić w zadaniach, zakresie albo zasadach pracy agenta. Każdy zaznaczony agent dostanie to jako zadanie, sam naniesie zmianę w swoich plikach (instrukcja, scope.md, skrypty) i odpowie, co zmienił. Poprzednia wersja plików trafia do folderu .kopie. Wyłączony agent (⏸) nie dostanie wiadomości. Te same pliki możesz też edytować ręcznie: prawy klawisz → „Edytuj agenta”.");
+                if (tylkoOdczyt.Count > 0) f.Uwaga("Uwaga: " + string.Join(", ", tylkoOdczyt) + " ma uprawnienia „odczyt” i nie zapisze plików – zmień je w „Skonfiguruj agenta” albo edytuj pliki ręcznie.");
+                f.PrzyciskOk("Wyślij");
+                while (f.ShowDialog(form) == DialogResult.OK)
+                {
+                    var wybrane = strony.Where((st, i) => ch[i].Checked).ToList();
+                    if (wybrane.Count == 0) { f.Blad("Zaznacz co najmniej jednego agenta."); continue; }
+                    if (tb.Text.Trim().Length == 0) { f.Blad("Opisz, co ma się zmienić."); continue; }
+                    var wyslane = new List<string>(); var bledy = new List<string>();
+                    foreach (var st in wybrane)
+                    {
+                        var n = P.S(d, st);
+                        try
+                        {
+                            var folder = FolderKonfiguracjiAgenta(n, st);
+                            KatalogAgentow.KopiaKonfiguracji(folder);
+                            Stos("wyslij", P.D("do", n, "projekt", P.S(d, "projekt"), "modul", P.S(d, "modul"), "typ", "zadanie", "temat", "KONFIGURACJA – " + n,
+                                "tresc", KatalogAgentow.TrescZmianyKonfiguracji(n, st, folder, tb.Text),
+                                "ograniczenia", "Zmiana konfiguracji agenta na polecenie operatora: wolno zmienić wyłącznie pliki konfiguracji tego agenta. Push, merge, USER_ACCEPTED i usuwanie wymagają zgody operatora w czacie."));
+                            wyslane.Add(n);
+                        }
+                        catch (Exception ex) { Bledy.Wyjatek(ex); bledy.Add(n + ": " + ex.Message); }
+                    }
+                    if (wyslane.Count > 0) stInfo.Text = Jezyk.T("Zmiana konfiguracji wysłana do: ") + string.Join(", ", wyslane) + Jezyk.T(" – odpowiedź agenta zobaczysz w Odebranych");
+                    if (bledy.Count > 0) MessageBox.Show(form, Jezyk.T("Nie wysłano: ") + "\n" + string.Join("\n", bledy), Jezyk.T("Zmień konfigurację agentów wiadomością"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Skanuj();
+                    break;
+                }
+            }
+        }
+
+        // „Skonfiguruj agenta”: ustawienia pracy w tle (katalog, uprawnienia, model, limity) i wejście do plików konfiguracji
+        // agenta (instrukcja, zakres, skrypty) w oknie katalogu agentów.
+        void KonfigurujAgenta(string strona)
+        {
+            var d = WybranaPara(); var n = d != null ? P.S(d, strona) : "";
+            if (n.Length == 0) return;
+            var rec = Agenci.Lista().FirstOrDefault(x => P.S(x, "nazwa") == n);
+            var zKatalogu = new List<AgentKatalogu>();
+            try { zKatalogu = KatalogAgentow.Znajdz(katalogAgentow).Where(x => x.Strona == strona).ToList(); } catch (Exception ex) { Bledy.Wyjatek(ex); }
+            string katalog = rec != null ? P.S(rec, "katalog") : "";
+            var wKatalogu = zKatalogu.FirstOrDefault(x => string.Equals(x.Folder.TrimEnd('\\'), katalog.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) ?? zKatalogu.FirstOrDefault(x => x.Tozsamosc == n);
+            using (var f = new Formularz(Jezyk.T("Skonfiguruj agenta") + " – " + n, fontN, fontB))
+            {
+                f.Size = new Size(820, rec != null ? 600 : 380);
+                var tbStan = f.Tekst("Agent:", n + "   ·   " + P.S(d, "projekt") + " / " + P.S(d, "modul") + "   ·   " +
+                    (Wylaczeni.Jest(n) ? Jezyk.T("WYŁĄCZONY") : rec != null && P.B(rec, "aktywny") ? Jezyk.T("agent w tle") : Jezyk.T("sesja w aplikacji")));
+                tbStan.ReadOnly = true;
+                ComboBox cbK = null, cbU = null, cbMo = null; TextBox tbG = null, tbL = null;
+                if (rec != null)
+                {
+                    var foldery = new List<string> { katalog }.Concat(zKatalogu.Select(x => x.Folder)).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    cbK = f.Combo("Katalog pracy:", foldery, katalog);
+                    cbU = f.Combo("Uprawnienia:", Agenci.Uprawnienia.ToList(), P.S(rec, "uprawnienia")); cbU.DropDownStyle = ComboBoxStyle.DropDownList;
+                    cbMo = f.Combo("Model (puste = domyślny):", new List<string> { "", P.S(rec, "model") }.Concat(strona == "claude" ? new[] { "opus", "sonnet", "haiku" } : new string[0]).Distinct().ToList(), P.S(rec, "model"));
+                    tbG = f.Tekst("Najwięcej tur na godzinę:", P.S(rec, "na_godzine").Length > 0 ? P.S(rec, "na_godzine") : "6");
+                    tbL = f.Tekst("Limit czasu jednej tury (min):", Agenci.LimitTury(rec).ToString());
+                    f.Uwaga("Katalog pracy to folder, w którym agent pracuje i z którego czyta swoją instrukcję (" + KatalogAgentow.PlikInstrukcji(strona) + "). Możesz wskazać agenta z katalogu agentów (" +
+                            (katalogAgentow.Length > 0 ? katalogAgentow : Jezyk.T("nie wybrano")) + ") albo wpisać inną ścieżkę. Uprawnienia: odczyt – tylko czyta; edycja – zmienia pliki; pelne – także polecenia systemowe. " +
+                            "Zmiany obowiązują od następnej tury agenta.");
+                }
+                else f.Uwaga("Ten agent pracuje jako sesja w aplikacji – ustawienia pracy w tle (katalog, uprawnienia, limity) go nie dotyczą. Możesz edytować pliki jego konfiguracji, jeśli jest w katalogu agentów.");
+                var bPliki = new Button { Text = Jezyk.T("📝  Pliki konfiguracji: instrukcja, zakres, skrypty…"), AutoSize = true, Margin = new Padding(3, 4, 3, 4), Name = "plikiKonfiguracji" };
+                f.Rzad("", bPliki);
+                bool otworzPliki = false;
+                bPliki.Click += delegate { otworzPliki = true; f.DialogResult = rec != null ? DialogResult.OK : DialogResult.Cancel; f.Close(); };
+                f.PrzyciskOk(rec != null ? "Zapisz ustawienia" : "OK");
+                var wynik = f.ShowDialog(form);
+                string folderPlikow = rec != null && cbK != null && cbK.Text.Trim().Length > 0 ? cbK.Text.Trim() : wKatalogu != null ? wKatalogu.Folder : katalog;
+                if (wynik == DialogResult.OK && rec != null)
+                {
+                    try
+                    {
+                        var r = (Dictionary<string, object>)Stos("ustaw_agenta", P.D("nazwa", n, "katalog", cbK.Text.Trim(), "uprawnienia", cbU.Text, "model", cbMo.Text.Trim(), "na_godzine", tbG.Text.Trim(), "limit_tury_min", tbL.Text.Trim()));
+                        var zm = P.L(r, "zmiany");
+                        stInfo.Text = n + ": " + (zm.Count > 0 ? Jezyk.T("zapisano ustawienia – ") + string.Join(", ", zm) : Jezyk.T("ustawienia bez zmian"));
+                        Skanuj();
+                    }
+                    catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, Jezyk.T("Nie zapisano: ") + ex.Message, Jezyk.T("Skonfiguruj agenta"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                }
+                if (otworzPliki) PokazKatalogAgentow(folderPlikow);
+            }
         }
 
         // Wyłączenie albo włączenie jednej strony zaznaczonej pary (polecenie stosu wylacz_agenta).
@@ -3978,6 +4164,23 @@ namespace Ecxp
                 f.Zaaw = false;
                 var agenci = f.Wybory("Wyślij do agentów:", new[] { "ChatGPT/Codex", "Claude" }, true);
                 var chCx = agenci[0]; var chCl = agenci[1];
+                // agenci z katalogu agentów (zakładka Agenci → Katalog agentów): operator wybiera, który agent wykona zadanie po każdej stronie
+                var zKatalogu = new List<AgentKatalogu>();
+                try { zKatalogu = KatalogAgentow.Znajdz(katalogAgentow); } catch (Exception ex) { Bledy.Wyjatek(ex); }
+                var domyslnyAgent = Jezyk.T("domyślny – folder projektu ECXP");
+                Func<string, List<AgentKatalogu>> strony2 = st => zKatalogu.Where(x => x.Strona == st).ToList();
+                Func<string, ComboBox> wyborAgenta = st =>
+                {
+                    var opcje = new List<string> { domyslnyAgent }.Concat(strony2(st).Select(x => x.Nazwa + "  —  " + x.Folder)).ToList();
+                    var cb = f.Combo(st == "codex" ? "Agent Codex:" : "Agent Claude:", opcje, opcje[0]);
+                    cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.Name = "agent_" + st;
+                    return cb;
+                };
+                var cbAgCx = wyborAgenta("codex"); var cbAgCl = wyborAgenta("claude");
+                Func<ComboBox, string, string> katalogWybranego = (cb, st) => cb.SelectedIndex > 0 && cb.SelectedIndex - 1 < strony2(st).Count ? strony2(st)[cb.SelectedIndex - 1].Folder : "";
+                f.Uwaga(zKatalogu.Count > 0
+                    ? "Agent z katalogu pracuje w swoim folderze (" + katalogAgentow + ") i czyta stamtąd swoją instrukcję (AGENTS.md / CLAUDE.md), zakres i skrypty. „Domyślny” pracuje w folderze projektu ECXP bez własnej konfiguracji. Listę agentów i ich pliki zmienisz w zakładce Agenci → „Katalog agentów…”."
+                    : "Brak agentów w katalogu agentów. Dodasz ich w zakładce Agenci → „Katalog agentów…” – wtedy tutaj wybierzesz, który agent wykona zadanie.");
                 f.Zaaw = true;
                 var rCx = f.Role("Role sesji ChatGPT/Codex:", new[] { "programista" });
                 var rCl = f.Role("Role sesji Claude:", new[] { "recenzent", "tester" });
@@ -3991,7 +4194,9 @@ namespace Ecxp
                     if (Formularz.WybranaIkona(ikM) == Siec.Ikony[1]) kategoria.SelectedIndex = 1;
                 };
                 if (Formularz.WybranaIkona(ikM) == Siec.Ikony[1] || Formularz.WybranaIkona(ikP) == Siec.Ikony[1]) kategoria.SelectedIndex = 1;
-                f.Uwaga("Bezpieczeństwo / testy: 2 testerów Codex + 2 testerów Claude oraz po 1 recenzencie. Konfiguracja zespołu w następnym kroku.");
+                var chZespol = f.Wybor("Stały zespół 6 specjalistów zamiast agentów wybranych wyżej", zKatalogu.Count == 0);
+                chZespol.Name = "zespolSzesciu";
+                f.Uwaga("Dotyczy kategorii „bezpieczeństwo / testy”. Bez zaznaczenia zadanie trafia do agentów wybranych wyżej (także z katalogu agentów), którzy mogą uruchamiać skrypty. Z zaznaczeniem – jak dotąd: 2 testerów Codex, 2 testerów Claude i po 1 recenzencie, konfiguracja w następnym kroku.");
                 var tbO = f.Wielowiersz("Zadanie od operatora:", "");
                 var zalN = f.Zalaczniki("Załączniki:");
                 var chSpr = f.Wybor("Druga strona sprawdza wynik (dwa przebiegi – wolniej)", false);
@@ -4032,7 +4237,7 @@ namespace Ecxp
                     Func<string, string, string> opis = (kto, strona) =>
                     {
                         var n = pa != null ? P.S(pa, strona) : "";
-                        return kto + (mo.Length == 0 ? "" : n.Length > 0 ? "  →  " + n + " " + Jezyk.T("(istniejąca sesja)") : "  →  " + strona + "-" + mo + " " + Jezyk.T("(nowa sesja)"));
+                        return kto + (mo.Length == 0 ? "" : n.Length > 0 ? "  →  " + n + " " + (Wylaczeni.Jest(n) ? "⏸ " + Jezyk.T("(WYŁĄCZONY – nie dostanie zadania)") : Jezyk.T("(istniejąca sesja)")) : "  →  " + strona + "-" + mo + " " + Jezyk.T("(nowa sesja)"));
                     };
                     chCx.Text = opis("ChatGPT/Codex", "codex"); chCl.Text = opis("Claude", "claude");
                 };
@@ -4040,19 +4245,23 @@ namespace Ecxp
                 cbP.TextChanged += delegate { cele(); };
                 Action agenciZmiana = delegate
                 {
-                    bool pentest = kategoria.SelectedIndex == 1;
-                    foreach (Control c in new Control[] { chCx, chCl, chSpr, chPokaz, chUac, chTlo, chSes, chRepo, tbL, rCx, rCl }) c.Enabled = !pentest;
+                    chZespol.Enabled = kategoria.SelectedIndex == 1;
+                    bool pentest = kategoria.SelectedIndex == 1 && chZespol.Checked;       // stały zespół tylko na wyraźny wybór operatora
+                    foreach (Control c in new Control[] { chCx, chCl, chSpr, chPokaz, chUac, chTlo, chSes, chRepo, tbL, rCx, rCl, cbAgCx, cbAgCl }) c.Enabled = !pentest;
                     if (pentest) {
                         f.OkAktywny(true); f.PrzyciskOk("Dalej: zespół 6 specjalistów"); return;
                     }
                     chUac.Enabled = chTlo.Checked;
                     rCx.Enabled = chCx.Checked; rCl.Enabled = chCl.Checked;
+                    cbAgCx.Enabled = chCx.Checked && chTlo.Checked; cbAgCl.Enabled = chCl.Checked && chTlo.Checked;     // własny katalog dotyczy agentów w tle
                     tbL.Enabled = chCx.Checked && chCl.Checked;                 // łańcuch ról przechodzi przez obie strony pary
                     chSpr.Enabled = chCx.Checked && chCl.Checked; if (!chSpr.Enabled) chSpr.Checked = false;
                     f.OkAktywny(chCx.Checked || chCl.Checked);
                     f.PrzyciskOk(Jezyk.T(chCx.Checked && chCl.Checked ? "✉  Wyślij do pary (Codex + Claude)" : chCx.Checked ? "✉  Wyślij tylko do ChatGPT/Codex" : chCl.Checked ? "✉  Wyślij tylko do Claude" : "Zaznacz co najmniej jednego agenta"));
                 };
                 kategoria.SelectedIndexChanged += delegate { agenciZmiana(); };
+                chZespol.CheckedChanged += delegate { agenciZmiana(); };
+                chTlo.CheckedChanged += delegate { agenciZmiana(); };
                 chCx.CheckedChanged += delegate { agenciZmiana(); };
                 chCl.CheckedChanged += delegate { agenciZmiana(); };
                 f.Shown += delegate { agenciZmiana(); cele(); };
@@ -4071,7 +4280,7 @@ namespace Ecxp
                 while (true)
                 {
                     if (f.ShowDialog(form) != DialogResult.OK) return;
-                    if (kategoria.SelectedIndex != 1) break;
+                    if (kategoria.SelectedIndex != 1 || !chZespol.Checked) break;
                     if (NowyPentest(cbP.Text, tbM.Text, tbO.Text, zalN.Pliki)) return;
                     f.DialogResult = DialogResult.None;
                 }
@@ -4089,6 +4298,8 @@ namespace Ecxp
                         "role_codex", Formularz.Zaznaczone(rCx), "role_claude", Formularz.Zaznaczone(rCl), "czesci", WyslijZalaczniki(zalN.Pliki), "strony", strony,
                         "ikona_projektu", Formularz.WybranaIkona(ikP), "ikona_modulu", Formularz.WybranaIkona(ikM),
                         "w_tle", chTlo.Checked, "repozytorium", chRepo.Checked, "podwyzszone", uac, "pokaz_sesje", chPokaz.Checked && chTlo.Checked,
+                        "katalog_codex", chCx.Checked && chTlo.Checked ? katalogWybranego(cbAgCx, "codex") : "", "katalog_claude", chCl.Checked && chTlo.Checked ? katalogWybranego(cbAgCl, "claude") : "",
+                        "narzedzia_testow", kategoria.SelectedIndex == 1,
                         "claude_w_aplikacji", chPokaz.Checked && chTlo.Checked && chCl.Checked, "sprawdzanie", chSpr.Checked && chCx.Checked && chCl.Checked,
                         "lancuch", strony.Count < 2 ? new List<string>() : tbL.Text.Split(new[] { ',', ';', '→', '>' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList()));
                     Skanuj();
