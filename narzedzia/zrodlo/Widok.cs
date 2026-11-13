@@ -217,10 +217,11 @@ namespace Ecxp
             w("Projekt:   " + (m.Projekt.Length > 0 ? m.Projekt : "—") + "      Moduł: " + (m.Modul.Length > 0 ? m.Modul : "—"));
             w("Rodzaj:    " + (m.KopiaDla.StartsWith("czat:") ? "Czat (wpis z okna czatu drugiej strony)" : P.Rodzaj(m)) + (m.Pilne ? "      PILNE" : ""));
             w("Temat:     " + P.Baza(m.Temat));
-            w("Znacznik:  " + P.ZnacznikId(m.Id));
+            w("Znacznik:  " + P.ZnacznikId(m.Logiczne.Length > 0 ? m.Logiczne : m.Id));
+            if (P.WynikWiadomosci(m).Length > 0) w("Wynik:     " + P.WynikOpis(P.WynikWiadomosci(m)));
             if (m.OdpNa.Length > 0)
             {
-                Msg r; w("Odpowiedź na: " + (poId.TryGetValue(m.OdpNa, out r) ? P.ZnacznikId(P.Kanon(r, poId.Values).Id) + " · " + P.Rodzaj(r) + " „" + P.Baza(r.Temat) + "” od " + P.Nazwa(r.Od) + " (" + r.Czas.ToString("dd.MM.yyyy HH:mm") + ")" : P.ZnacznikId(m.OdpNa) + " · " + m.OdpNa));
+                Msg r; w("Odpowiedź na: " + (poId.TryGetValue(m.OdpNa, out r) ? P.ZnacznikId(P.IdWiadomosci(r, poId.Values)) + " · " + P.Rodzaj(r) + " „" + P.Baza(r.Temat) + "” od " + P.Nazwa(r.Od) + " (" + r.Czas.ToString("dd.MM.yyyy HH:mm") + ")" : P.ZnacznikId(m.OdpNa) + " · " + m.OdpNa));
             }
             w("");
             w("STAN DORĘCZENIA");

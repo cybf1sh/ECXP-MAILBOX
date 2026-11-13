@@ -16,7 +16,7 @@ namespace Ecxp
 {
     static class Cieply
     {
-        public class Wynik { public int Kod = -1; public string Odpowiedz = "", Wyjscie = ""; }
+        public class Wynik { public int Kod = -1; public string Odpowiedz = "", Wyjscie = "", WatekCodex = "", DomCodex = ""; }
 
         class Proc
         {
@@ -613,6 +613,7 @@ namespace Ecxp
                 Rpc(w, "turn/interrupt", P.D("threadId", watek, "turnId", P.S(tu, "id")), 15000);
                 if (!w.KoniecTury.WaitOne(10000)) throw new EcxpException("Codex nie potwierdził przerwania tury.");
             }
+            wy.WatekCodex = watek; wy.DomCodex = w.CodexHome ?? "";      // tokeny tury: z zapisu rozmowy tego wątku (Agenci.Tura)
             CodexProjekt.OddajWatek(watek, (m, p, ms) => Rpc(w, m, p, ms));
             ZglosPokaz(rec, "codex", watek);
             if (!zakonczona) { wy.Kod = -1; wy.Wyjscie = "przerwano po " + limitMin + " min"; return; }

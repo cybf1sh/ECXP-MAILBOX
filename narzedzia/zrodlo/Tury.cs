@@ -104,6 +104,8 @@ namespace Ecxp
             if (!P.PoprawnyNadawca(nazwa)) return null;
             var tury = Lista(nazwa).Where(t => t.Czas > od).OrderBy(t => t.Czas).ToList();
             var koniec = tury.FirstOrDefault(t => t.Czas >= odpowiedz);   // tura, w której padła odpowiedź, kończy się po niej
+            // agent w tle: stos zapisuje turę tuż PRZED wysłaniem jej wyniku (FIN / odpowiedź) – liczy się ostatnia taka tura sprzed odpowiedzi
+            if (koniec == null) koniec = tury.LastOrDefault(t => t.Zrodlo == "tlo" && t.Czas <= odpowiedz && t.Czas >= odpowiedz.AddMinutes(-5));
             if (koniec == null) return null;
             var w = tury.Where(t => t.Czas <= koniec.Czas).ToList();
             return new Tura { Nazwa = nazwa, Czas = koniec.Czas, Id = w.Count.ToString(CultureInfo.InvariantCulture), Zrodlo = string.Join(",", w.Select(t => t.Zrodlo).Distinct()),
@@ -268,6 +270,31 @@ namespace Ecxp
         }
 
         // ---------- agenci w tle: wynik Claude -p --output-format json ----------
+        // Codex w tle: zużycie z zapisu rozmowy wątku (ostatni wpis token_count, suma wątku – jeden wątek na zadanie).
+        // U Codexa input_tokens zawiera tokeny z pamięci podręcznej, dlatego wejście = input − cached.
+        public static Tura ZZapisuCodex(string domCodex, string watek)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(watek)) return null;
+                var dir = Path.Combine(string.IsNullOrEmpty(domCodex) ? Aktywnosc.DomCodex() : domCodex, "sessions");
+                if (!Directory.Exists(dir)) return null;
+                var plik = Directory.EnumerateFiles(dir, "rollout-*" + watek + ".jsonl", SearchOption.AllDirectories).FirstOrDefault();
+                if (plik == null) return null;
+                var linia = Aktywnosc.Ogon(plik, 1024 * 1024).LastOrDefault(l => l.IndexOf("\"token_count\"", StringComparison.Ordinal) >= 0 && l.IndexOf("\"total_token_usage\"", StringComparison.Ordinal) >= 0);
+                if (linia == null) return null;
+                var js = P.Js(); js.MaxJsonLength = int.MaxValue;
+                var d = js.Deserialize<Dictionary<string, object>>(linia);
+                var pl = d != null && d.ContainsKey("payload") ? d["payload"] as Dictionary<string, object> : null;
+                var info = pl != null && pl.ContainsKey("info") ? pl["info"] as Dictionary<string, object> : null;
+                var tot = info != null && info.ContainsKey("total_token_usage") ? info["total_token_usage"] as Dictionary<string, object> : null;
+                if (tot == null) return null;
+                long we = Liczba(tot, "input_tokens"), cache = Liczba(tot, "cached_input_tokens"), zapis = Liczba(tot, "cache_write_input_tokens"), wy = Liczba(tot, "output_tokens");
+                return new Tura { Strona = "codex", Sesja = watek, Zrodlo = "tlo", Czas = DateTime.Now, Wejscie = Math.Max(0, we - cache - zapis), CacheOdczyt = cache, CacheZapis = zapis, Wyjscie = wy };
+            }
+            catch { return null; }
+        }
+
         public static Tura ZWynikuClaude(string wyjscie)
         {
             foreach (var linia in (wyjscie ?? "").Split('\n').Reverse())

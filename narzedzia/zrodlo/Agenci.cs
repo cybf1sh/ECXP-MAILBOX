@@ -384,10 +384,10 @@ namespace Ecxp
             d["odmowy_prac"] = odmowy;
             // Zapis przed doręczeniem FIN: również błąd doręczenia nie może ponowić wywołania modelu.
             Pliki.Zapisz(Path.Combine(Dir, n + ".json"), d);
-            var tekst = "NEGATYWNY — NIEWYKONANE: odmowa dostawcy modelu. Zadanie zakończono bez ponawiania, trybu zastępczego i przekazywania partnerowi. " +
-                "To nie jest pozytywny wynik testu. Szczegóły: stan/agenci/" + n + ".log";
+            var tekst = "NIEWYKONANE: odmowa dostawcy modelu – zadanie w ogóle nie zostało wykonane (to nie jest wynik testu ani ocena pracy). " +
+                "Zakończono bez ponawiania, trybu zastępczego i przekazywania partnerowi. Szczegóły: stan/agenci/" + n + ".log";
             if (zadanie != null)
-                Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Projekt, Modul = praca.Modul, Typ = "fin", OdpNa = praca.Id, Tresc = tekst });
+                Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Projekt, Modul = praca.Modul, Typ = "fin", Wynik = "odmowa", ZeStosu = true, OdpNa = praca.Id, Tresc = tekst });
             else
             {
                 Siec.Wyslij(new P.Nowa { Od = n, Do = praca.Od.Length > 0 ? praca.Od : P.Wlasciciel, Projekt = praca.Projekt, Modul = praca.Modul,
@@ -534,6 +534,10 @@ namespace Ecxp
         public const string UwagaKoncaTury = "\n\n(Twoja odpowiedź na końcu tej pracy jest od razu wynikiem końcowym – później nie będzie można nic dodać. " +
             "Nie zostawiaj poleceń działających w tle i nie obiecuj odpowiedzi później: dokończ pracę i dopiero wtedy odpowiedz.)";
 
+        // ecxp/1.1: wynik zadania jest polem FIN – agent w tle podaje go pierwszą linią odpowiedzi.
+        public const string UwagaWyniku = "\n(Pierwsza linia odpowiedzi to wynik – dokładnie jedna z trzech: „WYNIK: POZYTYWNY” (wykonane, wynik dobry), " +
+            "„WYNIK: NEGATYWNY” (wykonane, wynik zły) albo „WYNIK: NIEWYKONANE” (nie udało się wykonać). Potem krótko, co zrobiłeś.)";
+
         static Praca NastepnaPraca(string n)
         {
             var d = Pliki.Czytaj(Path.Combine(Dir, n + ".json"));
@@ -590,7 +594,7 @@ namespace Ecxp
                 var prog = Program(strona);
                 if (prog.Length == 0) throw new EcxpException("brak " + strona + " CLI");
                 // agent dostaje samą treść pracy – jak od człowieka; ECXP jest dla niego niewidoczny
-                var polecenie = praca.Tekst + UwagaKoncaTury;
+                var polecenie = praca.Tekst + UwagaKoncaTury + (praca.Zadanie != null ? UwagaWyniku : "");
                 if (P.B(rec, "pentest")) polecenie = "Twój identyfikator testera/recenzenta: " + n +
                     ". Zapisuj własne pliki z tym identyfikatorem w nazwie.\n\n" + polecenie;
                 // ciepły proces agenta (Cieply): bez zimnego startu na ścieżce zadania
@@ -599,6 +603,8 @@ namespace Ecxp
                 // tokeny tury w tle (Claude: usage z wyniku JSON); Codex w tle – z jego zapisu rozmowy (lustro)
                 if (strona == "claude")
                     try { var tt = Tury.ZWynikuClaude(wynik); if (tt != null) { tt.Nazwa = n; tt.Strona = "claude"; tt.Zrodlo = "tlo"; tt.Czas = DateTime.Now; Tury.Zapisz(tt); } } catch { }
+                else if (cw.WatekCodex.Length > 0)
+                    try { var tt = Tury.ZZapisuCodex(cw.DomCodex, cw.WatekCodex); if (tt != null) { tt.Nazwa = n; Tury.Zapisz(tt); } } catch { }
                 if (kod == 0 && odpowiedz.Length == 0) { kod = 2; wynik = "bez wyniku: tura zakończona bez odpowiedzi agenta.\n" + wynik; }
                 File.AppendAllText(Path.Combine(Dir, n + ".log"), "==== " + start.ToString("yyyy-MM-dd HH:mm:ss") + " kod " + kod + " (" + (int)(DateTime.Now - start).TotalMilliseconds + " ms)\n" + wynik + "\n", new UTF8Encoding(false));
             }
@@ -624,7 +630,13 @@ namespace Ecxp
                             try
                             {
                                 if (praca.Zadanie != null)
-                                    Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Zadanie.Projekt, Modul = praca.Zadanie.Modul, Typ = "fin", OdpNa = praca.Zadanie.Id, Tresc = odpowiedz });
+                                {
+                                    // wynik z linii „WYNIK: …” (albo z początku treści); linia jest usuwana z wyniku dla operatora
+                                    var wynikTury = P.WynikZTresci(odpowiedz);
+                                    var trescFin = P.BezLiniiWyniku(odpowiedz);
+                                    Obieg.ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = praca.Zadanie.Projekt, Modul = praca.Zadanie.Modul, Typ = "fin", Wynik = wynikTury, ZeStosu = true,
+                                        OdpNa = praca.Zadanie.Id, Tresc = trescFin.Length > 0 ? trescFin : odpowiedz });
+                                }
                                 else if (praca.Pytanie != null)
                                     Siec.Wyslij(new P.Nowa { Od = n, Do = praca.Pytanie.Od.Length > 0 ? praca.Pytanie.Od : P.Wlasciciel, Projekt = praca.Pytanie.Projekt, Modul = praca.Pytanie.Modul, Typ = "odpowiedz", Temat = praca.Pytanie.Temat, OdpNa = praca.Pytanie.Id, Tresc = odpowiedz });
                             }

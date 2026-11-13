@@ -39,6 +39,8 @@ namespace Ecxp
         public List<Dictionary<string, object>> Czesci = new List<Dictionary<string, object>>();
         public List<string> Lustro = new List<string>();     // zasada 1:1: wszyscy adresaci lustrzanej wiadomości
         public string LustroId = "", KopiaDla = "";
+        // ecxp/1.1: wynik FIN jako pole; identyfikator wiadomości wspólny dla wszystkich kopii (para 1:1) i odpowiedź na niego
+        public string Wynik = "", Logiczne = "", OdpNaLogiczne = "";
         public Msg Rodzic;
         public Stan Dor;   // stan doręczenia z dziennika (null = wiadomość starego formatu)
     }
@@ -183,6 +185,47 @@ namespace Ecxp
             if (n.StartsWith("claude-")) return "Claude · " + n.Substring(7);
             return n.Length > 0 ? n : "?";
         }
+        // ---------- ecxp/1.1: wynik FIN ----------
+        // pozytywny / negatywny – zadanie wykonane, z takim wynikiem; niewykonane – zadania nie wykonano (brak danych, błąd);
+        // odmowa – dostawca modelu odmówił (zapisuje tylko stos); nieokreslony – agent w tle nie podał wyniku.
+        public const string WersjaProtokolu = "1.1";
+        public static readonly string[] WynikiFin = { "pozytywny", "negatywny", "niewykonane" };
+        static readonly Regex ReWynik = new Regex(@"^[\s\*#>\-–—:„""]*(?:WYNIK\s*[:\-–—]\s*)?(POZYTYWNY|NEGATYWNY|NIEWYKONANE)\b", RegexOptions.IgnoreCase);
+        // Wynik z początku treści (zgodność ze starszymi pakietami: „POZYTYWNY – …”). "" = nie podano.
+        public static string WynikZTresci(string tresc)
+        {
+            var t = tresc ?? "";
+            var m = ReWynik.Match(t);
+            if (!m.Success) return "";
+            var w = m.Groups[1].Value.ToLowerInvariant();
+            if (w == "negatywny" && Regex.IsMatch(t.Substring(0, Math.Min(t.Length, 80)), @"NEGATYWNY\s*[—–-]\s*NIEWYKONANE", RegexOptions.IgnoreCase)) return "niewykonane";
+            return w;
+        }
+        // Linia „WYNIK: …” na początku odpowiedzi agenta w tle – po odczytaniu wyniku usuwana z treści.
+        public static string BezLiniiWyniku(string tresc)
+        {
+            return Regex.Replace(tresc ?? "", @"^\s*WYNIK\s*[:\-–—]\s*(POZYTYWNY|NEGATYWNY|NIEWYKONANE)\s*\.?[ \t]*(\r?\n)+", "", RegexOptions.IgnoreCase).Trim();
+        }
+        public static string WynikOpis(string w)
+        {
+            switch (w)
+            {
+                case "pozytywny": return "✓ POZYTYWNY";
+                case "negatywny": return "✗ NEGATYWNY";
+                case "niewykonane": return "⊘ NIEWYKONANE";
+                case "odmowa": return "⛔ NIEWYKONANE – odmowa dostawcy modelu";
+                case "nieokreslony": return "? wynik nieokreślony";
+            }
+            return "";
+        }
+        // Wynik wiadomości: pole (ecxp/1.1) albo – dla starszych FIN – początek treści.
+        public static string WynikWiadomosci(Msg m)
+        {
+            if (m == null) return "";
+            if (m.Wynik.Length > 0) return m.Wynik;
+            return m.Typ == "fin" ? WynikZTresci(m.Uwagi) : "";
+        }
+
         public static string StatusZTypu(string typ)
         {
             switch (typ)
@@ -382,6 +425,7 @@ namespace Ecxp
             m.Lustro = L(d, "lustro");
             m.LustroId = S(d, "lustro_id");
             m.KopiaDla = S(d, "kopia_dla_pary");
+            m.Wynik = S(d, "wynik"); m.Logiczne = S(d, "wiadomosc"); m.OdpNaLogiczne = S(d, "odpowiedz_na_wiadomosc");
             m.Id = S(d, "id");
             if (m.Id.Length == 0) m.Id = Path.GetFileNameWithoutExtension(f.Name);
             long.TryParse(S(d, "seq"), out m.Seq);
@@ -466,8 +510,18 @@ namespace Ecxp
         // Kopia reprezentująca wiadomość wysłaną do pary (lustro): pierwsza według adresata – jej znacznik dotyczy wszystkich kopii.
         public static Msg Kanon(Msg m, IEnumerable<Msg> wszystkie)
         {
-            if (m == null || m.LustroId.Length == 0 || m.Lustro.Count <= 1) return m;
+            if (m == null) return m;
+            if (m.Logiczne.Length > 0 && m.Logiczne != m.Id) return wszystkie.FirstOrDefault(x => x.Id == m.Logiczne) ?? m;
+            if (m.Logiczne.Length > 0 || m.LustroId.Length == 0 || m.Lustro.Count <= 1) return m;
             return wszystkie.Where(x => x.LustroId == m.LustroId).OrderBy(x => x.Do).ThenBy(x => x.Id).FirstOrDefault() ?? m;
+        }
+
+        // Identyfikator wiadomości wspólny dla wszystkich jej kopii: pole „wiadomosc” (ecxp/1.1) albo – starsze wiadomości –
+        // id pierwszej kopii według adresata.
+        public static string IdWiadomosci(Msg m, IEnumerable<Msg> wszystkie)
+        {
+            if (m == null) return "";
+            return m.Logiczne.Length > 0 ? m.Logiczne : Kanon(m, wszystkie).Id;
         }
 
         public static Msg Znajdz(string id)
@@ -537,6 +591,8 @@ namespace Ecxp
             public List<string> Kontrole = new List<string>(), Pliki = new List<string>();
             public List<Dictionary<string, object>> Czesci = new List<Dictionary<string, object>>();
             public string Watek = "", LustroId = "", KopiaDla = "";
+            public string Wynik = "", Logiczne = "";   // wynik FIN; identyfikator wiadomości wspólny dla kopii (pusty = własne id)
+            public bool ZeStosu;                       // FIN zapisany przez stos za agenta w tle (wynik może być nieokreślony)
             public List<string> Lustro = new List<string>();
             public Nowa Kopia()
             {
@@ -583,6 +639,13 @@ namespace Ecxp
                 {
                     org = Znajdz(n.OdpNa);
                     if (org == null) throw new EcxpException("Nie znaleziono wiadomości odpowiedz_na = '" + n.OdpNa + "'.");
+                    // odpowiedz_na może wskazywać identyfikator wiadomości (wspólny dla pary) albo cudzą kopię: liczy się kopia do mnie
+                    if (org.LustroId.Length > 0 && !DoMnie(n.Od, org.Do))
+                    {
+                        var lid = org.LustroId;
+                        var moja = Wszystkie(true).FirstOrDefault(x => x.LustroId == lid && DoMnie(n.Od, x.Do));
+                        if (moja != null) org = moja;
+                    }
                 }
                 var seq = NastepnySeq(n.Od, n.Do);
                 var id = DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + modul + "-" + temat + "-" + Losowe(2);
@@ -596,7 +659,9 @@ namespace Ecxp
                 d["modul"] = modul; d["typ"] = n.Typ; d["status"] = StatusZTypu(n.Typ);
                 d["temat"] = temat; d["pilne"] = n.Pilne;
                 if (n.EtapObiegu.Length > 0) d["etap_obiegu"] = n.EtapObiegu;
-                if (org != null) d["odpowiedz_na"] = org.Id;
+                d["wiadomosc"] = n.Logiczne.Length > 0 ? n.Logiczne : id;
+                if (org != null) { d["odpowiedz_na"] = org.Id; d["odpowiedz_na_wiadomosc"] = org.Logiczne.Length > 0 ? org.Logiczne : org.Id; }
+                if (n.Wynik.Length > 0 && (n.Typ == "fin" || n.Typ == "odpowiedz")) d["wynik"] = n.Wynik;
                 d["watek"] = n.Watek.Length > 0 ? n.Watek : org != null ? (org.WatekPole.Length > 0 ? org.WatekPole : org.Id) : id;
                 if (n.Lustro.Count > 1) { d["lustro"] = n.Lustro; d["lustro_id"] = n.LustroId; }
                 if (n.KopiaDla.Length > 0) d["kopia_dla_pary"] = n.KopiaDla;
@@ -631,7 +696,7 @@ namespace Ecxp
                     PotwierdzPlik(org, n.Od, "obsluzona", "odpowiedź " + id);
                     ack = org.Id;
                 }
-                return D("id", id, "seq", seq, "plik", dst, "do", n.Do, "termin_potwierdzenia_min", termin, "potwierdzono_przy_okazji", ack);
+                return D("id", id, "wiadomosc", d["wiadomosc"], "seq", seq, "plik", dst, "do", n.Do, "termin_potwierdzenia_min", termin, "potwierdzono_przy_okazji", ack);
             });
         }
 

@@ -373,10 +373,12 @@ namespace Ecxp
                 if (lustroId.Length > 0 && n.Watek.Length == 0 && n.OdpNa.Length == 0) n.Watek = lustroId;
                 var wyslane = new List<object>();
                 Dictionary<string, object> pierwsza = null;
-                foreach (var c in cele)
+                // ecxp/1.1: jedna wiadomość = jeden identyfikator (id kopii dla pierwszego adresata według nazwy); pozostałe kopie go niosą
+                foreach (var c in cele.Count > 1 ? cele.OrderBy(x => x).ToList() : cele)
                 {
                     var k = n.Kopia(); k.Do = c;
                     if (cele.Count > 1) { k.Lustro = cele; k.LustroId = lustroId; }
+                    if (pierwsza != null) k.Logiczne = (string)pierwsza["id"];
                     var r = P.Wyslij(k);
                     if (pierwsza == null) pierwsza = r;
                     wyslane.Add(r);

@@ -18,7 +18,24 @@ namespace Ecxp
             return P.Kanon(m, msgs);
         }
 
-        string Tag(Msg m) { return P.ZnacznikId(Kanon(m).Id); }
+        // Kod wiadomości: z identyfikatora wspólnego dla wszystkich jej kopii (pole „wiadomosc”, ecxp/1.1; starsze – pierwsza kopia).
+        string Tag(Msg m)
+        {
+            if (m != null && m.KopiaDla.Length > 0 && !m.KopiaDla.StartsWith("czat:")) { var z = msgs.FirstOrDefault(x => x.Id == m.KopiaDla); if (z != null) m = z; }
+            return P.ZnacznikId(P.IdWiadomosci(m, msgs));
+        }
+
+        // Kolor wyniku FIN: pozytywny – zielony, negatywny – czerwony, niewykonane / odmowa / nieokreślony – pomarańczowy.
+        static Color KolorWyniku(string wynik, Color domyslny)
+        {
+            switch (wynik)
+            {
+                case "pozytywny": return Zielony;
+                case "negatywny": return Czerwony;
+                case "niewykonane": case "odmowa": case "nieokreslony": return Motyw.K(Color.FromArgb(190, 90, 0));
+            }
+            return domyslny;
+        }
 
         // Kolory znaczników: ten sam kod = ten sam kolor (w liście, podglądzie i czytniku).
         static readonly Color[] PaletaJasna = { Color.FromArgb(0, 102, 204), Color.FromArgb(176, 64, 0), Color.FromArgb(0, 128, 96), Color.FromArgb(140, 50, 170),
@@ -93,9 +110,10 @@ namespace Ecxp
         // Kod wiadomości, na którą odpowiada r (także gdy jej już nie ma – wtedy z samego identyfikatora).
         string TagPierwowzoru(Msg r)
         {
+            if (r.OdpNaLogiczne.Length > 0) return P.ZnacznikId(r.OdpNaLogiczne);      // ecxp/1.1: odpowiedź niesie identyfikator wiadomości
             var o = Pierwowzor(r);
             if (o == null) return P.ZnacznikId(r.OdpNa);
-            return o.Katalog == "archiwum" ? P.ZnacznikId(P.Kanon(o, new[] { o }).Id) : Tag(o);
+            return o.Katalog == "archiwum" ? P.ZnacznikId(P.IdWiadomosci(o, new[] { o })) : Tag(o);
         }
 
         // „odpowiedź na zadanie #c73f z 12.11 01:27” (krotko) albo pełny opis z tematem i nadawcą; null, gdy to nie odpowiedź.

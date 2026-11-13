@@ -144,24 +144,38 @@ namespace Ecxp
                     ? "Etap zapisany i widoczny dla operatora. Pracuj dalej; po wykonaniu wyślij typ=fin."
                     : "Odbiór zadania jest widoczny dla operatora. Po wykonaniu wyślij typ=fin.");
             }
-            if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("FIN bez treści: napisz wynik POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś.");
+            if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("FIN bez treści: podaj wynik (pozytywny, negatywny albo niewykonane) i krótko, co zrobiłeś.");
             var ag = Agenci(r);
             var wyk = ag.Where(kv => P.S(kv.Value as Dictionary<string, object>, "rola") == "wykonawca").Select(kv => kv.Key).FirstOrDefault() ?? "";
             if (P.S(w, "rola") == "sprawdzajacy" && wyk.Length > 0 && P.S(Wpis(r, wyk), "stan") != "fin")
                 throw new EcxpException("Zadanie wykonuje " + wyk + ". Poczekaj na jego FIN (stos Ci go przekaże), wtedy sprawdź wynik i wyślij swój FIN. Teraz zakończ turę.");
             if (P.S(w,"stan") == "fin")
                 return P.D("ack",true,"stan","fin","zadanie",r["klucz"],"fin_do_operatora",P.S(w,"fin_czesciowy_do_operatora"),"uwagi","Ten wynik został już zapisany; nie wysłano duplikatu.");
-            w["stan"] = "fin"; w["fin"] = n.Tresc.Trim(); w["zmiana"] = P.Teraz();
+            // ecxp/1.1: wynik jest polem. Zgodność: starsze pakiety piszą POZYTYWNY / NEGATYWNY na początku treści.
+            var wynikFin = (n.Wynik ?? "").Trim().ToLowerInvariant();
+            if (wynikFin.Length > 0 && wynikFin != "odmowa" && !P.WynikiFin.Contains(wynikFin))
+                throw new EcxpException("Niepoprawny wynik '" + n.Wynik + "'. Dozwolone: " + string.Join(", ", P.WynikiFin) + ".");
+            if (wynikFin == "odmowa" && !n.ZeStosu) throw new EcxpException("Wynik „odmowa” zapisuje tylko stos. Użyj: " + string.Join(", ", P.WynikiFin) + ".");
+            if (wynikFin.Length == 0) wynikFin = P.WynikZTresci(n.Tresc);
+            if (wynikFin.Length == 0)
+            {
+                if (!n.ZeStosu && typ == "fin")
+                    throw new EcxpException("FIN wymaga pola wynik: pozytywny (wykonane, wynik dobry), negatywny (wykonane, wynik zły) albo niewykonane (zadania nie wykonano). " +
+                        "Wyślij ponownie: ecxp_wyslij(do=wlasciciel, typ=fin, wynik=<…>, odpowiedz_na=<id zadania>, tresc=<co zrobiłeś>).");
+                wynikFin = "nieokreslony";
+            }
+            n.Wynik = wynikFin;
+            w["stan"] = "fin"; w["fin"] = n.Tresc.Trim(); w["wynik"] = wynikFin; w["zmiana"] = P.Teraz();
             Zapisz(r);
             PotwierdzZadania(r, n.Od);
-            P.Zdarzenie("obieg_fin", P.D("klucz", r["klucz"], "kto", n.Od));
+            P.Zdarzenie("obieg_fin", P.D("klucz", r["klucz"], "kto", n.Od, "wynik", wynikFin));
             P.Sygnal(n.Od, "wyslij");
 
             // Wynik zakończonej strony jest od razu widoczny. Cały obieg pozostaje otwarty do wspólnego FIN.
             if (ag.Values.Cast<Dictionary<string,object>>().Any(x => P.S(x,"stan") != "fin"))
             {
                 var czesc = P.Wyslij(new P.Nowa { Od=n.Od,Do=P.Wlasciciel,Projekt=P.S(r,"projekt"),Modul=P.S(r,"modul"),
-                    Typ="fin",EtapObiegu="fin_czesciowy",Temat="FIN " + P.Nazwa(n.Od) + ": " + P.S(r,"temat"),
+                    Typ="fin",Wynik=wynikFin,EtapObiegu="fin_czesciowy",Temat="FIN " + P.Nazwa(n.Od) + ": " + P.S(r,"temat"),
                     OdpNa=P.S(w,"zadanie"),Watek=P.S(r,"klucz"),Tresc=n.Tresc.Trim()+"\n\nTo wynik tej strony. Wspólny FIN zadania otrzymasz po zakończeniu pozostałych adresatów.",
                     Pliki=n.Pliki,Czesci=n.Czesci,Commit=n.Commit });
                 w["fin_czesciowy_do_operatora"]=czesc["id"]; Zapisz(r);
@@ -174,8 +188,8 @@ namespace Ecxp
                 var p = P.Wyslij(new P.Nowa
                 {
                     Od = n.Od, Do = spr, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "informacja", Temat = "FIN " + P.S(r, "temat"), Watek = P.S(r, "klucz"),
-                    Tresc = n.Od + " zakończył zadanie „" + P.S(r, "temat") + "”:\n\n" + n.Tresc.Trim() + "\n\nSprawdź wynik i wyślij jeden FIN: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=" +
-                            P.S(ws, "zadanie") + ") – w treści POZYTYWNY albo NEGATYWNY i co sprawdziłeś.",
+                    Tresc = n.Od + " zakończył zadanie „" + P.S(r, "temat") + "” (wynik: " + wynikFin + "):\n\n" + n.Tresc.Trim() + "\n\nSprawdź wynik i wyślij jeden FIN: ecxp_wyslij(do=wlasciciel, typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=" +
+                            P.S(ws, "zadanie") + ") – w treści co sprawdziłeś.",
                     Pliki = n.Pliki, Czesci = n.Czesci, Commit = n.Commit
                 });
                 var prz = P.L(r, "przekazane"); prz.Add((string)p["id"]); r["przekazane"] = prz;
@@ -200,14 +214,23 @@ namespace Ecxp
                 {
                     var x = (Dictionary<string, object>)kv.Value;
                     var rola = P.S(x, "rola") == "wykonawca" || P.S(x, "rola") == "przejal" ? "wykonał" : P.S(x, "rola") == "sprawdzajacy" ? "sprawdził" : P.S(x, "rola") == "przekazal" ? "przekazał" : "";
-                    return P.Nazwa(kv.Key) + " (" + kv.Key + ")" + (rola.Length > 0 ? " – " + rola : "") + ":\n" + P.S(x, "fin");
+                    var wx = P.WynikOpis(P.S(x, "wynik"));
+                    return P.Nazwa(kv.Key) + " (" + kv.Key + ")" + (rola.Length > 0 ? " – " + rola : "") + (wx.Length > 0 ? " – " + wx : "") + ":\n" + P.S(x, "fin");
                 }));
+            // wynik wspólny: wszystkie strony pozytywnie → pozytywny; którakolwiek negatywnie → negatywny; inaczej niewykonane / nieokreślony
+            var wyniki = ag.Where(kv => !P.B(kv.Value as Dictionary<string, object>, "wycofane") && P.S(kv.Value as Dictionary<string, object>, "rola") != "przekazal")
+                .Select(kv => P.S(kv.Value as Dictionary<string, object>, "wynik")).Where(x => x.Length > 0).ToList();
+            string wspolny = wyniki.Count == 0 ? n.Wynik
+                : wyniki.All(x => x == "pozytywny") ? "pozytywny"
+                : wyniki.Contains("negatywny") ? "negatywny"
+                : wyniki.Contains("odmowa") && wyniki.All(x => x == "odmowa") ? "odmowa"
+                : wyniki.Contains("niewykonane") || wyniki.Contains("odmowa") ? "niewykonane" : "nieokreslony";
             var f = P.Wyslij(new P.Nowa
             {
-                Od = n.Od, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", EtapObiegu = "fin_wspolny", Temat = "FIN " + P.S(r, "temat"),
+                Od = n.Od, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Wynik = wspolny, EtapObiegu = "fin_wspolny", Temat = "FIN " + P.S(r, "temat"),
                 OdpNa = P.S(w, "zadanie"), Tresc = tresc, Pliki = n.Pliki, Czesci = n.Czesci, Commit = n.Commit
             });
-            r["zakonczone"] = true; r["zakonczone_czas"] = P.Teraz(); r["fin_do_operatora"] = f["id"];
+            r["zakonczone"] = true; r["zakonczone_czas"] = P.Teraz(); r["fin_do_operatora"] = f["id"]; r["wynik"] = wspolny;
             Zapisz(r);
             P.Zdarzenie("obieg_zakonczony", P.D("klucz", r["klucz"], "fin", f["id"]));
             return P.D("ack", true, "stan", "zakonczone", "zadanie", r["klucz"], "fin_do_operatora", f["id"], "uwagi", "FIN dotarł do operatora. Zadanie zakończone – zakończ turę.");
@@ -222,18 +245,18 @@ namespace Ecxp
             {
                 var e = Wpis(r, n);
                 if (e == null || P.S(e, "stan") == "fin" || P.S(e, "rola") == "sprawdzajacy") continue;
-                var tekst = "NEGATYWNY – nie mogę wykonać zadania: " + powod;
+                var tekst = "NIEWYKONANE – nie mogę wykonać zadania: " + powod;
                 var partner = Agenci(r).Where(kv => kv.Key != n && P.S(kv.Value as Dictionary<string, object>, "stan") != "fin").Select(kv => kv.Key).FirstOrDefault();
                 // Pentest wymaga czterech niezależnych testerów i dwóch recenzentów.
                 // Błąd jednego nie może po cichu zmienić składu ani modelu zespołu.
                 if (Pentest.JestModul(P.S(r, "projekt"), P.S(r, "modul"))) partner = null;
                 if (partner == null)
                 {
-                    ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Tresc = tekst, OdpNa = P.S(e, "zadanie") });
+                    ZAgenta(new P.Nowa { Od = n, Do = P.Wlasciciel, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "fin", Wynik = "niewykonane", ZeStosu = true, Tresc = tekst, OdpNa = P.S(e, "zadanie") });
                     wynik.Add(P.S(r, "klucz"));
                     continue;
                 }
-                e["stan"] = "fin"; e["fin"] = tekst + " Zadanie przekazane " + partner + "."; e["zmiana"] = P.Teraz(); e["rola"] = "przekazal";
+                e["stan"] = "fin"; e["fin"] = tekst + " Zadanie przekazane " + partner + "."; e["wynik"] = "niewykonane"; e["zmiana"] = P.Teraz(); e["rola"] = "przekazal";
                 var ep = Wpis(r, partner);
                 ep["rola"] = "przejal"; ep["zmiana"] = P.Teraz(); ep["przypomnienia"] = 0;
                 PotwierdzZadania(r, n);
@@ -242,7 +265,7 @@ namespace Ecxp
                 {
                     Od = P.Straznik, Do = partner, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "informacja", Temat = "PRZEJMIJ " + P.S(r, "temat"), Watek = P.S(r, "klucz"),
                     Tresc = n + " nie może wykonać zadania (" + powod + "). Wykonaj je Ty – zamiast sprawdzania:\n\n" + (zad != null ? zad.Uwagi : P.S(r, "temat")) +
-                            "\n\nPo wykonaniu wyślij jeden FIN: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=" + P.S(ep, "zadanie") + ") – POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś."
+                            "\n\nPo wykonaniu wyślij jeden FIN: ecxp_wyslij(do=wlasciciel, typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=" + P.S(ep, "zadanie") + ") i krótko, co zrobiłeś."
                 });
                 var prz = P.L(r, "przekazane"); prz.Add((string)p["id"]); r["przekazane"] = prz;
                 Zapisz(r);

@@ -48,9 +48,11 @@ namespace Ecxp
             var odp = OdpowiedzNa(m);
             if (odp != null)
             {
-                kolor = Zielony;
+                // wynik FIN (pole ecxp/1.1 albo początek treści starszych FIN) decyduje o kolorze
+                var wynik = P.WynikWiadomosci(odp);
+                kolor = KolorWyniku(wynik, Zielony);
                 return (odp.Typ == "fin" ? "FIN" : Jezyk.T("odpowiedź")) + " " + Jezyk.T("po") + " " + CzasOd(odp.Czas - m.Czas) +
-                    (odp.Uwagi.TrimStart().StartsWith("NEGATYWNY") ? " · NEGATYWNY" : "");
+                    (wynik.Length > 0 ? " · " + Jezyk.T(P.WynikOpis(wynik)) : "");
             }
             var d = m.Dor;
             if (d != null && d.Wynik == "wycofana") { kolor = Motyw.Slaby; return Jezyk.T("wycofana przez Ciebie"); }

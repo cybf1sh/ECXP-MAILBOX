@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
 
 namespace Ecxp
 {
@@ -514,13 +514,14 @@ namespace Ecxp
                         {
                             Od = Agent(s, a), Do = P.S(a, "do").Trim(), Typ = P.S(a, "typ").Trim().ToLowerInvariant(), Projekt = P.S(a, "projekt").Trim(),
                             Modul = P.S(a, "modul").Length > 0 ? P.S(a, "modul") : "wspolne", Temat = P.S(a, "temat"), Tresc = P.S(a, "tresc"),
-                            OdpNa = P.S(a, "odpowiedz_na").Trim(), Pilne = P.B(a, "pilne"), Commit = P.S(a, "commit").Trim(),
+                            OdpNa = P.S(a, "odpowiedz_na").Trim(), Pilne = P.B(a, "pilne"), Commit = P.S(a, "commit").Trim(), Wynik = P.S(a, "wynik").Trim().ToLowerInvariant(),
                             Kontrole = P.L(a, "kontrole"), Pliki = P.L(a, "pliki"), Ograniczenia = P.S(a, "ograniczenia"), Czesci = Czesci(a),
                             BezKopii = s.Operator && P.B(a, "bez_kopii")      // tylko operator może pominąć kopię dla drugiej strony pary
                         };
                         int.TryParse("0", out dummy);
                         if (n.Typ.Length == 0) n.Typ = "informacja";
                         if (s.Operator && (n.Typ == "fin" || n.Typ == "w_trakcie")) throw new EcxpException("FIN i „w trakcie” wysyłają agenci – operator wysyła zadanie, pytanie albo informację.");
+                        if (n.Wynik.Length > 0 && n.Typ != "fin") throw new EcxpException("Pole wynik dotyczy tylko FIN (typ=fin).");
                         if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)
                             n.Ograniczenia = "Wiadomość operatora przez ECXP (konsola ECXP-MAILBOX, tożsamość potwierdzona przez stos).";
@@ -532,7 +533,7 @@ namespace Ecxp
                         var ja = Agent(s, a);
                         var lst = P.Odbierz(ja, limit);
                         return P.D("liczba", lst.Count(x => x.ContainsKey("id")), "wiadomosci", lst,
-                            "przypomnienie", lst.Count > 0 ? "Zadanie: wykonaj i wyślij jeden FIN (typ=fin, odpowiedz_na=<id zadania>) – odbiór stos już zapisał. Inne wiadomości: ecxp_potwierdz." : "Brak wiadomości dla Ciebie.");
+                            "przypomnienie", lst.Count > 0 ? "Zadanie: wykonaj i wyślij jeden FIN (typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=<id zadania>) – odbiór stos już zapisał. Inne wiadomości: ecxp_potwierdz." : "Brak wiadomości dla Ciebie.");
                     }
                 case "potwierdz": return P.Potwierdz(Agent(s, a), P.S(a, "id").Trim(), P.S(a, "wynik").Trim().ToLowerInvariant(), P.S(a, "uwagi"));
                 case "stan":
