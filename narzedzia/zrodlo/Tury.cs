@@ -103,9 +103,14 @@ namespace Ecxp
         {
             if (!P.PoprawnyNadawca(nazwa)) return null;
             var tury = Lista(nazwa).Where(t => t.Czas > od).OrderBy(t => t.Czas).ToList();
-            var koniec = tury.FirstOrDefault(t => t.Czas >= odpowiedz);   // tura, w której padła odpowiedź, kończy się po niej
-            // agent w tle: stos zapisuje turę tuż PRZED wysłaniem jej wyniku (FIN / odpowiedź) – liczy się ostatnia taka tura sprzed odpowiedzi
-            if (koniec == null) koniec = tury.LastOrDefault(t => t.Zrodlo == "tlo" && t.Czas <= odpowiedz && t.Czas >= odpowiedz.AddMinutes(-5));
+            // agent w tle: stos zapisuje turę tuż PRZED wysłaniem jej wyniku (FIN / odpowiedź) – liczy się ostatnia taka tura sprzed
+            // odpowiedzi. Sprawdzana najpierw: następna tura w tle należy już do kolejnego zadania i nie może być doliczona.
+            var koniec = tury.LastOrDefault(t => t.Zrodlo == "tlo" && t.Czas <= odpowiedz.AddSeconds(2) && t.Czas >= odpowiedz.AddMinutes(-5));
+            if (koniec == null)
+            {
+                koniec = tury.FirstOrDefault(t => t.Czas >= odpowiedz);   // sesja w aplikacji: tura, w której padła odpowiedź, kończy się po niej
+                if (koniec != null && koniec.Zrodlo == "tlo") return null;
+            }
             if (koniec == null) return null;
             var w = tury.Where(t => t.Czas <= koniec.Czas).ToList();
             return new Tura { Nazwa = nazwa, Czas = koniec.Czas, Id = w.Count.ToString(CultureInfo.InvariantCulture), Zrodlo = string.Join(",", w.Select(t => t.Zrodlo).Distinct()),

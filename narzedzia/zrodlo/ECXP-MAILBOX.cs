@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.12.0.0")]
+[assembly: AssemblyFileVersion("3.12.1.0")]
 
 namespace Ecxp
 {
@@ -101,6 +101,7 @@ namespace Ecxp
         string TokenyZadania(Msg m)
         {
             if (m.OdpNa.Length == 0 || m.Od == P.Wlasciciel || m.Od == P.Straznik || !P.PoprawnyNadawca(m.Od)) return null;
+            if (m.EtapObiegu == "odebrane") return null;      // powiadomienie stosu „odebrał zadanie” – praca jeszcze się nie zaczęła
             var org = msgs.Where(x => x.Id == m.OdpNa).OrderBy(x => x.Do == m.Od ? 0 : 1).FirstOrDefault();
             if (org == null) return null;
             var od = org.Dor != null && org.Dor.Dostarczona.HasValue ? org.Dor.Dostarczona.Value : org.Czas;

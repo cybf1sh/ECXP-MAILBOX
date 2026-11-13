@@ -128,6 +128,16 @@ class TestProtokolu {
   Check(P.S(ob2,"rodzaj")=="tlo" && P.B(ob2,"dostepny") && P.S(ob2,"opis").Contains("agent w tle"),"background agent without any signal is available while its service runs");
   File.WriteAllText(Path.Combine(P.Root,"stan","uslugi.json"),P.Js().Serialize(P.D("codex_zatrzymana",true)));
   Check(!P.B(Siec.Obecnosci("codex-tlo").Single(),"dostepny"),"background agent is unavailable when its service is stopped");
+
+  // ---------- tokeny agenta w tle: tura zapisana tuż przed FIN, następna tura to już inne zadanie ----------
+  var t0=DateTime.Now.AddMinutes(-20);
+  Tury.Zapisz(new Tura{Nazwa="claude-tok",Strona="claude",Zrodlo="tlo",Czas=t0,Wejscie=10,CacheOdczyt=1000,Wyjscie=100});
+  Tury.Zapisz(new Tura{Nazwa="claude-tok",Strona="claude",Zrodlo="tlo",Czas=t0.AddMinutes(4),Wejscie=7,CacheOdczyt=700,Wyjscie=70});
+  var tok=Tury.DlaOdpowiedzi("claude-tok",t0.AddMinutes(-2),t0.AddSeconds(1));
+  Check(tok!=null && tok.Id=="1" && tok.Wyjscie==100 && tok.Razem==1110,"background turn written just before its FIN is counted alone, without the next task's turn");
+  var tok2=Tury.DlaOdpowiedzi("claude-tok",t0.AddSeconds(2),t0.AddMinutes(4).AddSeconds(1));
+  Check(tok2!=null && tok2.Id=="1" && tok2.Wyjscie==70,"the following task gets only its own turn");
+  Check(Tury.DlaOdpowiedzi("claude-tok",t0.AddMinutes(5),t0.AddMinutes(6))==null,"no turn for a reply means no data");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }
