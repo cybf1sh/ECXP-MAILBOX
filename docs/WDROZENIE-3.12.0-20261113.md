@@ -73,3 +73,15 @@ Pakiet: `builds/release-3.12.0/narzedzia/` (poza Git).
 Nie sprawdzono na żywo: FIN z polem `wynik` i `typ=postep` z prawdziwej sesji
 Codex / Claude (sesje dostaną nowe instrukcje po ponownym uruchomieniu aplikacji)
 oraz zapisu tokenów agenta Codex w tle.
+
+## Poprawka 3.12.1 (13.11.2026)
+
+Sprawdzenie tokenów na żywo (konsola operatora, projekt big-bounty-cert) pokazało dwa błędy liczenia:
+
+- do zadania agenta w tle doliczana była tura następnego zadania („tur: 2”, zawyżona suma) — teraz
+  tura zapisana tuż przed FIN jest brana jako pierwsza, a następna tura w tle nie jest doliczana;
+- powiadomienie stosu „odebrał zadanie” pokazywało tokeny poprzedniej pracy — teraz nie ma linii tokenów.
+
+Po poprawce każda odpowiedź agenta Claude w tle ma własną turę. Odpowiedzi agentów Codex w tle
+sprzed 3.12.0 pokazują „—” (brak zapisanych danych); zapis zaczyna się od kolejnych zadań.
+`TestProtokolu`: 39 PASS. Pakiet: `builds/release-3.12.1/narzedzia/`.
