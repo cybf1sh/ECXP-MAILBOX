@@ -110,6 +110,7 @@ namespace Ecxp
         {
             var typ = (n.Typ ?? "").Trim().ToLowerInvariant();
             bool fin = typ == "fin";
+            if (typ == "postep") typ = "w_trakcie";       // ecxp/1.1: postęp to jawny typ; „w_trakcie” zostaje dla starszych pakietów
             if (!fin && typ != "w_trakcie")
             {
                 // odpowiedź do operatora na zadanie w obiegu = FIN (zgodność ze starszymi pakietami)
@@ -131,8 +132,10 @@ namespace Ecxp
                 if (P.S(w, "stan") == "wyslane") PotwierdzenieOdbioru(r,w,n.Od);
                 // etap podany przez agenta (np. w odpowiedzi na pytanie strażnika) – widoczny w konsoli; to nie jest FIN
                 var etap = (n.Tresc ?? "").Trim();
+                if (n.Krok > 0) etap = "krok " + n.Krok + (n.Krokow >= n.Krok ? "/" + n.Krokow : "") + (etap.Length > 0 ? ": " + etap : "");
                 if (etap.Length > 0 && P.S(w, "stan") != "fin")
                 {
+                    if (n.Krok > 0) { w["krok"] = n.Krok; w["krokow"] = n.Krokow; }
                     if (etap.Length > EtapMaks) etap = etap.Substring(0, EtapMaks) + "…";
                     w["etap"] = etap; w["etap_czas"] = P.Teraz(); w["zmiana"] = P.Teraz();
                     P.Zdarzenie("obieg_etap", P.D("klucz", r["klucz"], "kto", n.Od, "etap", etap));
@@ -444,9 +447,9 @@ namespace Ecxp
                     Od = P.Straznik, Do = n, Projekt = P.S(r, "projekt"), Modul = P.S(r, "modul"), Typ = "informacja", Watek = P.S(r, "klucz"),
                     Temat = TematPytaniaOEtap + " " + P.S(r, "temat"),
                     Tresc = "Operator pyta, na jakim etapie jest zadanie „" + P.S(r, "temat") + "” (id " + zad + "). Nie przerywaj pracy i nie wysyłaj FIN, jeśli nie skończyłeś.\n" +
-                            "Odpowiedz jednym wywołaniem: ecxp_wyslij(ja=" + n + ", do=wlasciciel, typ=w_trakcie, odpowiedz_na=" + zad +
+                            "Odpowiedz jednym wywołaniem: ecxp_wyslij(ja=" + n + ", do=wlasciciel, typ=postep, odpowiedz_na=" + zad +
                             ", tresc=<etap jednym–dwoma zdaniami: co już zrobione, co robisz teraz, co zostało>). Potem pracuj dalej. " +
-                            "Jeśli zadanie jest już wykonane – wyślij zwykły FIN (typ=fin)."
+                            "Jeśli zadanie jest już wykonane – wyślij zwykły FIN (typ=fin, wynik=pozytywny|negatywny|niewykonane)."
                 });
                 e["pytanie_o_etap"] = P.Teraz();
                 P.Zdarzenie("obieg_pytanie_o_etap", P.D("klucz", r["klucz"], "kto", n));

@@ -389,22 +389,10 @@ namespace Ecxp
                 if (n.Od == P.Wlasciciel && Typ(n.Typ) == "zadanie") Obieg.Zalozone(n.Projekt, n.Modul, n.Temat.Length > 0 ? n.Temat : P.Baza((string)P.Znajdz(zrodlo).Temat), wyslane, lustroId);
                 var wynik = new Dictionary<string, object>(pierwsza);
                 // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
-                var kontakt = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.Max(x => x.Ostatnio));
                 var ostrz = new List<string>();
-                // agent w tle odzywa się tylko w turach (bez sygnałów sesji): brak kontaktu nie jest problemem, dopóki działa usługa
-                var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).ToDictionary(a => P.S(a, "nazwa"), a => P.S(a, "strona"));
-                foreach (var c in cele.Where(P.PoprawnyNadawca))
-                {
-                    string stronaTla;
-                    if (wTle.TryGetValue(c, out stronaTla))
-                    {
-                        if (Agenci.Zatrzymana(stronaTla)) ostrz.Add("Adresat " + c + " to agent w tle, a usługa agentów " + stronaTla + " jest zatrzymana – odbierze wiadomość dopiero po jej uruchomieniu (Agenci → Start).");
-                        continue;
-                    }
-                    DateTime t;
-                    if (!kontakt.TryGetValue(c, out t)) ostrz.Add("Adresat " + c + " jeszcze nigdy nie odezwał się w ECXP.");
-                    else if ((DateTime.Now - t).TotalHours >= 24) ostrz.Add("Adresat " + c + " nie odzywa się od " + P.Wiek(DateTime.Now - t) + " (ostatni kontakt " + t.ToString("dd.MM.yyyy HH:mm") + ").");
-                }
+                // ecxp/1.1: jeden zapis obecności z rodzajem adresata (sesja w aplikacji / agent w tle) – ostrzeżenie tylko, gdy adresat nie odbierze
+                foreach (var ob in Obecnosci("").Where(x => cele.Contains(P.S(x, "nazwa")) && !P.B(x, "dostepny")))
+                    ostrz.Add("Adresat " + P.S(ob, "nazwa") + ": " + P.S(ob, "opis") + ".");
                 if (ostrz.Count > 0)
                 {
                     ostrz.Add("Wiadomość wysłana. Stos spróbuje obudzić adresata w jego sesji; jeśli się nie uda, dostaniesz alarm „NIEDORECZONA”.");
@@ -419,6 +407,43 @@ namespace Ecxp
         }
 
         static string Typ(string t) { return (t ?? "").Trim().ToLowerInvariant(); }
+
+        // ---------- ecxp/1.1: obecność adresatów ----------
+        // Dla każdego adresata z tras (albo jednego, gdy podano nazwę): rodzaj (tlo / sesja), ostatni kontakt, czy odbierze wiadomość, opis.
+        //  * agent w tle: dostępny, gdy jest aktywny i usługa agentów jego strony działa (odzywa się tylko w turach);
+        //  * sesja w aplikacji: dostępna, gdy odezwała się w ciągu doby.
+        public static List<Dictionary<string, object>> Obecnosci(string nazwa)
+        {
+            var wezly = P.Wezly().GroupBy(x => x.Nazwa).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Ostatnio).First());
+            var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).GroupBy(a => P.S(a, "nazwa")).ToDictionary(g => g.Key, g => g.First());
+            var nazwy = Trasy().Where(t => t.Aktywna).Select(t => t.Nazwa).Concat(wTle.Keys).Concat(wezly.Keys).Where(P.PoprawnyNadawca).Distinct()
+                .Where(x => string.IsNullOrEmpty(nazwa) || x == nazwa).OrderBy(x => x).ToList();
+            if (!string.IsNullOrEmpty(nazwa) && nazwy.Count == 0 && P.PoprawnyNadawca(nazwa)) nazwy.Add(nazwa);
+            var wynik = new List<Dictionary<string, object>>();
+            foreach (var n in nazwy)
+            {
+                Wezel w; wezly.TryGetValue(n, out w);
+                Dictionary<string, object> ag; wTle.TryGetValue(n, out ag);
+                var d = P.D("nazwa", n, "rodzaj", ag != null ? "tlo" : "sesja", "ostatnio", w != null ? w.Ostatnio.ToString("yyyy-MM-dd'T'HH:mm:ss") : "");
+                if (ag != null)
+                {
+                    bool stoi = Agenci.Zatrzymana(P.S(ag, "strona"));
+                    d["dostepny"] = !stoi;
+                    d["opis"] = stoi ? "agent w tle, ale usługa agentów " + P.S(ag, "strona") + " jest zatrzymana – odbierze wiadomość dopiero po jej uruchomieniu (Agenci → Start)"
+                                     : "agent w tle, usługa działa" + (w != null ? " (ostatnia tura " + P.Wiek(DateTime.Now - w.Ostatnio) + " temu)" : "");
+                }
+                else if (w == null) { d["dostepny"] = false; d["opis"] = "sesja w aplikacji jeszcze nigdy nie odezwała się w ECXP"; }
+                else
+                {
+                    bool dawno = (DateTime.Now - w.Ostatnio).TotalHours >= 24;
+                    d["dostepny"] = !dawno;
+                    d["opis"] = dawno ? "sesja w aplikacji nie odzywa się od " + P.Wiek(DateTime.Now - w.Ostatnio) + " (ostatni kontakt " + w.Ostatnio.ToString("dd.MM.yyyy HH:mm") + ")"
+                                      : "sesja w aplikacji, ostatni kontakt " + P.Wiek(DateTime.Now - w.Ostatnio) + " temu";
+                }
+                wynik.Add(d);
+            }
+            return wynik;
+        }
 
         // Zasada „pytanie → odpowiedź” dla agentów:
         //  * typ=odpowiedz musi wskazywać wiadomość, na którą odpowiada (odpowiedz_na);
@@ -438,7 +463,7 @@ namespace Ecxp
                 var ob = Obieg.OtwarteDla(n.Od, n.Projekt);
                 if (ob != null)
                     throw new EcxpException("Zadanie „" + P.S(ob, "temat") + "” jest w obiegu: operator dostaje tylko FIN. Meldunki pośrednie nie są potrzebne – stos sam zapisuje, że pracujesz. " +
-                        "Po wykonaniu: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=<id zadania>). Potrzebujesz czegoś – typ=pytanie.");
+                        "Po wykonaniu: ecxp_wyslij(do=wlasciciel, typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=<id zadania>). Potrzebujesz czegoś – typ=pytanie.");
             }
             var wszystkie = P.Wszystkie(false);
             var odpowiedziane = new HashSet<string>(wszystkie.Where(x => x.Od == n.Od && x.OdpNa.Length > 0).Select(x => x.OdpNa), StringComparer.OrdinalIgnoreCase);
@@ -570,7 +595,7 @@ namespace Ecxp
             sb.Append("Wykonujesz tylko to zadanie – nic poza nim (bez porządków, dodatkowych plików, commitów i czynności spoza projektu).\n\n");
             sb.Append("Komunikacja – tylko dwa kroki, resztę robi stos ECXP:\n");
             sb.Append("1. ecxp_odbierz – odbiór stos zapisuje jako przyjęcie (ACK). Nic nie potwierdzaj i nie wysyłaj meldunków („przyjąłem”, „czekam”).\n");
-            sb.Append("2. Po wykonaniu JEDEN FIN: ecxp_wyslij(do=wlasciciel, typ=fin, odpowiedz_na=<id zadania>) – POZYTYWNY albo NEGATYWNY i krótko, co zrobiłeś. Stos odpowie ACK i przekaże dalej. Zakończ turę.\n");
+            sb.Append("2. Po wykonaniu JEDEN FIN: ecxp_wyslij(do=wlasciciel, typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=<id zadania>, tresc=<krótko, co zrobiłeś>). Stos odpowie ACK i przekaże dalej. Zakończ turę.\n");
             sb.Append("Bez czegoś nie da się wykonać zadania? Jedno pytanie (typ=pytanie) i zakończ turę.\n\n");
             if (rolaWParze == "wykonawca")
                 sb.Append("Ty wykonujesz zadanie, " + partner + " je sprawdzi – Twój FIN stos przekaże " + partner + ".\n\n");

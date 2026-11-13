@@ -11,9 +11,9 @@ set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resourc
 set RDZEN=UsuwanieProjektu.cs Pentest.cs Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs Obieg.cs Cieply.cs CodexProjekt.cs CodexBudzenie.cs Tury.cs Aktywnosc.cs
 cd /d "%~dp0"
 "%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs Doreczanie.cs Widok.cs %RDZEN% || exit /b 1
-"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Sledzenie.cs Straznik.cs PodgladAgenta.cs SpisGalezi.cs Znaczniki.cs Foldery.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Sledzenie.cs Straznik.cs PodgladAgenta.cs SpisGalezi.cs Znaczniki.cs Foldery.cs Galezie.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
 ..\ECXP-MAILBOX.exe /ico ..\ECXP-MAILBOX.ico || exit /b 1
-"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe /win32icon:..\ECXP-MAILBOX.ico ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Sledzenie.cs Straznik.cs PodgladAgenta.cs SpisGalezi.cs Znaczniki.cs Foldery.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
+"%CSC%" %OPT% %UI% /out:..\ECXP-MAILBOX.exe /win32icon:..\ECXP-MAILBOX.ico ECXP-MAILBOX.cs Czytnik.cs Szkice.cs Sledzenie.cs Straznik.cs PodgladAgenta.cs SpisGalezi.cs Znaczniki.cs Foldery.cs Galezie.cs Bledy.cs Widok.cs %RDZEN% || exit /b 1
 "%CSC%" %OPT% /target:exe /out:..\ecxp-mcp.exe Mcp.cs Hooki.cs %RDZEN% || exit /b 1
 copy /y hook-claude.ps1 ..\hook-claude.ps1 >nul || exit /b 1
 rem instalator stanowiska: jeden plik z programami jako zasobami

@@ -173,7 +173,7 @@ namespace Ecxp
                 else throw new EcxpException("Nieznany rodzaj klienta '" + s.Rodzaj + "'.");
                 s.Seq = Ramka.Isn();
                 s.AckOd = h.Seq + 1;
-                Wyslij(s, new Rama { Typ = Ramka.WITAJ, Flagi = (ushort)(Ramka.F_SYN | Ramka.F_ACK), Seq = s.Seq, Ack = s.AckOd }.Z(P.D("ja", s.Ja, "protokol", P.Protokol, "stos", "ecxpd 1.0")));
+                Wyslij(s, new Rama { Typ = Ramka.WITAJ, Flagi = (ushort)(Ramka.F_SYN | Ramka.F_ACK), Seq = s.Seq, Ack = s.AckOd }.Z(P.D("ja", s.Ja, "protokol", P.Protokol, "stos", NazwaStosu, "wersja_protokolu", P.WersjaProtokolu, "polecenia", P.PoleceniaStosu.ToList())));
                 var a = Ramka.Czytaj(s.Pipe);
                 if (a.Typ != Ramka.ACK || a.Ack != s.Seq + 1) throw new EcxpException("Brak ACK uzgodnienia.");
                 s.Seq++; s.AckOd = a.Seq;
@@ -451,7 +451,17 @@ namespace Ecxp
             return l;
         }
 
+        // „ecxpd 1.6” – z wersji pliku programu (dotąd na stałe „ecxpd 1.0”)
+        static readonly string NazwaStosu = "ecxpd " + WersjaPliku();
+        static string WersjaPliku()
+        {
+            try { var a = (AssemblyFileVersionAttribute)Attribute.GetCustomAttribute(Assembly.GetExecutingAssembly(), typeof(AssemblyFileVersionAttribute)); var v = new Version(a.Version); return v.Major + "." + v.Minor; }
+            catch { return "?"; }
+        }
+
         static void TylkoOperator(Sesja s) { if (!s.Operator) throw new EcxpException("To polecenie wydaje tylko operator z konsoli ECXP-MAILBOX."); }
+
+        static int Calkowita(Dictionary<string, object> a, string k) { int v; return int.TryParse(P.S(a, k), out v) && v > 0 && v < 100000 ? v : 0; }
 
         static List<Dictionary<string, object>> Czesci(Dictionary<string, object> a)
         {
@@ -506,7 +516,9 @@ namespace Ecxp
                         var id = P.S(a, "id").Trim();
                         return P.D("agenci", P.ZBlokada(() => Obieg.ZapytajOEtap(id)));
                     }
-                case "ping": return P.D("stos", "ecxpd 1.0", "protokol", P.Protokol, "ja", s.Ja, "czas", P.Teraz());
+                case "ping": { var mz = P.Mozliwosci(NazwaStosu); mz["ja"] = s.Ja; mz["czas"] = P.Teraz(); return mz; }
+                case "przywroc": TylkoOperator(s); return P.Przywroc(P.L(a, "pliki"));
+                case "obecnosc": return P.D("obecnosc", Siec.Obecnosci(P.S(a, "nazwa").Trim()));
                 case "wyslij":
                     {
                         int dummy;
@@ -515,12 +527,13 @@ namespace Ecxp
                             Od = Agent(s, a), Do = P.S(a, "do").Trim(), Typ = P.S(a, "typ").Trim().ToLowerInvariant(), Projekt = P.S(a, "projekt").Trim(),
                             Modul = P.S(a, "modul").Length > 0 ? P.S(a, "modul") : "wspolne", Temat = P.S(a, "temat"), Tresc = P.S(a, "tresc"),
                             OdpNa = P.S(a, "odpowiedz_na").Trim(), Pilne = P.B(a, "pilne"), Commit = P.S(a, "commit").Trim(), Wynik = P.S(a, "wynik").Trim().ToLowerInvariant(),
+                            Krok = Calkowita(a, "krok"), Krokow = Calkowita(a, "z_krokow"),
                             Kontrole = P.L(a, "kontrole"), Pliki = P.L(a, "pliki"), Ograniczenia = P.S(a, "ograniczenia"), Czesci = Czesci(a),
                             BezKopii = s.Operator && P.B(a, "bez_kopii")      // tylko operator może pominąć kopię dla drugiej strony pary
                         };
                         int.TryParse("0", out dummy);
                         if (n.Typ.Length == 0) n.Typ = "informacja";
-                        if (s.Operator && (n.Typ == "fin" || n.Typ == "w_trakcie")) throw new EcxpException("FIN i „w trakcie” wysyłają agenci – operator wysyła zadanie, pytanie albo informację.");
+                        if (s.Operator && (n.Typ == "fin" || n.Typ == "w_trakcie" || n.Typ == "postep")) throw new EcxpException("FIN i postęp wysyłają agenci – operator wysyła zadanie, pytanie albo informację.");
                         if (n.Wynik.Length > 0 && n.Typ != "fin") throw new EcxpException("Pole wynik dotyczy tylko FIN (typ=fin).");
                         if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)

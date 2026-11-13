@@ -41,6 +41,7 @@ namespace Ecxp
         public string LustroId = "", KopiaDla = "";
         // ecxp/1.1: wynik FIN jako pole; identyfikator wiadomości wspólny dla wszystkich kopii (para 1:1) i odpowiedź na niego
         public string Wynik = "", Logiczne = "", OdpNaLogiczne = "";
+        public string Tytul = "";      // oryginalny tytuł (temat to jego skrót bez polskich znaków i spacji)
         public Msg Rodzic;
         public Stan Dor;   // stan doręczenia z dziennika (null = wiadomość starego formatu)
     }
@@ -57,7 +58,7 @@ namespace Ecxp
         public DateTime? ZadanieCzas;
     }
 
-    class Wezel { public string Nazwa = "", Akcja = ""; public DateTime Ostatnio; }
+    class Wezel { public string Nazwa = "", Akcja = "", Rodzaj = ""; public DateTime Ostatnio; }
 
     class EcxpException : Exception { public EcxpException(string m) : base(m) { } }
 
@@ -67,7 +68,7 @@ namespace Ecxp
         public const string Wlasciciel = "wlasciciel", Koordynacja = "codex-koordynacja", Straznik = "ecxp-straznik";
         public static readonly string[] Kolejki = { "do-wlasciciela", "do-codex", "do-claude" };
         public static readonly string[] Foldery = { "do-wlasciciela", "do-codex", "do-claude", "przeczytane" };
-        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada", "decyzja", "fin", "w_trakcie" };
+        public static readonly string[] Typy = { "pytanie", "zadanie", "informacja", "meldunek", "odpowiedz", "recenzja", "blokada", "decyzja", "fin", "w_trakcie", "postep" };
         // Wołane po każdej zmianie stanu zadania (łańcuchy ról w stosie): zadanie, stan, kto, uwagi.
         public static Action<string, string, string, string> PoZmianieZadania;
         public static readonly string[] Wyniki = { "obsluzona", "przyjeta", "odrzucona" };
@@ -189,6 +190,16 @@ namespace Ecxp
         // pozytywny / negatywny – zadanie wykonane, z takim wynikiem; niewykonane – zadania nie wykonano (brak danych, błąd);
         // odmowa – dostawca modelu odmówił (zapisuje tylko stos); nieokreslony – agent w tle nie podał wyniku.
         public const string WersjaProtokolu = "1.1";
+        // Polecenia stosu (ecxpd) – wysyłane klientom w powitaniu i w „ping”, żeby konsola wiedziała, co stos potrafi.
+        public static readonly string[] PoleceniaStosu = { "agenci", "archiwizuj", "decyzja", "galezie", "karta", "kontekst_pobierz", "kontekst_zapisz", "lancuch", "lancuch_wznow",
+            "lancuchy", "nowe_zadanie", "nowy_pentest", "obecnosc", "obudz", "odbierz", "para_wznow", "ping", "podwyzszone_wygas", "potwierdz", "projekt_usun_bilet", "przekaz", "przypisz",
+            "przywroc", "rola", "sesja", "sprawdz_decyzje", "stan", "stan_galezi", "straz", "sygnal", "trasy", "umowa_galezi", "uruchom_agenta", "usluga", "uslugi", "uslugi_po_starcie",
+            "uslugi_zakoncz", "usun", "watek", "wycofaj", "wyslij", "zadanie", "zapytaj_o_etap", "zarejestruj_sesje", "zatrzymaj_agenta" };
+        public static Dictionary<string, object> Mozliwosci(string stos)
+        {
+            return D("stos", stos, "protokol", Protokol, "wersja_protokolu", WersjaProtokolu, "polecenia", PoleceniaStosu.ToList(),
+                "typy", Typy.ToList(), "wyniki_fin", WynikiFin.ToList());
+        }
         public static readonly string[] WynikiFin = { "pozytywny", "negatywny", "niewykonane" };
         static readonly Regex ReWynik = new Regex(@"^[\s\*#>\-–—:„""]*(?:WYNIK\s*[:\-–—]\s*)?(POZYTYWNY|NEGATYWNY|NIEWYKONANE)\b", RegexOptions.IgnoreCase);
         // Wynik z początku treści (zgodność ze starszymi pakietami: „POZYTYWNY – …”). "" = nie podano.
@@ -425,7 +436,7 @@ namespace Ecxp
             m.Lustro = L(d, "lustro");
             m.LustroId = S(d, "lustro_id");
             m.KopiaDla = S(d, "kopia_dla_pary");
-            m.Wynik = S(d, "wynik"); m.Logiczne = S(d, "wiadomosc"); m.OdpNaLogiczne = S(d, "odpowiedz_na_wiadomosc");
+            m.Wynik = S(d, "wynik"); m.Logiczne = S(d, "wiadomosc"); m.OdpNaLogiczne = S(d, "odpowiedz_na_wiadomosc"); m.Tytul = S(d, "tytul");
             m.Id = S(d, "id");
             if (m.Id.Length == 0) m.Id = Path.GetFileNameWithoutExtension(f.Name);
             long.TryParse(S(d, "seq"), out m.Seq);
@@ -474,6 +485,9 @@ namespace Ecxp
             foreach (var s in new[] { "-ODPOWIEDZ", "-ODPOWIEDŹ", "-ODP" }) if (t.EndsWith(s)) t = t.Substring(0, t.Length - s.Length);
             return t.Length > 0 ? t : "(bez tematu)";
         }
+        // Tytuł do pokazania: oryginalny (ecxp/1.1) albo – starsze wiadomości – temat.
+        public static string TytulWiadomosci(Msg m) { return m == null ? "" : m.Tytul.Length > 0 ? m.Tytul : Baza(m.Temat); }
+
         public static void Powiaz(List<Msg> list)
         {
             var key = new Dictionary<string, Msg>(StringComparer.OrdinalIgnoreCase);
@@ -496,7 +510,10 @@ namespace Ecxp
             {
                 var root = m; int n = 0;
                 while (root.Rodzic != null && n++ < 50) root = root.Rodzic;
-                m.Watek = "T|" + Baza(root.Temat);
+                // ecxp/1.1: rozmowa to wątek o własnym identyfikatorze (pole watek pierwszej wiadomości), nie „ten sam temat”.
+                // Po temacie łączą się tylko wiadomości starego formatu i wpisy z czatu (każdy wpis ma własny wątek).
+                bool poWatku = root.NowyFormat && root.WatekPole.Length > 0 && !root.KopiaDla.StartsWith("czat:");
+                m.Watek = poWatku ? "W|" + root.WatekPole : "T|" + Baza(root.Temat);
             }
             foreach (var m in list)
             {
@@ -562,7 +579,8 @@ namespace Ecxp
                 Directory.CreateDirectory(dir);
                 var p = Path.Combine(dir, ja + ".json");
                 var tmp = p + "." + Losowe(4) + ".tmp";
-                File.WriteAllText(tmp, Js().Serialize(D("nazwa", ja, "ostatnio", Teraz(), "akcja", akcja)), Utf8);
+                // rodzaj: „tlo” – agent w tle (odzywa się tylko w turach uruchamianych przez stos), „sesja” – sesja w aplikacji
+                File.WriteAllText(tmp, Js().Serialize(D("nazwa", ja, "ostatnio", Teraz(), "akcja", akcja, "rodzaj", akcja == "tura" || akcja == "tura_koniec" ? "tlo" : "sesja")), Utf8);
                 if (File.Exists(p)) File.Replace(tmp, p, null); else File.Move(tmp, p);
             }
             catch { }
@@ -577,7 +595,7 @@ namespace Ecxp
             {
                 Dictionary<string, object> d = null;
                 try { d = js.Deserialize<Dictionary<string, object>>(Czytaj(f.FullName)); } catch { }
-                r.Add(new Wezel { Nazwa = Path.GetFileNameWithoutExtension(f.Name), Akcja = S(d, "akcja"), Ostatnio = CzasZ(S(d, "ostatnio"), "", f.LastWriteTime) });
+                r.Add(new Wezel { Nazwa = Path.GetFileNameWithoutExtension(f.Name), Akcja = S(d, "akcja"), Rodzaj = S(d, "rodzaj"), Ostatnio = CzasZ(S(d, "ostatnio"), "", f.LastWriteTime) });
             }
             return r.OrderBy(w => w.Nazwa).ToList();
         }
@@ -593,6 +611,7 @@ namespace Ecxp
             public string Watek = "", LustroId = "", KopiaDla = "";
             public string Wynik = "", Logiczne = "";   // wynik FIN; identyfikator wiadomości wspólny dla kopii (pusty = własne id)
             public bool ZeStosu;                       // FIN zapisany przez stos za agenta w tle (wynik może być nieokreślony)
+            public int Krok, Krokow;                   // typ=postep: krok N z M (0 = nie podano)
             public List<string> Lustro = new List<string>();
             public Nowa Kopia()
             {
@@ -623,7 +642,7 @@ namespace Ecxp
             if (!PoprawnyAdresat(n.Do)) throw new EcxpException("Niepoprawny adresat: '" + n.Do + "'. Dozwolone: wlasciciel, codex[-nazwa], claude[-nazwa].");
             if (n.Od != Wlasciciel && n.Od != Straznik && !PoprawnyNadawca(n.Od)) throw new EcxpException("Niepoprawny nadawca: '" + n.Od + "'. Użyj nazwy codex-<czat> albo claude-<sesja>.");
             if (!Typy.Contains(n.Typ)) throw new EcxpException("Niepoprawny typ: '" + n.Typ + "'. Dozwolone: " + string.Join(", ", Typy));
-            if (n.Typ == "w_trakcie") throw new EcxpException("„w trakcie” to stan zadania w stosie, nie wiadomość – wyślij go przez ecxp_wyslij z odpowiedz_na=<id zadania>.");
+            if (n.Typ == "w_trakcie" || n.Typ == "postep") throw new EcxpException("Postęp („w trakcie”) dotyczy zadania operatora, które dostałeś – wyślij go przez ecxp_wyslij(typ=postep, odpowiedz_na=<id zadania>).");
             if ((n.Tresc ?? "").Trim().Length == 0) throw new EcxpException("Pusta treść.");
             if (n.Tresc.Length > 50000) throw new EcxpException("Treść dłuższa niż 50 000 znaków – podaj ścieżkę pliku w polu pliki.");
             var modul = Slug(n.Modul, 24, false); if (modul.Length == 0) modul = "wspolne";
@@ -658,6 +677,11 @@ namespace Ecxp
                 if (projekt.Length > 0) d["projekt"] = projekt;
                 d["modul"] = modul; d["typ"] = n.Typ; d["status"] = StatusZTypu(n.Typ);
                 d["temat"] = temat; d["pilne"] = n.Pilne;
+                {
+                    var tytul = Regex.Replace((n.Temat ?? "").Trim(), @"\s+", " ");
+                    if (tytul.Length > 160) tytul = tytul.Substring(0, 159) + "…";
+                    if (tytul.Length > 0 && tytul != temat) d["tytul"] = tytul;
+                }
                 if (n.EtapObiegu.Length > 0) d["etap_obiegu"] = n.EtapObiegu;
                 d["wiadomosc"] = n.Logiczne.Length > 0 ? n.Logiczne : id;
                 if (org != null) { d["odpowiedz_na"] = org.Id; d["odpowiedz_na_wiadomosc"] = org.Logiczne.Length > 0 ? org.Logiczne : org.Id; }
@@ -737,6 +761,45 @@ namespace Ecxp
                 }
                 return D("przeniesione", ok, "brak", brak);
             });
+        }
+
+        // Przywrócenie wiadomości z archiwum albo kosza do bieżących (folder „przeczytane” – nic nie jest doręczane ponownie).
+        public static Dictionary<string, object> Przywroc(List<string> pliki)
+        {
+            return ZBlokada(delegate
+            {
+                int ok = 0, brak = 0;
+                var js = Js();
+                foreach (var nazwa in pliki.Select(Path.GetFileName).Where(x => !string.IsNullOrEmpty(x)).Distinct())
+                {
+                    FileInfo f = null; string kat = null;
+                    foreach (var k in new[] { "archiwum", Kosz })
+                    {
+                        var dir = Path.Combine(Root, k);
+                        if (!Directory.Exists(dir)) continue;
+                        var p = Directory.GetFiles(dir, nazwa, SearchOption.AllDirectories).FirstOrDefault();
+                        if (p != null) { f = new FileInfo(p); kat = k; break; }
+                    }
+                    if (f == null) { brak++; continue; }
+                    var m = Wczytaj(f, kat, js);
+                    var cel = Path.Combine(Root, "przeczytane"); Directory.CreateDirectory(cel);
+                    var dst = Path.Combine(cel, f.Name);
+                    if (File.Exists(dst)) { brak++; continue; }
+                    File.Move(f.FullName, dst);
+                    Zdarzenie("przywrocona", D("id", m.Id, "plik", f.Name, "z", kat, "kto", Wlasciciel));
+                    ok++;
+                }
+                return D("przywrocone", ok, "brak", brak);
+            });
+        }
+
+        // Wiadomości z kosza (do folderu Kosz w konsoli).
+        public static List<Msg> ZKosza()
+        {
+            var list = new List<Msg>(); var js = Js();
+            var a = Path.Combine(Root, Kosz);
+            if (Directory.Exists(a)) foreach (var f in new DirectoryInfo(a).GetFiles("*.json", SearchOption.AllDirectories)) list.Add(Wczytaj(f, Kosz, js));
+            return list;
         }
 
         // ---------- odbiór i potwierdzenia ----------

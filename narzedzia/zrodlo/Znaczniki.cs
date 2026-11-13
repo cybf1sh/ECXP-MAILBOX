@@ -82,6 +82,10 @@ namespace Ecxp
             return Kanon(w.OrderBy(x => x.Czas).ThenBy(x => x.OdpNa.Length > 0 && ids.Contains(x.OdpNa) ? 1 : 0).ThenBy(x => x.Seq).First());
         }
 
+        // Kolor wątku: kolor kodu jego pierwszej wiadomości. Wszystkie wiadomości rozmowy – wysłane i odebrane – mają ten sam kolor.
+        Color KolorWatku(List<Msg> w) { return w == null || w.Count == 0 ? Motyw.Tekst : KolorTagu(Tag(KorzenWatku(w))); }
+        Color TloWatku(List<Msg> w, Msg zapas) { return TloTagu(w == null || w.Count == 0 ? Tag(zapas) : Tag(KorzenWatku(w))); }
+
         // „Wątek do zadania #c73f”
         string OpisWatku(Msg korzen) { return Jezyk.T("Wątek do " + RodzajDo(korzen)) + " " + Tag(korzen); }
 
@@ -124,7 +128,7 @@ namespace Ecxp
             if (o == null) return "↩ " + Jezyk.T("odpowiedź na wiadomość") + " " + P.ZnacznikId(r.OdpNa) + " " + Jezyk.T("(usuniętą albo spoza tej skrzynki)");
             var s = "↩ " + Jezyk.T("odpowiedź na " + RodzajNa(o)) + " " + TagPierwowzoru(r);
             if (krotko) return s + " " + Jezyk.T("z") + " " + o.Czas.ToString("dd.MM HH:mm");
-            return s + " · „" + P.Baza(o.Temat) + "” · " + (Wyslana(o) ? Jezyk.T("wysłane przez Ciebie") : Jezyk.T("od ") + NazwaW(o.Od)) + " " + o.Czas.ToString("dd.MM.yyyy HH:mm") +
+            return s + " · „" + P.TytulWiadomosci(o) + "” · " + (Wyslana(o) ? Jezyk.T("wysłane przez Ciebie") : Jezyk.T("od ") + NazwaW(o.Od)) + " " + o.Czas.ToString("dd.MM.yyyy HH:mm") +
                 (o.Katalog == "archiwum" ? " · " + Jezyk.T("w archiwum") : "");
         }
 

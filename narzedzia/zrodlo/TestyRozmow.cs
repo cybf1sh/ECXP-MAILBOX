@@ -252,7 +252,7 @@ class TestyRozmow {
       Check(schowek.Contains("Znacznik: "+tagOdp) && schowek.Contains("↩ odpowiedź na zadanie "+tagZad),"copied message text contains its code and the code it answers");
       // drzewko folderów (3.11.0): Wszystkie / Odebrane / Wysłane / Niewysłane / Zarchiwizowane
       var drzewo=(TreeView)Field(app,"drzewoFolderow");
-      Check(drzewo!=null && drzewo.Nodes.Count==5 && drzewo.Nodes[1].Text.Contains("Odebrane") && drzewo.Nodes[2].Text.Contains("Wysłane") && drzewo.Nodes[3].Text.Contains("Niewysłane") && drzewo.Nodes[4].Text.Contains("Zarchiwizowane"),"folder tree lists inbox, sent, unsent and archived");
+      Check(drzewo!=null && drzewo.Nodes.Count==6 && drzewo.Nodes[5].Text.Contains("Kosz") && drzewo.Nodes[1].Text.Contains("Odebrane") && drzewo.Nodes[2].Text.Contains("Wysłane") && drzewo.Nodes[3].Text.Contains("Niewysłane") && drzewo.Nodes[4].Text.Contains("Zarchiwizowane"),"folder tree lists inbox, sent, unsent, archived and trash");
       Check(System.Text.RegularExpressions.Regex.IsMatch(drzewo.Nodes[1].Text,@"\(\d+") && System.Text.RegularExpressions.Regex.IsMatch(drzewo.Nodes[2].Text,@"\(\d+\)"),"folders show conversation counts");
       int wszystkichRozmow=lv.Items.Count;
       drzewo.SelectedNode=drzewo.Nodes[2]; Application.DoEvents();
@@ -271,6 +271,36 @@ class TestyRozmow {
       Check(!menuArch.Any(x=>x.Contains("Usuń")||x.Contains("Archiwizuj")||x.Contains("Zamknij")) && menuArch.Contains("Otwórz w oknie"),"archived folder menu has no delete, archive or close actions");
       drzewo.SelectedNode=drzewo.Nodes[0]; Application.DoEvents();
       Check((int)Field(app,"kierunek")==0 && !lv.Items.Cast<ListViewItem>().Any(x=>((Msg)x.Tag).Temat.ToUpperInvariant().Contains("ZNACZNIK")),"archived conversation is not shown among current conversations");
+      // 3.12.0: oryginalny tytuł, gałęzie wątków, jeden kolor na wątek, Kosz
+      var zadG=P.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="codex-demo",Projekt="demo",Modul="rozmowy",Typ="zadanie",Temat="Gałąź: zadanie z żółtą nazwą",Tresc="Zrób B."});
+      string idG=P.S(zadG,"id");
+      var odpG=P.Wyslij(new P.Nowa{Od="codex-demo",Do=P.Wlasciciel,Projekt="demo",Modul="rozmowy",Typ="fin",Wynik="pozytywny",Temat="FIN Gałąź",Tresc="Zrobione B.",OdpNa=idG});
+      Call(app,"Skanuj"); Application.DoEvents();
+      var wierszG=lv.Items.Cast<ListViewItem>().Single(x=>((Msg)x.Tag).Watek=="W|"+idG);
+      Check((string)wierszG.GetType().GetField("Tytul").GetValue(wierszG)=="Gałąź: zadanie z żółtą nazwą" && ((string)wierszG.GetType().GetField("Linia").GetValue(wierszG)).Contains("✓ POZYTYWNY"),"conversation row shows the original title and the FIN result");
+      int rozmow=lv.Items.Count;
+      Call(app,"UstawGalezie",true); Application.DoEvents();
+      var nagl=lv.Items.Cast<ListViewItem>().Where(x=>(bool)x.GetType().GetField("Naglowek").GetValue(x)).ToList();
+      var dzieciG=lv.Items.Cast<ListViewItem>().Where(x=>x.Name.StartsWith("m:") && ((Msg)x.Tag).Watek=="W|"+idG).ToList();
+      Check(nagl.Count==rozmow && lv.Items.Count>rozmow && dzieciG.Count==2 && ((Msg)dzieciG[0].Tag).Id==idG && ((Msg)dzieciG[1].Tag).Typ=="fin","thread branches list every message under its conversation header");
+      var paski=dzieciG.Select(x=>(Color)x.GetType().GetField("Pasek").GetValue(x)).Distinct().ToList();
+      Check(paski.Count==1 && paski[0]==(Color)nagl.Single(x=>((Msg)x.Tag).Watek=="W|"+idG).GetType().GetField("ChipTlo").GetValue(nagl.Single(x=>((Msg)x.Tag).Watek=="W|"+idG)),"sent and received messages of one thread share the thread colour");
+      Check((bool)Call(app,"KlikGalezi",nagl.Single(x=>((Msg)x.Tag).Watek=="W|"+idG)) && !lv.Items.Cast<ListViewItem>().Any(x=>x.Name.StartsWith("m:") && ((Msg)x.Tag).Watek=="W|"+idG),"clicking a branch header collapses it");
+      Check(File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("galezie=1"),"thread branches option is persisted");
+      Call(app,"UstawGalezie",false); Application.DoEvents();
+      Check(lv.Items.Count==rozmow && !lv.Items.Cast<ListViewItem>().Any(x=>(bool)x.GetType().GetField("Naglowek").GetValue(x)),"turning branches off restores one row per conversation");
+      P.Wycofaj(new List<string>{Path.GetFileName(P.S(odpG,"plik"))},"test kosza",P.Kosz);
+      Call(app,"Skanuj"); Application.DoEvents();
+      drzewo.SelectedNode=drzewo.Nodes[5]; Application.DoEvents();
+      var wKoszu=lv.Items.Cast<ListViewItem>().FirstOrDefault(x=>((Msg)x.Tag).Watek=="W|"+idG);
+      Check((int)Field(app,"kierunek")==5 && wKoszu!=null && lv.Items.Count==2,"Trash folder lists conversations of deleted messages");
+      foreach(ListViewItem x in lv.Items) x.Selected=false; wKoszu.Selected=true; Application.DoEvents();
+      lv.ContextMenuStrip.Show(lv,new Point(5,5)); Application.DoEvents();
+      var menuKosz=lv.ContextMenuStrip.Items.Cast<ToolStripItem>().Where(x=>x.Available && !(x is ToolStripSeparator)).Select(x=>x.Text).ToList();
+      lv.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
+      Check(menuKosz.Count>0 && menuKosz[0]=="↺  Przywróć do bieżących" && !menuKosz.Any(x=>x.Contains("Usuń")),"read-only folders offer Restore and no delete");
+      drzewo.SelectedNode=drzewo.Nodes[0]; Application.DoEvents();
+      if(args.Contains("--galezie")) { Call(app,"UstawGalezie",true); Application.DoEvents(); }   // do zrzutu ekranu widoku gałęzi
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);
         }

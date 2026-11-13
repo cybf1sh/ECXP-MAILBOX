@@ -585,6 +585,7 @@ namespace Ecxp
                 });
             }
             catch { }
+            P.Sygnal(n, "tura");                 // obecność: agent w tle „odzywa się” turami
             var pracaMsg = praca.Zadanie ?? praca.Pytanie;
             Aktywnosc.Zapisz(n, "praca", (praca.Zadanie != null ? "📥 zadanie: " : "📥 pytanie: ") + (pracaMsg != null ? P.Baza(pracaMsg.Temat) : "") +
                 (Cieply.Zastepczy(P.S(rec, "strona")) ? " (tryb zastępczy – szczegóły działań niewidoczne)" : ""));
@@ -657,6 +658,7 @@ namespace Ecxp
                         if (u.Count > 50) u = u.Skip(u.Count - 50).ToList();
                         d["uruchomienia"] = u;
                         d.Remove("tura_od"); d.Remove("tura_praca");
+                        P.Sygnal(n, "tura_koniec");
                         Aktywnosc.Zapisz(n, kod == 0 ? "koniec" : "blad", kod == 0 ? "■ tura zakończona, wynik przekazany (" + P.Wiek(DateTime.Now - start) + ")"
                             : "⚠ tura zakończona: " + (przyczyna == "odmowa" ? "odmowa dostawcy modelu" : przyczyna) + " (" + P.Wiek(DateTime.Now - start) + ")");
                         bool przezOperatora; lock (trwa) przezOperatora = przerwane.Remove(n);

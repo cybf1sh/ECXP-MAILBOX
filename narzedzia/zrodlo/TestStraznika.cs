@@ -30,7 +30,7 @@ class TestStraznika {
   Check(r.Any(x=>P.S(x,"agent")=="codex-p" && P.S(x,"sposob")=="zapytano"),"app session is asked for its stage");
   Check(r.Any(x=>P.S(x,"agent")=="claude-p" && P.S(x,"sposob")=="w_tle"),"background agent is not asked (no MCP), reported as background");
   var q=Do("codex-p").Where(m=>m.Od==P.Straznik && m.Temat.StartsWith(Obieg.TematPytaniaOEtap)).ToList();
-  Check(q.Count==1 && q[0].Typ=="informacja" && q[0].Uwagi.Contains("typ=w_trakcie") && q[0].Uwagi.Contains("odpowiedz_na="+c.Id),"question is one informacja from the watcher with exact reply instructions");
+  Check(q.Count==1 && q[0].Typ=="informacja" && q[0].Uwagi.Contains("typ=postep") && q[0].Uwagi.Contains("odpowiedz_na="+c.Id),"question is one informacja from the watcher with exact reply instructions");
   Check(!Do("claude-p").Any(m=>m.Od==P.Straznik),"background agent receives no question");
   Check(Obieg.Znajdz(q[0].Id)==null,"question is not attached to the task flow (cannot become FIN)");
   Check(!Agenci.WymagaTury(P.Straznik,"informacja"),"watcher message never triggers a background turn");

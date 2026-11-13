@@ -18,7 +18,13 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.11.0: `builds/release-3.11.0/narzedzia/`.
+Aktualny pakiet 3.12.0: `builds/release-3.12.0/narzedzia/`.
+
+**Wersja 3.12.0 (protokół ECXP 1.1):** wynik FIN jako pole, jeden identyfikator wiadomości
+dla pary, wątek z identyfikatorem i oryginalnym tytułem, typ `postep`, lista możliwości stosu,
+przywracanie z archiwum i kosza, obecność adresata z rodzajem; w konsoli jeden kolor na wątek,
+opcja „Gałęzie wątków”, folder Kosz, naprawione tokeny zadania.
+Szczegóły: [wydanie 3.12.0](docs/WDROZENIE-3.12.0-20261113.md).
 
 **Wersja 3.11.0:** kolorowe znaczniki wiadomości (kod `#c73f`, „Wątek do zadania…”,
 „↩ odpowiedź na zadanie #c73f”) oraz układ jak w programie pocztowym – drzewko folderów
