@@ -146,6 +146,28 @@ class TestNiezawodnosci {
   Check(P.ZBlokada(()=>Obieg.Dokoncz(null))==0 && File.ReadLines(dz).Count(l=>l.Contains("\"obieg_dokonczony\""))==2 && File.ReadLines(dz).Any(l=>l.Contains("\"zamiar_dokonczony\"")),"recovery is idempotent and recorded in the audit log");
   P.Stany(out sp);
   Check(sp.StartsWith("spójny"),"the journal stays consistent after all operations");
+
+  // ---------- agenci wyłączeni przez operatora ----------
+  Check(!Wylaczeni.Jest("claude-p") && Wylaczeni.Lista().Count==0,"no agent is disabled by default");
+  var rw=Wylaczeni.Ustaw("claude-p",true,"test");
+  Check(P.B(rw,"wylaczony") && P.B(rw,"zmiana") && Wylaczeni.Jest("claude-p") && !Wylaczeni.Jest("codex-p") && !P.B(Wylaczeni.Ustaw("claude-p",true,"test"),"zmiana"),"operator can disable one side of a pair; repeating changes nothing");
+  int doClaude=Do("claude-p").Count, doCodex=Do("codex-p").Count;
+  var wp=Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="para:test",Projekt="test",Modul="test",Typ="zadanie",Temat="Tylko dla włączonych",Tresc="Zadanie przy wyłączonym Claude."});
+  Check(Do("claude-p").Count==doClaude && Do("codex-p").Count==doCodex+1 && P.L(wp,"pominieci_wylaczeni").Contains("claude-p") && P.L(wp,"ostrzezenia").Any(x=>x.Contains("claude-p")),"a pair address skips the disabled agent and says so");
+  var zw=P.Znajdz(P.S(wp,"id"));
+  P.Odbierz("codex-p",50);
+  Siec.Wyslij(new P.Nowa{Od="codex-p",Do=P.Wlasciciel,Projekt="test",Modul="test",Typ="fin",Wynik="pozytywny",OdpNa=zw.Id,Tresc="zrobione samodzielnie"});
+  Check(Do(P.Wlasciciel).Any(m=>m.EtapObiegu=="fin_wspolny" && m.OdpNa==zw.Id && m.Wynik=="pozytywny") && !Obieg.CzekaNaFin(zw.Id,"codex-p"),"the task closes with the FIN of the enabled agent alone");
+  var bw=Blad(()=>Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="claude-p",Projekt="test",Modul="test",Typ="informacja",Temat="Do wyłączonego",Tresc="x",BezKopii=true}));
+  Check(bw!=null && bw.Contains("wyłączony") && Do("claude-p").Count==doClaude,"a message addressed directly to a disabled agent is refused");
+  Check(!P.B(Siec.Obecnosci("claude-p").Single(),"dostepny") && P.S(Siec.Obecnosci("claude-p").Single(),"opis").Contains("wyłączony"),"presence reports the disabled agent as unavailable");
+  Wylaczeni.Ustaw("codex-p",true,"test");
+  Check(Blad(()=>Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="para:test",Projekt="test",Modul="test",Typ="zadanie",Temat="Nikt nie pracuje",Tresc="x"}))!=null && Wylaczeni.Lista().Count==2,"with both sides disabled the pair address is refused");
+  Wylaczeni.Ustaw("codex-p",false,"");Wylaczeni.Ustaw("claude-p",false,"");
+  doClaude=Do("claude-p").Count;
+  Siec.Wyslij(new P.Nowa{Od=P.Wlasciciel,Do="para:test",Projekt="test",Modul="test",Typ="zadanie",Temat="Znowu oboje",Tresc="Po włączeniu."});
+  Check(Wylaczeni.Lista().Count==0 && Do("claude-p").Count==doClaude+1,"after enabling, the pair address reaches both agents again");
+  Check(File.ReadLines(dz).Count(l=>l.Contains("\"agent_wylaczony\""))==2 && File.ReadLines(dz).Count(l=>l.Contains("\"agent_wlaczony\""))==2 && Blad(()=>Wylaczeni.Ustaw("zła nazwa",true,""))!=null,"disabling and enabling are recorded in the audit log; bad names are refused");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

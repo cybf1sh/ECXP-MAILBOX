@@ -362,6 +362,15 @@ namespace Ecxp
                             "'. Wiadomość trafiłaby do innej pary – popraw adres (np. para:" + n.Modul + ") albo moduł.");
                 }
                 var cele = Rozwiaz(n.Projekt, n.Do);
+                // agenci wyłączeni przez operatora: adres pary pomija wyłączoną stronę, adres samego wyłączonego agenta jest odrzucany
+                var pominieci = cele.Where(Wylaczeni.Jest).ToList();
+                if (pominieci.Count > 0)
+                {
+                    if (pominieci.Count == cele.Count)
+                        throw new EcxpException((pominieci.Count == 1 ? "Agent " + pominieci[0] + " jest wyłączony" : "Agenci " + string.Join(", ", pominieci) + " są wyłączeni") +
+                            " przez operatora – wiadomość nie została wysłana. Włączenie: konsola ECXP-MAILBOX → Agenci → prawy przycisk na parze.");
+                    cele = cele.Where(c => !pominieci.Contains(c)).ToList();
+                }
                 ZasadaOdpowiedzi(n, cele);
                 // para wstrzymana po rozbieżności gałęzi: agenci nie dostają nowych zadań, dopóki operator jej nie wznowi
                 if (n.Od != P.Wlasciciel && n.Typ == "zadanie")
@@ -393,14 +402,16 @@ namespace Ecxp
                 var wynik = new Dictionary<string, object>(pierwsza);
                 // adresat bez kontaktu od doby (albo nigdy): wiadomość zostaje wysłana, usługa doręczania spróbuje go obudzić
                 var ostrz = new List<string>();
+                if (pominieci.Count > 0) ostrz.Add("Pominięto wyłączonego agenta: " + string.Join(", ", pominieci) + " – wiadomość dostał tylko " + string.Join(", ", cele) + ".");
                 // ecxp/1.1: jeden zapis obecności z rodzajem adresata (sesja w aplikacji / agent w tle) – ostrzeżenie tylko, gdy adresat nie odbierze
                 foreach (var ob in Obecnosci("").Where(x => cele.Contains(P.S(x, "nazwa")) && !P.B(x, "dostepny")))
                     ostrz.Add("Adresat " + P.S(ob, "nazwa") + ": " + P.S(ob, "opis") + ".");
                 if (ostrz.Count > 0)
                 {
-                    ostrz.Add("Wiadomość wysłana. Stos spróbuje obudzić adresata w jego sesji; jeśli się nie uda, dostaniesz alarm „NIEDORECZONA”.");
+                    if (ostrz.Count > pominieci.Count.CompareTo(0)) ostrz.Add("Wiadomość wysłana. Stos spróbuje obudzić adresata w jego sesji; jeśli się nie uda, dostaniesz alarm „NIEDORECZONA”.");
                     wynik["ostrzezenia"] = ostrz;
                 }
+                if (pominieci.Count > 0) wynik["pominieci_wylaczeni"] = pominieci;
                 wynik["adresaci"] = cele;
                 wynik["wyslane"] = wyslane;
                 if (lustroId.Length > 0) wynik["lustro_id"] = lustroId;
@@ -428,7 +439,8 @@ namespace Ecxp
                 Wezel w; wezly.TryGetValue(n, out w);
                 Dictionary<string, object> ag; wTle.TryGetValue(n, out ag);
                 var d = P.D("nazwa", n, "rodzaj", ag != null ? "tlo" : "sesja", "ostatnio", w != null ? w.Ostatnio.ToString("yyyy-MM-dd'T'HH:mm:ss") : "");
-                if (ag != null)
+                if (Wylaczeni.Jest(n)) { d["dostepny"] = false; d["wylaczony"] = true; d["opis"] = "wyłączony przez operatora"; }
+                else if (ag != null)
                 {
                     bool stoi = Agenci.Zatrzymana(P.S(ag, "strona"));
                     d["dostepny"] = !stoi;

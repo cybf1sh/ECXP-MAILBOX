@@ -82,6 +82,7 @@ namespace Ecxp
                 if (!stany.TryGetValue(m.Id, out s) || s.Dostarczona.HasValue || s.Potwierdzona.HasValue) continue;
                 if ((teraz - s.Wyslana).TotalMinutes < (m.Do.StartsWith("codex-") ? 0 : PierwszaProbaMin) || s.Wyslana < od) continue;
                 if (!P.PoprawnyNadawca(m.Do) || m.Do == P.Koordynacja || m.Do == "codex-core") continue;
+                if (Wylaczeni.Jest(m.Do)) continue;                        // agent wyłączony przez operatora: bez budzenia sesji
                 List<Oczekujaca> l;
                 if (!wynik.TryGetValue(m.Do, out l)) wynik[m.Do] = l = new List<Oczekujaca>();
                 l.Add(new Oczekujaca { M = m, S = s });

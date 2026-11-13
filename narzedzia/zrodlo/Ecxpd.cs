@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.7.0.0")]
+[assembly: AssemblyFileVersion("1.8.0.0")]
 
 namespace Ecxp
 {
@@ -543,6 +543,8 @@ namespace Ecxp
                         if (n.Typ == "decyzja") throw new EcxpException("Decyzje wydaje wyłącznie operator, podpisane – w konsoli (Decyzja…), nie zwykłą wiadomością.");
                         if (s.Operator && n.Ograniczenia.Length == 0)
                             n.Ograniczenia = "Wiadomość operatora przez ECXP (konsola ECXP-MAILBOX, tożsamość potwierdzona przez stos).";
+                        if (!s.Operator && Wylaczeni.Jest(n.Od))
+                            throw new EcxpException("Operator wyłączył tego agenta (" + n.Od + ") w ECXP – wiadomość nie została wysłana. Zakończ turę.");
                         // identyfikator żądania: jawny (pole klucz, 24 h) albo – dla agentów – ta sama treść do tego samego adresata w ciągu 60 s
                         var kluczK = P.S(a, "klucz").Trim();
                         string powt = kluczK.Length > 0 ? "k|" + n.Od + "|" + kluczK
@@ -553,6 +555,9 @@ namespace Ecxp
                     {
                         int limit; int.TryParse(P.S(a, "limit"), out limit);
                         var ja = Agent(s, a);
+                        if (!s.Operator && Wylaczeni.Jest(ja))
+                            return P.D("liczba", 0, "wiadomosci", new List<object>(), "wylaczony", true,
+                                "przypomnienie", "Operator wyłączył tego agenta (" + ja + ") w ECXP. Nie odbieraj i nie wysyłaj wiadomości – zakończ turę. Wiadomości poczekają do włączenia.");
                         var lst = P.Odbierz(ja, limit);
                         return P.D("liczba", lst.Count(x => x.ContainsKey("id")), "wiadomosci", lst,
                             "przypomnienie", lst.Count > 0 ? "Zadanie: wykonaj i wyślij jeden FIN (typ=fin, wynik=pozytywny|negatywny|niewykonane, odpowiedz_na=<id zadania>) – odbiór stos już zapisał. Inne wiadomości: ecxp_potwierdz." : "Brak wiadomości dla Ciebie.");
@@ -697,6 +702,14 @@ namespace Ecxp
                             P.S(a, "uprawnienia").Length > 0 ? P.S(a, "uprawnienia") : "odczyt", P.L(a, "role"), P.S(a, "opis"), ng > 0 ? ng : 6);
                     }
                 case "zatrzymaj_agenta": TylkoOperator(s); return Agenci.Zatrzymaj(P.S(a, "nazwa"));
+                case "wylacz_agenta":
+                    {
+                        // operator wybiera, którzy agenci pracują: wylacz = false włącza agenta z powrotem
+                        TylkoOperator(s);
+                        var rw = Wylaczeni.Ustaw(P.S(a, "nazwa"), !a.ContainsKey("wylacz") || P.B(a, "wylacz"), P.S(a, "uwagi"));
+                        zmiana = 1;
+                        return rw;
+                    }
                 case "usluga": TylkoOperator(s); return Agenci.Usluga(P.S(a, "strona"), P.S(a, "akcja"));
                 case "uslugi": return P.D("claude", Agenci.UslugaStan("claude"), "codex", Agenci.UslugaStan("codex"));
                 case "uslugi_zakoncz": TylkoOperator(s); return Agenci.Zakoncz(P.B(a, "przy_zamknieciu"));

@@ -300,6 +300,36 @@ class TestyRozmow {
       lv.ContextMenuStrip.Close(ToolStripDropDownCloseReason.Keyboard); Application.DoEvents();
       Check(menuKosz.Count>0 && menuKosz[0]=="↺  Przywróć do bieżących" && !menuKosz.Any(x=>x.Contains("Usuń")),"read-only folders offer Restore and no delete");
       drzewo.SelectedNode=drzewo.Nodes[0]; Application.DoEvents();
+      // 3.14.0: okno „Katalog agentów” – katalog roboczy, lista agentów, edycja plików
+      string katAg=Path.Combine(root,"Agents");Directory.CreateDirectory(katAg);
+      var agA=KatalogAgentow.Utworz(katAg,"codex-demo-agent","codex","Demo Sentinel — Codex","demo",null);
+      KatalogAgentow.Utworz(katAg,"claude-demo-agent","claude","Demo Sentinel — Claude","demo",agA);
+      KatalogAgentow.NowySkrypt(agA,"narzedzie.py");
+      Check(Descendants(tabAgenci).OfType<Button>().Any(x=>x.Name=="katalogAgentowPrzycisk"),"Agents tab has the agent catalogue button");
+      Call(app,"UstawKatalogAgentow",katAg);
+      Check(File.ReadAllText(Path.Combine(root,"narzedzia","ustawienia-wlasciciel.txt")).Contains("katalog_agentow="+katAg),"agent working directory is persisted in settings");
+      Call(app,"PokazKatalogAgentow"); Application.DoEvents();
+      var oknoKat=Application.OpenForms.Cast<Form>().Single(x=>x.Name=="oknoKatalogu");
+      var listaKat=Descendants(oknoKat).OfType<ListView>().Single(x=>x.Name=="listaAgentowKatalogu");
+      var drzewoKat=Descendants(oknoKat).OfType<TreeView>().Single(x=>x.Name=="plikiAgenta");
+      var edytorKat=Descendants(oknoKat).OfType<TextBox>().Single(x=>x.Name=="edytorPliku");
+      Check(Descendants(oknoKat).OfType<TextBox>().Single(x=>x.Name=="katalogAgentow").Text==katAg && listaKat.Items.Count==2
+        && listaKat.Items.Cast<ListViewItem>().Any(x=>x.SubItems[1].Text=="Codex" && x.SubItems[2].Text=="codex-demo") && listaKat.Items.Cast<ListViewItem>().Any(x=>x.SubItems[1].Text=="Claude" && x.SubItems[2].Text=="claude-demo"),"catalogue window lists Codex and Claude agents from the working directory");
+      foreach(ListViewItem x in listaKat.Items) x.Selected=x.SubItems[1].Text=="Codex"; Application.DoEvents();
+      var grupyKat=drzewoKat.Nodes.Cast<TreeNode>().Select(x=>x.Text).ToList();
+      Check(grupyKat.Count>=3 && grupyKat[0]=="Konfiguracja agenta" && grupyKat[1]=="Zakres i zadania" && grupyKat[2]=="Skrypty i narzędzia"
+        && drzewoKat.Nodes[0].Nodes[0].Text=="AGENTS.md" && drzewoKat.Nodes[1].Nodes[0].Text=="scope.md" && drzewoKat.Nodes[2].Nodes[0].Text=="narzedzie.py","agent files are grouped: configuration, scope and tasks, scripts");
+      Check(edytorKat.Text.Contains("# Demo Sentinel — Codex") && !edytorKat.ReadOnly,"selecting an agent opens its instruction file for editing");
+      var zapiszKat=Descendants(oknoKat).OfType<Button>().Single(x=>x.Name=="zapiszPlik");
+      Check(!zapiszKat.Enabled,"save is disabled until the file changes");
+      edytorKat.Text+="\r\n## Dopisane w konsoli\r\nZażółć gęślą jaźń.\r\n"; Application.DoEvents();
+      Check(zapiszKat.Enabled && Descendants(oknoKat).OfType<Label>().Single(x=>x.Name=="edytowanyPlik").Text.StartsWith("● AGENTS.md"),"an edited file is marked as changed");
+      zapiszKat.PerformClick(); Application.DoEvents();
+      Check(File.ReadAllText(Path.Combine(agA.Folder,"AGENTS.md")).Contains("Zażółć gęślą jaźń.") && !zapiszKat.Enabled && Directory.GetFiles(Path.Combine(agA.Folder,".kopie"),"AGENTS.md-*").Length==1,"saving writes the instruction file and keeps the previous version");
+      drzewoKat.SelectedNode=drzewoKat.Nodes[2].Nodes[0]; Application.DoEvents();
+      Check(edytorKat.Text.Contains("python narzedzie.py"),"a script can be opened from the tree");
+      oknoKat.Close(); Application.DoEvents();
+      Check(!Application.OpenForms.Cast<Form>().Any(x=>x.Name=="oknoKatalogu"),"catalogue window closes without prompts when nothing is unsaved");
       if(args.Contains("--galezie")) { Call(app,"UstawGalezie",true); Application.DoEvents(); }   // do zrzutu ekranu widoku gałęzi
       Console.WriteLine("RESULT: "+failed+" failed");
       File.WriteAllText(Path.Combine(root,"gui-test-result.txt"),"Failures: "+failed);

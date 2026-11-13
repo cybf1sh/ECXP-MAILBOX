@@ -205,7 +205,7 @@ namespace Ecxp
         public static readonly string[] PoleceniaStosu = { "agenci", "archiwizuj", "decyzja", "galezie", "karta", "kontekst_pobierz", "kontekst_zapisz", "lancuch", "lancuch_wznow",
             "lancuchy", "nowe_zadanie", "nowy_pentest", "obecnosc", "obudz", "odbierz", "para_wznow", "ping", "podwyzszone_wygas", "potwierdz", "projekt_usun_bilet", "przekaz", "przypisz",
             "przywroc", "rola", "sesja", "sprawdz_decyzje", "stan", "stan_galezi", "straz", "sygnal", "trasy", "umowa_galezi", "uruchom_agenta", "usluga", "uslugi", "uslugi_po_starcie",
-            "uslugi_zakoncz", "usun", "watek", "wycofaj", "wyslij", "zadanie", "zapytaj_o_etap", "zarejestruj_sesje", "zatrzymaj_agenta" };
+            "uslugi_zakoncz", "usun", "watek", "wycofaj", "wylacz_agenta", "wyslij", "zadanie", "zapytaj_o_etap", "zarejestruj_sesje", "zatrzymaj_agenta" };
         // Pola przyjmowane przez „wyslij” (ecxp_wyslij). Nieznane pole albo zły typ = błąd od razu, zamiast cichego pominięcia.
         public static readonly string[] PolaWyslij = { "ja", "do", "typ", "projekt", "modul", "temat", "tresc", "odpowiedz_na", "pilne", "commit", "kontrole", "pliki",
             "ograniczenia", "czesci", "bez_kopii", "wynik", "krok", "z_krokow", "klucz" };

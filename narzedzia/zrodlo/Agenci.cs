@@ -290,7 +290,7 @@ namespace Ecxp
                     var sesje = SesjeInteraktywne();
                     // agent, którego adres przejęła sesja: praca odebrana wcześniej nie może zniknąć – jedno zgłoszenie operatorowi
                     foreach (var prz in Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && sesje.Contains(P.S(x, "nazwa")))) PracaPrzejeta(prz);
-                    var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona")) && !sesje.Contains(P.S(x, "nazwa"))).ToList();
+                    var lista = Lista().Where(x => P.B(x, "aktywny") && Obsluguje(x) && !Zatrzymana(P.S(x, "strona")) && !sesje.Contains(P.S(x, "nazwa")) && !Wylaczeni.Jest(P.S(x, "nazwa"))).ToList();
                     Cieply.Sprzataj(lista.GroupBy(x => P.S(x, "nazwa")).ToDictionary(g => g.Key, g => g.First()));
                     Cieply.PokazOczekujace();          // „Pokaż sesje agentów”: okna Codex / Claude
                     // agenci z otwartym zadaniem (bez FIN) – ich procesy są rozgrzane z wyprzedzeniem (np. sprawdzający, zanim skończy wykonawca)
@@ -330,7 +330,7 @@ namespace Ecxp
                         // adres mógł przejść na sesję w aplikacji po migawce – wtedy bez tury w tle; odebrana już praca do operatora
                         if (P.ZBlokada(() => SesjeInteraktywne().Contains(n))) { PracaPrzejeta(rec); continue; }
                         bool rozpocznij = P.ZBlokada(() => {
-                            if (UsuwanieProjektu.Trwa(P.S(rec,"projekt")) || !P.B(Pliki.Czytaj(Path.Combine(Dir,n+".json")),"aktywny")) return false;
+                            if (UsuwanieProjektu.Trwa(P.S(rec,"projekt")) || !P.B(Pliki.Czytaj(Path.Combine(Dir,n+".json")),"aktywny") || Wylaczeni.Jest(n)) return false;
                             lock (trwa) { if (trwa.Contains(n)) return false; trwa.Add(n); } return true;
                         });
                         if (!rozpocznij) continue;

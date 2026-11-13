@@ -19,7 +19,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.13.0.0")]
+[assembly: AssemblyFileVersion("3.14.0.0")]
 
 namespace Ecxp
 {
@@ -186,7 +186,7 @@ namespace Ecxp
             var mj = Regex.Match(ust, @"jezyk=([a-z]{2})");
             Jezyk.Kod = mj.Success ? mj.Groups[1].Value : "pl";
             widokUslug = ust.Contains("uslugi=karty") ? "karty" : "pasek";
-            WczytajStraznika(ust); WczytajGalezie(ust);
+            WczytajStraznika(ust); WczytajGalezie(ust); WczytajKatalogAgentow(ust);
             var mb = Regex.Match(ust, @"biezaca=([^|\r\n]*)\|([^|\r\n]*)\|([^|\r\n]*)\|(\d+)(?:\|([a-z,]+))?");
             if (mb.Success)
             {
@@ -644,7 +644,10 @@ namespace Ecxp
             var bWznow = Btn("Wznów parę / łańcuch");
             var bBiez = Btn("▶  Ustaw jako bieżącą");
             var bSesja = Btn("Utwórz sesję w aplikacji…");
-            agTop.Controls.AddRange(new Control[] { bNowe, bBiez, bSesja, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
+            var bKatalog = Btn("🗂  Katalog agentów…"); bKatalog.Name = "katalogAgentowPrzycisk";
+            bKatalog.Click += delegate { PokazKatalogAgentow(); };
+            new ToolTip().SetToolTip(bKatalog, "Agenci Codex i Claude z katalogu roboczego (np. E:\\Agents): dodawanie agenta, uruchomienie w ECXP,\nedycja instrukcji (AGENTS.md / CLAUDE.md), zakresu (scope.md) i skryptów.");
+            agTop.Controls.AddRange(new Control[] { bNowe, bKatalog, bBiez, bSesja, bRola, bDecyzja, bTlo, bWznow, bPakiet, bNazwy });
             bSesja.Click += delegate { UtworzSesjeAplikacji(null); };
             // prawy przycisk na parze: sesja w aplikacjach (obie strony albo jedna)
             var menuAg = new ContextMenuStrip();
@@ -655,7 +658,30 @@ namespace Ecxp
             var miCoCodex = new ToolStripMenuItem("👁  Co robi agent Codex…", null, delegate { var d = WybranaPara(); if (d != null) PokazAktywnosc(P.S(d, "codex")); });
             var miCoClaude = new ToolStripMenuItem("👁  Co robi agent Claude…", null, delegate { var d = WybranaPara(); if (d != null) PokazAktywnosc(P.S(d, "claude")); });
             menuAg.Items.Add(miCoCodex); menuAg.Items.Add(miCoClaude);
-            menuAg.Opening += (s, e) => { var d = WybranaPara(); miCoCodex.Enabled = d != null && P.S(d, "codex").Length > 0; miCoClaude.Enabled = d != null && P.S(d, "claude").Length > 0; Jezyk.Zastosuj(menuAg); };
+            // wyłączanie / włączanie agentów: operator wybiera, którzy agenci pracują
+            menuAg.Items.Add(new ToolStripSeparator());
+            var miWylCodex = new ToolStripMenuItem("⏸  Wyłącz agenta Codex", null, delegate { PrzelaczAgenta("codex"); }) { Name = "wylaczCodex" };
+            var miWylClaude = new ToolStripMenuItem("⏸  Wyłącz agenta Claude", null, delegate { PrzelaczAgenta("claude"); }) { Name = "wylaczClaude" };
+            menuAg.Items.Add(miWylCodex); menuAg.Items.Add(miWylClaude);
+            menuAg.Opening += (s, e) =>
+            {
+                var d = WybranaPara(); miCoCodex.Enabled = d != null && P.S(d, "codex").Length > 0; miCoClaude.Enabled = d != null && P.S(d, "claude").Length > 0;
+                foreach (var para in new[] { new object[] { miWylCodex, "codex", "Codex" }, new object[] { miWylClaude, "claude", "Claude" } })
+                {
+                    var mi = (ToolStripMenuItem)para[0]; var n = d != null ? P.S(d, (string)para[1]) : "";
+                    mi.Enabled = n.Length > 0;
+                    mi.Text = n.Length > 0 && Wylaczeni.Jest(n) ? "▶  " + Jezyk.T("Włącz agenta ") + para[2] + "  (" + n + ")" : "⏸  " + Jezyk.T("Wyłącz agenta ") + para[2] + (n.Length > 0 ? "  (" + n + ")" : "");
+                }
+                Jezyk.Zastosuj(menuAg);
+            };
+            var bWylacz = Btn("⏸  Wyłącz / włącz agenta…"); bWylacz.Name = "wylaczAgentaPrzycisk";
+            new ToolTip().SetToolTip(bWylacz, "Wyłączony agent nie dostaje nowych zadań, stos nie uruchamia jego tur i nie budzi jego sesji.\nZaznacz parę i wybierz stronę. Nic nie jest kasowane – po włączeniu agent pracuje dalej.");
+            bWylacz.Click += delegate
+            {
+                if (WybranaPara() == null) { MessageBox.Show(form, Jezyk.T("Zaznacz parę na liście agentów."), Jezyk.T("Wyłącz / włącz agenta")); return; }
+                menuAg.Show(bWylacz, new Point(0, bWylacz.Height));
+            };
+            agTop.Controls.Add(bWylacz); agTop.Controls.SetChildIndex(bWylacz, 2);
             bBiez.Click += delegate { BiezacaZListy(); };
             bDecyzja.Click += delegate { Decyzja(); };
             bTlo.Click += delegate { UruchomAgenta(); };
@@ -1677,7 +1703,7 @@ namespace Ecxp
 
         void ZapiszUstawienia()
         {
-            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Konsolowy ? "konsola" : Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine + UstawieniaStraznika() + UstawieniaGalezi() +
+            try { File.WriteAllText(UstawieniaPlik, "motyw=" + (Motyw.Konsolowy ? "konsola" : Motyw.Ciemny ? "ciemny" : "jasny") + Environment.NewLine + "jezyk=" + Jezyk.Kod + Environment.NewLine + "uslugi=" + widokUslug + Environment.NewLine + UstawieniaStraznika() + UstawieniaGalezi() + UstawieniaKataloguAgentow() +
                 (biezMod.Length > 0 ? "biezaca=" + biezProj + "|" + biezMod + "|" + biezTytul.Replace("|", "/") + "|" + biezOd.Ticks + "|" + string.Join(",", biezStrony) + Environment.NewLine : ""), new UTF8Encoding(false)); } catch { }
         }
 
@@ -3514,7 +3540,12 @@ namespace Ecxp
                 var wTle = Agenci.Lista().Where(a => P.B(a, "aktywny")).Select(a => P.S(a, "nazwa")).ToList();
                 if (wTle.Contains(cx)) it.SubItems[2].Text += Jezyk.T("  (w tle)");
                 if (wTle.Contains(cl)) it.SubItems[3].Text += Jezyk.T("  (w tle)");
-                it.ForeColor = pelna && !rozb ? Zielony : Czerwony;
+                // agenci wyłączeni przez operatora: nie dostają zadań i nie pracują
+                bool cxWyl = cx.Length > 0 && Wylaczeni.Jest(cx), clWyl = cl.Length > 0 && Wylaczeni.Jest(cl);
+                if (cxWyl) it.SubItems[2].Text = "⏸ " + Jezyk.T("WYŁĄCZONY") + "  " + cx;
+                if (clWyl) it.SubItems[3].Text = "⏸ " + Jezyk.T("WYŁĄCZONY") + "  " + cl;
+                if (cxWyl || clWyl) it.SubItems[4].Text = cxWyl && clWyl ? Jezyk.T("⏸ para wyłączona") : Jezyk.T("⏸ pracuje tylko ") + (cxWyl ? "Claude" : "Codex");
+                it.ForeColor = cxWyl && clWyl ? Motyw.Slaby : pelna && !rozb ? Zielony : Czerwony;
                 if (pr == biezProj && mod == biezMod) { it.Text = "▶ " + pr; it.Font = fontB; it.BackColor = Akcent; }
                 it.Tag = d;
                 lvAg.Items.Add(it);
@@ -3590,6 +3621,23 @@ namespace Ecxp
             pnlBiez.BackColor = ostrz ? Motyw.Ostrz(Color.FromArgb(255, 226, 200)) : Akcent;
             lblBiez.ForeColor = Motyw.Tekst;
             bBiezFiltr.Text = tylkoBiez ? Jezyk.T("Pokaż wszystkie rozmowy") : Jezyk.T("Pokaż tylko tę sesję");
+        }
+
+        // Wyłączenie albo włączenie jednej strony zaznaczonej pary (polecenie stosu wylacz_agenta).
+        void PrzelaczAgenta(string strona)
+        {
+            var d = WybranaPara(); var n = d != null ? P.S(d, strona) : "";
+            if (n.Length == 0) return;
+            bool wylacz = !Wylaczeni.Jest(n);
+            if (wylacz && MessageBox.Show(form, string.Format(Jezyk.T("Wyłączyć agenta {0}?\n\nNie dostanie nowych zadań (adres pary go pominie), stos nie uruchomi jego tur ani nie obudzi jego sesji. Trwająca tura nie jest przerywana. Nic nie zostanie skasowane – agenta można włączyć z powrotem."), n),
+                    Jezyk.T("Wyłącz / włącz agenta"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try
+            {
+                Stos("wylacz_agenta", P.D("nazwa", n, "wylacz", wylacz, "uwagi", "z konsoli ECXP-MAILBOX"));
+                stInfo.Text = (wylacz ? Jezyk.T("Agent wyłączony: ") : Jezyk.T("Agent włączony: ")) + n;
+                Skanuj();
+            }
+            catch (Exception ex) { Bledy.Wyjatek(ex); MessageBox.Show(form, ex.Message, Jezyk.T("Wyłącz / włącz agenta"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         Dictionary<string, object> WybranaPara()
