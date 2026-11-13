@@ -44,6 +44,15 @@ namespace Ecxp
         public string Tytul = "";      // oryginalny tytuł (temat to jego skrót bez polskich znaków i spacji)
         public Msg Rodzic;
         public Stan Dor;   // stan doręczenia z dziennika (null = wiadomość starego formatu)
+        // Kopia do wydania z pamięci podręcznej: pola wyliczane przez wywołującego (wątek, rodzic, stan doręczenia) są puste.
+        public Msg Klon()
+        {
+            var k = (Msg)MemberwiseClone();
+            k.Kontrole = new List<string>(Kontrole); k.Pliki = new List<string>(Pliki); k.Lustro = new List<string>(Lustro);
+            k.Czesci = new List<Dictionary<string, object>>(Czesci);
+            k.Rodzic = null; k.Dor = null; k.Watek = ""; k.Nowa = false; k.Odpowiedziano = false;
+            return k;
+        }
     }
 
     class Stan
@@ -56,6 +65,7 @@ namespace Ecxp
         public bool Eskalacja, Zaginiona;
         public string ZadanieStan = "";      // cykl życia zadania (A2A TaskState), tylko dla typ = zadanie
         public DateTime? ZadanieCzas;
+        public Stan Klon() { return (Stan)MemberwiseClone(); }
     }
 
     class Wezel { public string Nazwa = "", Akcja = "", Rodzaj = ""; public DateTime Ostatnio; }
@@ -316,9 +326,29 @@ namespace Ecxp
             }
         }
 
+        // Końcówka pliku (ostatnie n bajtów) bez czytania całości.
+        static string Koncowka(string plik, int n)
+        {
+            try
+            {
+                using (var fs = new FileStream(plik, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    if (fs.Length > n) fs.Seek(-n, SeekOrigin.End);
+                    var b = new byte[(int)Math.Min(n, fs.Length)];
+                    int ile = 0, r;
+                    while (ile < b.Length && (r = fs.Read(b, ile, b.Length - ile)) > 0) ile += r;
+                    return Utf8.GetString(b, 0, ile);
+                }
+            }
+            catch (FileNotFoundException) { return ""; }
+            catch (DirectoryNotFoundException) { return ""; }
+        }
+
         static string OstatniHash()
         {
-            var t = Czytaj(Dz).TrimEnd('\r', '\n', ' ');
+            // skrót ostatniego wpisu jest na końcu pliku: wystarczy końcówka (wpis dziennika ma najwyżej kilka KB)
+            var t = Koncowka(Dz, 64 * 1024).TrimEnd('\r', '\n', ' ');
+            if (t.Length > 0 && t.IndexOf('\n') < 0 && new FileInfo(Dz).Length > 64 * 1024) t = Czytaj(Dz).TrimEnd('\r', '\n', ' ');   // jeden bardzo długi wpis
             if (t.Length == 0) return Zera;
             var i = t.LastIndexOf('\n');
             var m = ReHash.Match((i >= 0 ? t.Substring(i + 1) : t).TrimEnd('\r'));
@@ -353,13 +383,62 @@ namespace Ecxp
         }
 
         // Odczyt dziennika: stany doręczeń i sprawdzenie łańcucha skrótów.
+        // Stan doręczeń trzymany w pamięci procesu: po pierwszym pełnym odczycie dziennika doczytywane są tylko nowe wpisy
+        // (dziennik jest tylko dopisywany). Pełny odczyt z kontrolą całego łańcucha skrótów: przy starcie, co 5 minut oraz
+        // gdy plik zmalał albo zmienił się bez przyrostu (podmiana / edycja wpisu).
+        class PamiecDziennika
+        {
+            public string Plik = ""; public long Pozycja; public DateTime Zmiana, Pelny;
+            public string Prev = Zera, Blad; public int N;
+            public Dictionary<string, Stan> R = new Dictionary<string, Stan>(StringComparer.OrdinalIgnoreCase);
+        }
+        static PamiecDziennika pamiecDz;
+        static readonly object blokadaDz = new object();
+        public static bool PamiecWylaczona;       // testy porównawcze: zawsze pełny odczyt
+
         public static Dictionary<string, Stan> Stany(out string spojnosc)
         {
-            var r = new Dictionary<string, Stan>(StringComparer.OrdinalIgnoreCase);
-            var tekst = Czytaj(Dz);
-            if (tekst.Length == 0) { spojnosc = "pusty (brak zdarzeń)"; return r; }
+            lock (blokadaDz)
+            {
+                var plik = Dz;
+                var fi = new FileInfo(plik);
+                if (!fi.Exists || fi.Length == 0) { pamiecDz = null; spojnosc = "pusty (brak zdarzeń)"; return new Dictionary<string, Stan>(StringComparer.OrdinalIgnoreCase); }
+                var p = pamiecDz;
+                bool pelny = PamiecWylaczona || p == null || p.Plik != plik || fi.Length < p.Pozycja || DateTime.Now - p.Pelny > TimeSpan.FromMinutes(5)
+                    || (fi.Length == p.Pozycja && fi.LastWriteTimeUtc != p.Zmiana);
+                if (pelny) p = new PamiecDziennika { Plik = plik, Pelny = DateTime.Now };
+                if (fi.Length > p.Pozycja)
+                {
+                    string tekst;
+                    using (var fs = new FileStream(plik, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    {
+                        fs.Seek(p.Pozycja, SeekOrigin.Begin);
+                        var b = new byte[(int)(fs.Length - p.Pozycja)];
+                        int ile = 0, rd;
+                        while (ile < b.Length && (rd = fs.Read(b, ile, b.Length - ile)) > 0) ile += rd;
+                        // tylko pełne wiersze: wpis w trakcie zapisu zostaje na następny odczyt
+                        int koniec = ile > 0 ? Array.LastIndexOf(b, (byte)'\n', ile - 1) : -1;
+                        tekst = Utf8.GetString(b, 0, koniec + 1);
+                        p.Pozycja += koniec + 1;
+                    }
+                    DopiszDoStanow(p, tekst);
+                }
+                p.Zmiana = fi.LastWriteTimeUtc;
+                pamiecDz = p;
+                spojnosc = p.Blad != null ? "NARUSZONY: " + p.Blad : "spójny, wpisów: " + p.N;
+                var wynik = new Dictionary<string, Stan>(p.R.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var kv in p.R) wynik[kv.Key] = kv.Value.Klon();
+                return wynik;
+            }
+        }
+
+        static void DopiszDoStanow(PamiecDziennika pd, string tekst)
+        {
+            var r = pd.R;
             var js = Js();
-            string prev = Zera, blad = null; int n = 0;
+            string prev = pd.Prev, blad = pd.Blad; int n = pd.N;
+            try
+            {
             foreach (var raw in tekst.Split('\n'))
             {
                 var l = raw.TrimEnd('\r');
@@ -410,8 +489,8 @@ namespace Ecxp
                         break;
                 }
             }
-            spojnosc = blad != null ? "NARUSZONY: " + blad : "spójny, wpisów: " + n;
-            return r;
+            }
+            finally { pd.Prev = prev; pd.Blad = blad; pd.N = n; }
         }
 
         // ---------- odczyt wiadomości ----------
@@ -457,21 +536,55 @@ namespace Ecxp
             return Sha(id + "|" + od + "|" + adresat + "|" + seq.ToString(CultureInfo.InvariantCulture) + "|" + tresc);
         }
 
+        // Indeks wiadomości w pamięci procesu: plik wiadomości nie zmienia się po zapisie (zmienia tylko folder), więc raz
+        // odczytany i sparsowany zostaje w pamięci pod kluczem ścieżka + czas zapisu + rozmiar. Kolejne odczyty to tylko lista
+        // plików folderu i kopie obiektów – bez czytania treści z dysku i bez parsowania JSON.
+        class WpisPamieci { public long Zapis, Rozmiar; public Msg M; }
+        static readonly Dictionary<string, WpisPamieci> pamiecMsg = new Dictionary<string, WpisPamieci>(StringComparer.OrdinalIgnoreCase);
+        public static int TrafieniaPamieci, OdczytyZDysku;      // do testów
+
+        static Msg WczytajZPamieci(FileInfo f, string katalog, JavaScriptSerializer js)
+        {
+            if (PamiecWylaczona) return Wczytaj(f, katalog, js);
+            long zapis = f.LastWriteTimeUtc.Ticks, rozmiar = f.Length;
+            lock (pamiecMsg)
+            {
+                WpisPamieci w;
+                if (pamiecMsg.TryGetValue(f.FullName, out w) && w.Zapis == zapis && w.Rozmiar == rozmiar) { TrafieniaPamieci++; return w.M.Klon(); }
+            }
+            var m = Wczytaj(f, katalog, js);
+            OdczytyZDysku++;
+            lock (pamiecMsg)
+            {
+                if (pamiecMsg.Count > 50000) pamiecMsg.Clear();      // bezpiecznik: bardzo duża skrzynka
+                pamiecMsg[f.FullName] = new WpisPamieci { Zapis = zapis, Rozmiar = rozmiar, M = m };
+            }
+            return m.Klon();
+        }
+
         public static List<Msg> Wszystkie(bool zArchiwum)
         {
             var list = new List<Msg>();
             var js = Js();
+            var widziane = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var k in Foldery)
             {
                 var p = Path.Combine(Root, k);
                 if (!Directory.Exists(p)) continue;
-                foreach (var f in new DirectoryInfo(p).GetFiles("*.json")) list.Add(Wczytaj(f, k, js));
+                foreach (var f in new DirectoryInfo(p).GetFiles("*.json")) { list.Add(WczytajZPamieci(f, k, js)); widziane.Add(f.FullName); }
             }
             if (zArchiwum)
             {
                 var a = Path.Combine(Root, "archiwum");
                 if (Directory.Exists(a))
-                    foreach (var f in new DirectoryInfo(a).GetFiles("*.json", SearchOption.AllDirectories)) list.Add(Wczytaj(f, "archiwum", js));
+                    foreach (var f in new DirectoryInfo(a).GetFiles("*.json", SearchOption.AllDirectories)) { list.Add(WczytajZPamieci(f, "archiwum", js)); widziane.Add(f.FullName); }
+                // pełny przegląd: wpisy plików, których już nie ma (przeniesione, usunięte), wypadają z pamięci
+                lock (pamiecMsg)
+                    if (pamiecMsg.Count > widziane.Count + 200)
+                    {
+                        var kosz = Path.Combine(Root, Kosz) + Path.DirectorySeparatorChar;
+                        foreach (var klucz in pamiecMsg.Keys.Where(x => !widziane.Contains(x) && !x.StartsWith(kosz, StringComparison.OrdinalIgnoreCase)).ToList()) pamiecMsg.Remove(klucz);
+                    }
             }
             return list;
         }
@@ -798,7 +911,7 @@ namespace Ecxp
         {
             var list = new List<Msg>(); var js = Js();
             var a = Path.Combine(Root, Kosz);
-            if (Directory.Exists(a)) foreach (var f in new DirectoryInfo(a).GetFiles("*.json", SearchOption.AllDirectories)) list.Add(Wczytaj(f, Kosz, js));
+            if (Directory.Exists(a)) foreach (var f in new DirectoryInfo(a).GetFiles("*.json", SearchOption.AllDirectories)) list.Add(WczytajZPamieci(f, Kosz, js));
             return list;
         }
 

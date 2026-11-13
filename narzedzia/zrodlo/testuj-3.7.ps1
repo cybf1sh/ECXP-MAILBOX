@@ -1,6 +1,6 @@
 param([string]$Stack='',[string]$Output='',
-    [ValidateSet('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika','TestAktywnosci','TestProtokolu')]
-    [string[]]$Tests=@('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika','TestAktywnosci','TestProtokolu'))
+    [ValidateSet('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika','TestAktywnosci','TestProtokolu','TestNiezawodnosci')]
+    [string[]]$Tests=@('TestOpcjiPentestu','TestUsuwaniaProjektu','TestNapiszOdpowiedz','TestOdmow','TestPentestu','TestOdpowiedziOperatora','TestDoreczania','TestStartuPentestu','TestStraznika','TestAktywnosci','TestProtokolu','TestNiezawodnosci'))
 $ErrorActionPreference='Stop'
 Push-Location $PSScriptRoot
 try {
