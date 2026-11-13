@@ -587,7 +587,7 @@ namespace Ecxp
             catch { }
             P.Sygnal(n, "tura");                 // obecność: agent w tle „odzywa się” turami
             var pracaMsg = praca.Zadanie ?? praca.Pytanie;
-            Aktywnosc.Zapisz(n, "praca", (praca.Zadanie != null ? "📥 zadanie: " : "📥 pytanie: ") + (pracaMsg != null ? P.Baza(pracaMsg.Temat) : "") +
+            Aktywnosc.Zapisz(n, "praca", (praca.Zadanie != null ? "📥 zadanie: " : "📥 pytanie: ") + (pracaMsg != null ? P.TytulWiadomosci(pracaMsg) : "") +
                 (Cieply.Zastepczy(P.S(rec, "strona")) ? " (tryb zastępczy – szczegóły działań niewidoczne)" : ""));
             try
             {

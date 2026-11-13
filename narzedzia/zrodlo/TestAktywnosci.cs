@@ -35,6 +35,8 @@ namespace Ecxp
 
                 var cx = Aktywnosc.WpisCodexAppServer("item/started", J("{\"item\":{\"type\":\"commandExecution\",\"command\":[\"powershell.exe\",\"-Command\",\"pytest -q\"]}}"));
                 Ok(cx != null && cx.Opis == "▶ uruchamia pytest -q", "Codex app-server: polecenie bez powłoki");
+                var cs = Aktywnosc.WpisCodexAppServer("item/started", P.D("item", P.D("type", "commandExecution", "command", "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'Get-Date -Format yyyy'")));
+                Ok(cs != null && cs.Opis == "▶ uruchamia Get-Date -Format yyyy", "Codex app-server: polecenie jako napis z programem powłoki");
                 var fc = Aktywnosc.WpisCodexAppServer("item/started", J("{\"item\":{\"type\":\"fileChange\",\"changes\":[{\"path\":\"a.cs\"},{\"path\":\"b.cs\"}]}}"));
                 Ok(fc != null && fc.Opis == "✏ edytuje a.cs, b.cs", "Codex app-server: zmiana plików");
                 Ok(Aktywnosc.WpisCodexAppServer("turn/completed", J("{\"turn\":{\"status\":\"failed\"}}")).Rodzaj == "blad", "Codex: nieudana tura → błąd");

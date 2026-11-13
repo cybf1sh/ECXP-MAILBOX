@@ -194,10 +194,21 @@ namespace Ecxp
             return new WpisAktywnosci { Czas = DateTime.Now, Rodzaj = P.S(it, "type") == "agentMessage" ? "pisze" : "narzedzie", Opis = Skroc(opis) };
         }
 
+        // „"C:\…\pwsh.exe" -Command '…'” / „bash -lc "…"” → samo polecenie (bez programu powłoki i cudzysłowów wokół).
+        static readonly Regex RePowloka = new Regex(@"^\s*(?:""[^""]*(?:pwsh|powershell|cmd|bash|sh)(?:\.exe)?""|\S*(?:pwsh|powershell|cmd|bash|sh)(?:\.exe)?)\s+(?:-NoProfile\s+|-NoLogo\s+|-NonInteractive\s+)*(?:-Command|-c|-lc|/c)\s+(.*)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        public static string BezPowloki(string s)
+        {
+            var m = RePowloka.Match(s ?? "");
+            if (!m.Success) return s ?? "";
+            var k = m.Groups[1].Value.Trim();
+            if (k.Length >= 2 && (k[0] == '\'' || k[0] == '"') && k[k.Length - 1] == k[0]) k = k.Substring(1, k.Length - 2);
+            return k.Replace("'\"'\"'", "'").Replace("'\"'", "'").Replace("\"'", "'");
+        }
+
         static string KomendaCodex(object c)
         {
             var s = c as string;
-            if (s != null) return s;
+            if (s != null) return BezPowloki(s);
             var l = (c as System.Collections.IEnumerable ?? new object[0]).Cast<object>().Select(x => Convert.ToString(x)).ToList();
             // ["powershell.exe","-Command","…"] / ["bash","-lc","…"] – liczy się samo polecenie
             if (l.Count >= 3 && Regex.IsMatch(l[1], "^-(lc|c|Command)$", RegexOptions.IgnoreCase)) return l[l.Count - 1];
