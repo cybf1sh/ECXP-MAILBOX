@@ -7,7 +7,7 @@ rem   ..\ECXP-Setup.exe   - instalator stanowiska (PL/EN/FR/CS/DE), zawiera powy
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set OPT=/nologo /optimize+ /codepage:65001 /r:System.dll /r:System.Core.dll /r:System.Security.dll /r:System.Management.dll /r:"%FW%\System.Web.Extensions.dll"
-set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html /resource:jezyki.json,jezyki.json
+set UI=/target:winexe /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:spis-galezi.html,spis-galezi.html /resource:jezyki.json,jezyki.json /resource:obserwatorium-interakcje.html,obserwatorium-interakcje.html
 set RDZEN=Konfiguracja.cs UsuwanieProjektu.cs Pentest.cs Protokol.cs Siec.cs Ramka.cs Sprawy.cs Agenci.cs Obieg.cs Cieply.cs CodexProjekt.cs CodexBudzenie.cs Tury.cs Aktywnosc.cs Niezawodnosc.cs Wylaczeni.cs Profile.cs
 cd /d "%~dp0"
 "%CSC%" %OPT% /target:winexe /out:..\ecxpd.exe Ecxpd.cs Doreczanie.cs Widok.cs %RDZEN% || exit /b 1
