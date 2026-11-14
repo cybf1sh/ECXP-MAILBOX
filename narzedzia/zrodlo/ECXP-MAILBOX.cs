@@ -20,7 +20,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.4.0")]
+[assembly: AssemblyFileVersion("3.15.5.0")]
 
 namespace Ecxp
 {

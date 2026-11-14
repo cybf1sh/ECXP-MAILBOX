@@ -38,6 +38,22 @@ search.value='NEISTNIEJACY_ZAPIS_492834762';search.dispatchEvent(new w.Event('in
 click(source);check(target.style.display!=='none'&&target.className.includes('open')&&d.querySelector('.tabpane.active').id==='panel-zrodla'&&w.scrolledTo===id,'graph source reveals hidden message and switches tab');
 click(target.querySelector('.toggle'));check(!target.className.includes('open'),'source can collapse again');
 click(d.getElementById('tab-metody'));check(d.querySelectorAll('.tabpane.active').length===1&&d.querySelector('.tabpane.active').id==='panel-metody','tabs switch without multiple visible panels');
+if(d.getElementById('tab-techniki')){
+ click(d.getElementById('tab-techniki'));check(d.querySelector('.tabpane.active').id==='panel-techniki','techniques tab is available');
+ const entries=Array.from(d.querySelectorAll('.observation'));
+ for(const r of ['pozytywny','negatywny','niewykonane','brak']){filter.value=r;filter.dispatchEvent(new w.Event('change'));check(visible('.observation').length===entries.filter(n=>n.getAttribute('data-results')===r).length,'technique records filtered by recorded FIN '+r);}
+ filter.value='';filter.dispatchEvent(new w.Event('change'));search.value='ZZZ_NO_TECHNIQUE_389456';search.dispatchEvent(new w.Event('input'));check(visible('.observation').length===0,'technique search excludes unmatched records');
+ search.value='';search.dispatchEvent(new w.Event('input'));
+ const detail=d.querySelector('.tech-field');if(detail){const before=detail.hasAttribute('open');click(detail.querySelector('summary'));check(detail.hasAttribute('open')!==before,'evidence fields expand interactively');}
+ const fileLink=d.querySelector('.observation a[href^="#dowod-"]');if(fileLink){click(fileLink);const file=d.getElementById(fileLink.getAttribute('href').slice(1));check(file.hasAttribute('open')&&w.scrolledTo===file.id,'artifact opens with full original text');}
+ const ref=d.querySelector('.observation a[href^="#m"]');if(ref){click(ref);check(d.querySelector('.tabpane.active').id==='panel-zrodla'&&d.getElementById(ref.getAttribute('href').slice(1)).className.includes('open'),'technique source opens exact message');}
+}
 const broken=Array.from(d.querySelectorAll('a[href^="#"]')).filter(a=>!d.getElementById(a.getAttribute('href').slice(1)));
+if(d.getElementById('tab-profile')){
+ click(d.getElementById('tab-profile'));check(d.querySelector('.tabpane.active').id==='panel-profile','configuration and scripts tab opens');
+ const rows=d.querySelectorAll('.profile-record').length;filter.value='pozytywny';filter.dispatchEvent(new w.Event('change'));check(visible('.profile-record').length===rows,'FIN filter does not classify static source as execution');
+ search.value='ZZZ_NO_PROFILE_18942';search.dispatchEvent(new w.Event('input'));check(visible('.profile-record').length===0,'profile search filters static source');search.value='';filter.value='';search.dispatchEvent(new w.Event('input'));
+ const sourceLink=d.querySelector('.profile-record a[href^="#profil-source-"]');if(sourceLink){click(sourceLink);check(d.getElementById(sourceLink.getAttribute('href').slice(1)).hasAttribute('open'),'static extraction links to full source');}
+}
 check(broken.length===0,'all HTML and SVG source links resolve');check(errors.length===0,'no JavaScript errors after interactions');
 console.log('RESULT '+count+' PASS; messages='+allMessages+' threads='+allThreads);dom.window.close();

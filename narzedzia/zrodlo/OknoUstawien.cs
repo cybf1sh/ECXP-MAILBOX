@@ -27,7 +27,7 @@ partial class App
             var zakladki = new TabControl { Dock = DockStyle.Fill };
             var pelna = Btn("Analiza wiadomości, decyzji, metod i alternatyw…");
             pelna.Dock = DockStyle.Top;
-            pelna.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekt, agent); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
+            pelna.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekt, agent, AgenciZeWszystkichKatalogow()); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
             var przebieg = new TabPage("Graf zadań");
             var graf = new TreeView { Dock = DockStyle.Fill, HideSelection = false };
             var opis = new Label { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8),
@@ -114,7 +114,7 @@ partial class App
             var eksport = Btn("Zapisz raport HTML…");
             var analizuj = Btn("Analizuj agenta…");
             var analizaProjektu = Btn("Wiadomości, decyzje i metody…");
-            analizaProjektu.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekty.SelectedIndex <= 0 ? null : Convert.ToString(projekty.SelectedItem), null); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
+            analizaProjektu.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekty.SelectedIndex <= 0 ? null : Convert.ToString(projekty.SelectedItem), null, AgenciZeWszystkichKatalogow()); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
             analizuj.Click += delegate
             {
                 if (tabela.CurrentRow == null) return;

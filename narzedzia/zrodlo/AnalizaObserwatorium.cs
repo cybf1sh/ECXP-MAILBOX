@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace Ecxp {
 // Local, evidence-based extraction. Patterns identify candidates, never hidden reasoning or causality.
-static class AnalizaObserwatorium {
+static partial class AnalizaObserwatorium {
     internal class Slad {
         public Msg Zrodlo;
         public string Rodzaj, Cytat;
@@ -96,12 +96,12 @@ static class AnalizaObserwatorium {
         }
         return wynik;
     }
-    public static string Raport(IEnumerable<Msg> dane,string projekt,string agent) {
+    public static string Raport(IEnumerable<Msg> dane,string projekt,string agent, string katalogDowodow = null, string skrzynkaAgentow = null, IEnumerable<AgentKatalogu> katalogAgentow = null) {
         var lista=Zakres(dane,projekt,agent);var slady=Analizuj(lista,agent);var watki=Watki(lista);
         var b=new StringBuilder("<!doctype html><html lang='pl'><head><meta charset='utf-8'><meta http-equiv='X-UA-Compatible' content='IE=edge'><title>Obserwatorium — analiza pracy</title><style>");
         b.Append("body{font:15px Segoe UI,Arial;margin:24px;background:#f3f6fa;color:#172238}a{color:#165a9f;overflow-wrap:break-word;word-wrap:break-word}h1{font-size:25px}h2{margin-top:32px}table{border-collapse:collapse;width:100%;background:white;table-layout:fixed}td,th{border:1px solid #c9d4e0;padding:10px;text-align:left;vertical-align:top;word-wrap:break-word}th{background:#e6edf5}pre{white-space:pre-wrap;word-wrap:break-word;font:14px Consolas}blockquote{border-left:4px solid #6f8eaf;margin:8px 0;padding:10px;background:#fff}.node{border:2px solid #7594b5;border-radius:8px;padding:12px;margin:8px 0;background:white}.node div{margin-top:8px}.hyp{border-style:dashed;background:#fff7e7}.decision{background:#e3edf9}.arrow{text-align:center;font-weight:bold}.source{background:white;border:1px solid #ccd6e0;margin:16px 0;padding:16px}.muted{color:#526276}.badge{display:inline-block;padding:8px;margin:4px;background:#e0eaf5}input{padding:10px;width:65%}button{padding:10px} .branch td{width:50%} @media print{input,button{display:none} .source{page-break-inside:avoid}}</style></head><body>");
         b.Append("<h1>Obserwatorium — analiza pracy agentów</h1><p>").Append(H(projekt??"Wszystkie projekty")).Append(" · ").Append(H(agent??"Wszyscy agenci")).Append(" · ").Append(H(DateTime.Now.ToString("yyyy-MM-dd HH:mm"))).Append("</p>");
-        b.Append("<p>Analiza lokalna, regułowa (PL/EN), bez wysyłania treści do modelu. Wykrywa sygnały w tekście; cytaty mogą zawierać relacje cudzych wypowiedzi, plany lub negacje. Nie stanowi rekonstrukcji ukrytych myśli. Przyczyna decyzji jest ustalona tylko w zakresie jawnego uzasadnienia. Brak trafienia reguły nie oznacza braku decyzji.</p><p><a href='#decyzje'>Decyzje i odmowy</a> · <a href='#metody'>Porównanie metod</a> · <a href='#grafy'>Grafy i alternatywy</a> · <a href='#zrodla'>Pełne wiadomości i kontekst</a></p>");
+        b.Append("<p>Analiza lokalna, regułowa (PL/EN), bez wysyłania treści do modelu. Wykrywa sygnały w tekście; cytaty mogą zawierać relacje cudzych wypowiedzi, plany lub negacje. Nie stanowi rekonstrukcji ukrytych myśli. Przyczyna decyzji jest ustalona tylko w zakresie jawnego uzasadnienia. Brak trafienia reguły nie oznacza braku decyzji.</p><p><a href='#decyzje'>Decyzje i odmowy</a> · <a href='#metody'>Porównanie metod</a> · <a href='#profile'>Konfiguracja i scripts</a> · <a href='#techniki'>Techniki i dowody</a> · <a href='#grafy'>Grafy i alternatywy</a> · <a href='#zrodla'>Pełne wiadomości i kontekst</a></p>");
         b.Append("<div class='badge'>Wiadomości: ").Append(lista.Count).Append("</div><div class='badge'>Wątki: ").Append(watki.Count).Append("</div><div class='badge'>Sygnały: ").Append(slady.Count).Append("</div><div class='badge'>Sygnały odmowy: ").Append(slady.Count(s=>s.Rodzaj=="Sygnał odmowy")).Append("</div>");
         b.Append("<h2 id='decyzje'>Decyzje, powody i odmowy</h2><p>Cytaty stanowią dowody tekstowe. Powiązanie kolejnych wypowiedzi jest kontekstem, nie dowodem przyczynowości. Jeśli uzasadnienia nie ma w źródłach, przyczyna pozostaje nieustalona.</p>");
         foreach(var s in slady.Where(s=>s.Rodzaj!="Wzmianka o metodzie")) b.Append("<div class='source'><b>").Append(H(s.Rodzaj)).Append(" · ").Append(H(s.Zrodlo.Od)).Append("</b><blockquote>").Append(H(s.Cytat)).Append("</blockquote>Źródło: ").Append(Link(s.Zrodlo)).Append("</div>");
@@ -115,7 +115,10 @@ static class AnalizaObserwatorium {
             foreach(var s in g.Select(x=>x.Slad)) b.Append("<blockquote>").Append(H(s.Cytat)).Append("</blockquote>").Append(Link(s.Zrodlo));
             b.Append("</td></tr>");
         }
-        b.Append("</table><h2 id='grafy'>Grafy przebiegu i alternatyw</h2><p>Linia ciągła: zapisany przebieg. Linia przerywana: propozycja do sprawdzenia. Tak / nie opisuje obecność dowodu, nie wewnętrzną logikę modelu. Kolejność według czasu wiadomości.</p>");
+        b.Append("</table>");
+        DopiszTechniki(b,lista,agent,projekt==null?null:katalogDowodow);
+        DopiszProfile(b,lista,projekt,agent,skrzynkaAgentow,katalogAgentow);
+        b.Append("<h2 id='grafy'>Grafy przebiegu i alternatyw</h2><p>Linia ciągła: zapisany przebieg. Linia przerywana: propozycja do sprawdzenia. Tak / nie opisuje obecność dowodu, nie wewnętrzną logikę modelu. Kolejność według czasu wiadomości.</p>");
         foreach(var w in watki) {
             var wynikiWatku=w.Where(m=>m.Typ=="fin"&&(agent==null||m.Od==agent)).Select(m=>m.Wynik).Where(v=>v=="pozytywny"||v=="negatywny"||v=="niewykonane").Distinct().ToList();
             b.Append("<section class='thread' data-results='").Append(wynikiWatku.Count==0?"brak":string.Join(" ",wynikiWatku)).Append("' data-time='").Append(w.Last().Czas.ToString("yyyyMMddHHmmss")).Append("'>");
@@ -148,15 +151,21 @@ static class AnalizaObserwatorium {
         }
         return b.ToString();
     }
-    public static void Pokaz(IWin32Window owner, IEnumerable<Msg> dane,string projekt,string agent) {
-        var html=Raport(dane,projekt,agent);
+    public static void Pokaz(IWin32Window owner, IEnumerable<Msg> dane,string projekt,string agent, IEnumerable<AgentKatalogu> katalogAgentow = null) {
+        var html=Raport(dane,projekt,agent,null,P.Root,katalogAgentow);
         using(var f=new Form{Text="Obserwatorium — wiadomości, decyzje i metody",Width=1200,Height=800,StartPosition=FormStartPosition.CenterParent}) {
             var browser=new WebBrowser{Dock=DockStyle.Fill,AllowWebBrowserDrop=false,IsWebBrowserContextMenuEnabled=false,ScriptErrorsSuppressed=false,WebBrowserShortcutsEnabled=false};
             browser.Navigating+=(s,e)=>{if(e.Url!=null&&e.Url.Scheme!="about")e.Cancel=true;};
             browser.NewWindow+=(s,e)=>{e.Cancel=true;};
             var save=new Button{Text="Eksportuj pełną analizę HTML…",AutoSize=true,Dock=DockStyle.Top};
+            var artifacts=new Button{Text="Dołącz lokalne dowody do analizy projektu…",AutoSize=true,Dock=DockStyle.Top};
+            artifacts.Click+=(s,e)=>{
+                if(projekt==null){MessageBox.Show(f,"Najpierw wybierz jeden projekt w Obserwatorium.","Dowody projektu");return;}
+                using(var folder=new FolderBrowserDialog{Description="Wybierz katalog projektu z raportami. Do HTML trafi treść wskazanych w wiadomościach plików TXT, MD, JSON, JSONL i LOG (do 512 KB na plik).",ShowNewFolderButton=false})
+                    if(folder.ShowDialog(f)==DialogResult.OK) try {html=Raport(dane,projekt,agent,folder.SelectedPath,P.Root,katalogAgentow);browser.DocumentText=html;}catch(Exception ex){MessageBox.Show(f,ex.Message,"Dowody projektu");}
+            };
             save.Click+=(s,e)=>{using(var d=new SaveFileDialog{Filter="Raport HTML|*.html",FileName="obserwatorium-analiza.html"}) if(d.ShowDialog(f)==DialogResult.OK) try{File.WriteAllText(d.FileName,html,new UTF8Encoding(false));}catch(Exception ex){MessageBox.Show(f,ex.Message,"Eksport analizy");}};
-            f.Controls.Add(browser);f.Controls.Add(save);browser.DocumentText=html;f.ShowDialog(owner);
+            f.Controls.Add(browser);f.Controls.Add(artifacts);f.Controls.Add(save);browser.DocumentText=html;f.ShowDialog(owner);
         }
     }
 }
