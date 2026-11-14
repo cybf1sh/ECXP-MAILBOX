@@ -1,4 +1,4 @@
-// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
+﻿// ECXP-Setup – instalator stanowiska ECXP: stos ECXP (usługa ecxpd), konsola operatora ECXP-MAILBOX,
 // adapter MCP dla agentów Claude Code i ChatGPT/Codex oraz hook lustra czatu.
 // Jeden plik: programy są zasobami tego exe. Instalacja dla bieżącego użytkownika, bez uprawnień administratora.
 //
@@ -25,7 +25,7 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCopyright("EvidSec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.5.0")]
+[assembly: AssemblyFileVersion("3.15.6.0")]
 
 namespace EcxpSetup
 {
@@ -112,7 +112,7 @@ namespace EcxpSetup
 
     static class Instalacja
     {
-        public const string Wersja = "3.15.5";
+        public const string Wersja = "3.15.6";
         const string KluczApl = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ECXP";
         static readonly string[] Programy = { "ecxpd.exe", "ECXP-MAILBOX.exe", "ecxp-mcp.exe", "ECXP-MAILBOX.ico", "hook-claude.ps1" };
         static readonly string[] Logo = { "ecxp-logo-light.png", "ecxp-logo-dark.png" };

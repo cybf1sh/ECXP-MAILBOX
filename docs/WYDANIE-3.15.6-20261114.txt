@@ -1,0 +1,16 @@
+ECXP-MAILBOX 3.15.6 — hooki Claude
+
+Ponowna rejestracja poprawnych hooków nie zapisuje settings.json ani jego kopii.
+Zapobiega błędowi dostępu przy zbędnym zapisie istniejącej konfiguracji.
+Zmiana ścieżki instalacji i usuwanie hooków nadal zapisują konfigurację.
+Uprawnienia pliku pozostają bez zmian; błędny JSON nie jest nadpisywany.
+
+Weryfikacja: 14 testów hooków, 39 testów protokołu, selftest zainstalowanego
+klienta i sprawdzenie rzeczywistych settings.json (bez zapisu) zakończone poprawnie.
+Instalacja 3.15.6: kod wyjścia 0, brak błędu hooków, hash settings.json bez zmian.
+Po instalacji MCP odpowiada, dziennik spójny.
+
+Ograniczenie sprawdzenia komunikacji: sesja claude-ecxp-mailbox nie trzyma
+blokady obserwacji skrzynki; cztery wcześniejsze wiadomości pozostają nieodebrane.
+Nie potwierdzono odbioru przez aktywną turę Claude. Hook przy wpisie operatora
+przypomina o wiadomościach, a przy starcie/końcu tury o obserwacji skrzynki.

@@ -1,4 +1,4 @@
-// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
+﻿// ECXP-MAILBOX – konsola operatora uniwersalnego protokołu ECXP (dowolne projekty i moduły, agenci Codex i Claude).
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
@@ -20,7 +20,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.5.0")]
+[assembly: AssemblyFileVersion("3.15.6.0")]
 
 namespace Ecxp
 {
@@ -5793,6 +5793,30 @@ namespace Ecxp
 
         static void Kopia(string p) { var b = p + ".przed-ecxp.bak"; if (File.Exists(p) && !File.Exists(b)) File.Copy(p, b); }
 
+        // Nie zapisuj poprawnej konfiguracji: może być dostępna tylko do odczytu.
+        internal static bool ZapiszHookiClaude(string sp, string mcp, bool usun)
+        {
+                Dictionary<string, object> st = new Dictionary<string, object>();
+                if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(sp)) ?? new Dictionary<string, object>();
+                var poprzednio = P.Js().Serialize(st);
+                var hooks = Pliki.Slownik(st, "hooks");
+                foreach (var zd in new[] { "SessionStart", "UserPromptSubmit", "Stop" })
+                {
+                    var lista = hooks.ContainsKey(zd) && hooks[zd] is System.Collections.IEnumerable
+                        ? ((System.Collections.IEnumerable)hooks[zd]).Cast<object>().ToList() : new List<object>();
+                    lista = lista.Where(x => { var s = P.Js().Serialize(x); return !s.Contains("hook-claude.ps1") && !s.Contains("ecxp-mcp.exe\\\" hook"); }).ToList();
+                    if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "\"" + mcp + "\" hook " + zd, "timeout", 15) }));
+                    if (lista.Count > 0) hooks[zd] = lista; else hooks.Remove(zd);
+                }
+                if (hooks.Count == 0) st.Remove("hooks");
+                var aktualnie = P.Js().Serialize(st);
+                if (poprzednio == aktualnie) return false;
+                Directory.CreateDirectory(Path.GetDirectoryName(sp));
+                Kopia(sp);
+                File.WriteAllText(sp, Ladnie(aktualnie), new UTF8Encoding(false));
+                return true;
+        }
+
         public static string Wykonaj(bool usun)
         {
             var log = new StringBuilder();
@@ -5817,21 +5841,8 @@ namespace Ecxp
             var sp = Path.Combine(dom, ".claude", "settings.json");
             try
             {
-                Dictionary<string, object> st = new Dictionary<string, object>();
-                if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(sp)) ?? new Dictionary<string, object>();
-                var hooks = Pliki.Slownik(st, "hooks");
-                foreach (var zd in new[] { "SessionStart", "UserPromptSubmit", "Stop" })
-                {
-                    var lista = hooks.ContainsKey(zd) && hooks[zd] is System.Collections.IEnumerable
-                        ? ((System.Collections.IEnumerable)hooks[zd]).Cast<object>().ToList() : new List<object>();
-                    lista = lista.Where(x => { var s = P.Js().Serialize(x); return !s.Contains("hook-claude.ps1") && !s.Contains("ecxp-mcp.exe\\\" hook"); }).ToList();
-                    if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "\"" + mcp + "\" hook " + zd, "timeout", 15) }));
-                    if (lista.Count > 0) hooks[zd] = lista; else hooks.Remove(zd);
-                }
-                if (hooks.Count == 0) st.Remove("hooks");
-                Directory.CreateDirectory(Path.GetDirectoryName(sp));
-                Kopia(sp);
-                File.WriteAllText(sp, Ladnie(P.Js().Serialize(st)), new UTF8Encoding(false));
+                bool zmieniono = ZapiszHookiClaude(sp, mcp, usun);
+                if (!zmieniono) log.AppendLine("• Claude: hooki ECXP już zgodne — zapis settings.json nie jest potrzebny.");
                 log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hooki ECXP.") : Jezyk.T("• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ") + sp + ".");
             }
             catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
