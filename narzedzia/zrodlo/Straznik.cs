@@ -144,6 +144,11 @@ namespace Ecxp
             bTeraz.Click += delegate
             {
                 var m = lvStraznik.SelectedItems.Count > 0 ? lvStraznik.SelectedItems[0].Tag as Msg : null;
+                if (m == null && WidokOsob && wybranaOsoba.Length > 0)
+                {
+                    PokazAktywnosc(wybranaOsoba);
+                    return;
+                }
                 if (m == null) { MessageBox.Show(form, Jezyk.T("Zaznacz zadanie na liście strażnika."), Jezyk.T("Strażnik zadań")); return; }
                 if (m.Typ != "zadanie") { MessageBox.Show(form, Jezyk.T("O etap można zapytać tylko przy zadaniu (obieg z FIN). Zapytanie czeka na zwykłą odpowiedź."), Jezyk.T("Strażnik zadań")); return; }
                 ZapytajOEtap(m, true);
@@ -186,7 +191,7 @@ namespace Ecxp
             var para = lvAg != null ? WybranaPara() : null;
             var agenciPary = para == null ? null : new HashSet<string>(new[] { P.S(para, "codex"), P.S(para, "claude") }.Where(x => x.Length > 0));
             // widok pojedynczych agentów: zaznaczony agent zawęża listę do jego zadań
-            bool jedenAgent = agenciPary != null && WidokOsob && wybranaOsoba.Length > 0 && agenciPary.Contains(wybranaOsoba);
+            bool jedenAgent = WidokOsob && wybranaOsoba.Length > 0;
             if (jedenAgent) agenciPary = new HashSet<string> { wybranaOsoba };
 
             foreach (var m in sledzone)
