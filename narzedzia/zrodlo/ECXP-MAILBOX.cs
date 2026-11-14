@@ -20,7 +20,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.1.0")]
+[assembly: AssemblyFileVersion("3.15.2.0")]
 
 namespace Ecxp
 {
@@ -501,6 +501,7 @@ namespace Ecxp
                 zaawansowane.DropDownItems.Add("Przenieś / importuj skrzynkę…", null, delegate { PrzygotujMigracje(); });
                 zaawansowane.DropDownItems.Add("Ustawienia protokołu…", null, delegate { OknoUstawien.Protokol(form); });
                 zaawansowane.DropDownItems.Add("Konfiguracja MCP — Codex / Claude…", null, delegate { OknoUstawien.Mcp(form); });
+                zaawansowane.DropDownItems.Add("Obserwatorium agentów…", null, delegate { PokazObserwatorium(); });
                 menu.Items.Add(zaawansowane);
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));

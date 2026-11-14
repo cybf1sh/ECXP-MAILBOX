@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,6 +7,156 @@ using System.Diagnostics;
 using System.Windows.Forms;
 using System.Collections.Generic;
 namespace Ecxp {
+partial class App
+{
+    void PokazObserwatorium()
+    {
+        using (var okno = new Form { Text = "Obserwatorium agentów", Width = 1120, Height = 700,
+            StartPosition = FormStartPosition.CenterParent, Font = fontN })
+        {
+            var projekty = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 245 };
+            var tabela = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
+            var wykres = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 125, FlowDirection = FlowDirection.TopDown,
+                WrapContents = false, AutoScroll = true, Padding = new Padding(8) };
+            var pasek = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
+            var odswiez = Btn("Odśwież");
+            var eksport = Btn("Zapisz raport HTML…");
+            var opis = new Label { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(8),
+                Text = "Wyniki FIN i tury CLI są liczone osobno. Sesje i role pochodzą z tras ECXP. Raport zawiera metadane i liczniki." };
+            pasek.Controls.Add(new Label { Text = "Projekt", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+            pasek.Controls.AddRange(new Control[] { projekty, odswiez, eksport });
+            okno.Controls.AddRange(new Control[] { tabela, wykres, pasek, opis });
+            var naglowki = new[] { "Projekt", "Agent", "Sesje ECXP", "Role", "Stan", "Ostatnia aktywność", "FIN pozytywne", "FIN negatywne", "FIN niewykonane", "Tury OK", "Tury z błędem" };
+            foreach (var naglowek in naglowki) tabela.Columns.Add(naglowek, naglowek);
+            var wiersze = new List<object[]>();
+            var nazwy = new[] { "FIN pozytywne", "FIN negatywne", "FIN niewykonane", "Tury OK", "Tury z błędem" };
+            var kolory = new[] { "#26865e", "#bd4a4a", "#93732a", "#346ba4", "#a4547c" };
+            Action rysuj = delegate
+            {
+                tabela.Rows.Clear();
+                wykres.SuspendLayout();
+                try
+                {
+                    while (wykres.Controls.Count > 0) wykres.Controls[0].Dispose();
+                    var wybrane = wiersze.Where(w => projekty.SelectedIndex <= 0 || Equals(w[0], projekty.SelectedItem)).ToList();
+                    foreach (var w in wybrane) tabela.Rows.Add(w);
+                    var sumy = Enumerable.Range(6, 5).Select(i => wybrane.Sum(w => (int)w[i])).ToArray();
+                    int maksimum = Math.Max(1, sumy.Max());
+                    for (int i = 0; i < sumy.Length; i++)
+                    {
+                        var rzad = new FlowLayoutPanel { Width = 600, Height = 19, Margin = Padding.Empty, WrapContents = false };
+                        rzad.Controls.Add(new Label { Text = nazwy[i] + "  " + sumy[i], Width = 200, Height = 19, Margin = Padding.Empty });
+                        rzad.Controls.Add(new Panel { Width = (int)(300.0 * sumy[i] / maksimum), Height = 12, BackColor = ColorTranslator.FromHtml(kolory[i]) });
+                        wykres.Controls.Add(rzad);
+                    }
+                }
+                finally { wykres.ResumeLayout(); }
+            };
+            Action pobierz = delegate
+            {
+                var poprzedni = projekty.SelectedItem;
+                var wiadomosci = P.Wszystkie(true).Where(m => m.Blad == null && m.KopiaDla.Length == 0).ToList();
+                var trasy = Siec.Trasy();
+                var agenci = Agenci.Lista();
+                var fin = wiadomosci.Where(m => m.Typ == "fin" && P.PoprawnyNadawca(m.Od))
+                    .ToLookup(m => Tuple.Create(m.Projekt, m.Od));
+                var grupyTras = trasy.ToLookup(t => Tuple.Create(t.Projekt, t.Nazwa));
+                var grupyAgentow = agenci.ToLookup(a => Tuple.Create(P.S(a, "projekt"), P.S(a, "nazwa")));
+                var klucze = grupyTras.Select(g => g.Key).Concat(grupyAgentow.Select(g => g.Key))
+                    .Concat(fin.Select(g => g.Key)).Distinct().OrderBy(k => k.Item1).ThenBy(k => k.Item2);
+                wiersze.Clear();
+                foreach (var klucz in klucze)
+                {
+                    var t = grupyTras[klucz];
+                    var a = grupyAgentow[klucz].FirstOrDefault();
+                    var tury = P.Lista(a, "uruchomienia").Where(u => P.S(u, "kod").Length > 0).ToList();
+                    var ostatnia = fin[klucz].Select(m => m.Czas).Concat(tury.Select(u => {
+                        DateTime czas;
+                        return DateTime.TryParse(P.S(u, "czas"), out czas) ? czas : DateTime.MinValue;
+                    })).DefaultIfEmpty(DateTime.MinValue).Max();
+                    string stan = Wylaczeni.Jest(klucz.Item2) ? "Wyłączony" : a != null && Agenci.TuraZyje(a) ? "Pracuje" :
+                        BiezaceZadanie(klucz.Item2) != null ? "Otwarte zadanie" : t.Any(x => x.Aktywna) ? "Zarejestrowany" : "Historia";
+                    wiersze.Add(new object[] { klucz.Item1, klucz.Item2,
+                        string.Join(", ", t.Select(x => x.Sesja).Where(x => x.Length > 0).Distinct()),
+                        string.Join(", ", t.SelectMany(x => x.Role).Distinct()), stan,
+                        ostatnia == DateTime.MinValue ? "—" : ostatnia.ToString("yyyy-MM-dd HH:mm"),
+                        fin[klucz].Count(m => m.Wynik == "pozytywny"), fin[klucz].Count(m => m.Wynik == "negatywny"),
+                        fin[klucz].Count(m => m.Wynik == "niewykonane"),
+                        tury.Count(u => P.S(u, "kod") == "0"), tury.Count(u => P.S(u, "kod") != "0") });
+                }
+                projekty.Items.Clear();
+                projekty.Items.Add("Wszystkie projekty");
+                projekty.Items.AddRange(wiersze.Select(w => w[0]).Distinct().ToArray());
+                int indeks = poprzedni == null ? -1 : projekty.Items.IndexOf(poprzedni);
+                projekty.SelectedIndex = Math.Max(0, indeks);
+            };
+            projekty.SelectedIndexChanged += delegate { rysuj(); };
+            odswiez.Click += delegate { try { pobierz(); } catch (Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
+            tabela.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex < 0) return;
+                var w = tabela.Rows[e.RowIndex];
+                var projekt = Convert.ToString(w.Cells[0].Value);
+                var agent = Convert.ToString(w.Cells[1].Value);
+                var rekord = Agenci.Lista().FirstOrDefault(a => P.S(a, "projekt") == projekt && P.S(a, "nazwa") == agent);
+                var proby = P.Lista(rekord, "uruchomienia").Reverse<Dictionary<string, object>>().Take(50)
+                    .Select(u => P.S(u, "czas") + "   kod " + P.S(u, "kod") + "   "
+                        + (P.S(u, "kod") == "0" ? "OK" : "błąd") + "   " + P.S(u, "przyczyna"));
+                using (var historia = new Form { Text = "Historia tur — " + agent, Width = 680, Height = 465, StartPosition = FormStartPosition.CenterParent })
+                {
+                    var log = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
+                        Text = string.Join(Environment.NewLine, proby) };
+                    if (log.Text.Length == 0) log.Text = "Brak zapisanych prób CLI dla tego agenta.";
+                    historia.Controls.Add(log);
+                    Motyw.Zastosuj(historia);
+                    historia.ShowDialog(okno);
+                }
+            };
+            eksport.Click += delegate
+            {
+                using (var dialog = new SaveFileDialog { Filter = "Raport HTML|*.html", FileName = "obserwatorium-ecxp.html" })
+                {
+                    if (dialog.ShowDialog(okno) != DialogResult.OK) return;
+                    try
+                    {
+                        Func<object, string> koduj = v => System.Net.WebUtility.HtmlEncode(Convert.ToString(v));
+                        var raport = new StringBuilder("<!doctype html><html lang='pl'><meta charset='utf-8'><title>Obserwatorium agentów</title>");
+                        raport.Append("<style>body{font:16px system-ui;margin:2rem;color:#172238}table{border-collapse:collapse}td,th{border:1px solid #b9c3ce;padding:.5rem;text-align:left}meter{width:16rem}</style>");
+                        raport.Append("<h1>Obserwatorium agentów</h1><p>").Append(koduj(projekty.SelectedItem)).Append("</p>");
+                        var widoczne = tabela.Rows.Cast<DataGridViewRow>().ToList();
+                        var sumy = Enumerable.Range(6, 5).Select(i => widoczne.Sum(r => (int)r.Cells[i].Value)).ToArray();
+                        for (int i = 0; i < sumy.Length; i++)
+                            raport.AppendFormat("<p>{0} <meter min='0' max='{1}' value='{2}'></meter> {2}</p>", koduj(nazwy[i]), Math.Max(1, sumy.Max()), sumy[i]);
+                        raport.Append("<table><thead><tr>");
+                        foreach (string n in naglowki) raport.Append("<th>").Append(koduj(n)).Append("</th>");
+                        raport.Append("</tr></thead><tbody>");
+                        foreach (var w in widoczne)
+                        {
+                            raport.Append("<tr>");
+                            foreach (DataGridViewCell c in w.Cells) raport.Append("<td>").Append(koduj(c.Value)).Append("</td>");
+                            raport.Append("</tr>");
+                        }
+                        File.WriteAllText(dialog.FileName, raport.Append("</tbody></table></html>").ToString(), new UTF8Encoding(false));
+                    }
+                    catch (Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); }
+                }
+            };
+            okno.Shown += delegate { odswiez.PerformClick(); };
+            Motyw.Zastosuj(okno);
+            tabela.EnableHeadersVisualStyles = false;
+            tabela.BackgroundColor = okno.BackColor;
+            tabela.DefaultCellStyle.BackColor = okno.BackColor;
+            tabela.DefaultCellStyle.ForeColor = okno.ForeColor;
+            tabela.ColumnHeadersDefaultCellStyle.BackColor = okno.BackColor;
+            tabela.ColumnHeadersDefaultCellStyle.ForeColor = okno.ForeColor;
+            tabela.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            tabela.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            okno.ShowDialog(form);
+        }
+    }
+}
+
 static class OknoUstawien {
     static void Blad(IWin32Window f,Action a) {try{a();}catch(Exception ex){MessageBox.Show(f,ex.Message,"Ustawienia ECXP",MessageBoxButtons.OK,MessageBoxIcon.Error);}}
     static Button Przycisk(string t,Action a) { var b=new Button{Text=t,AutoSize=true,Margin=new Padding(6)}; b.Click+=(s,e)=>Blad(b.FindForm(),a);return b; }
