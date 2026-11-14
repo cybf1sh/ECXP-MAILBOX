@@ -18,7 +18,12 @@
 Wszystkie pliki projektu pozostają w `D:\Projekty\ecxp-mailbox`: źródła w
 `narzedzia/zrodlo/`, programy i instalator w `narzedzia/`, lokalne pakiety
 weryfikacyjne oraz wyniki testów w `builds/` (poza Git).
-Aktualny pakiet 3.14.0: `builds/release-3.14.0/narzedzia/`.
+Aktualny pakiet 3.15.0: `builds/release-3.15.0/narzedzia/`.
+
+**Wersja 3.15.0:** Ustawienia → Zaawansowane: lokalizacje plików i komunikacji,
+podgląd plików, migracja/import skrzynki, terminy protokołu i edytor konfiguracji MCP.
+Własne role agentów oraz poprawiony Stan modułów. Samodzielny instalator Windows.
+Szczegóły i ograniczenia: [wydanie 3.15.0](docs/WYDANIE-3.15.0-20261114.md).
 
 **Wersja 3.14.0 (agenci pod kontrolą operatora):** spersonalizowani agenci (własna nazwa, stan,
 przydzielanie zadań konkretnemu agentowi), katalog agentów z edycją

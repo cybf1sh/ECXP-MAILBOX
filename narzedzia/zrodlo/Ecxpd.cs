@@ -20,7 +20,7 @@ using System.Threading;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.8.0.0")]
+[assembly: AssemblyFileVersion("1.9.0.0")]
 
 namespace Ecxp
 {
@@ -68,6 +68,7 @@ namespace Ecxp
             katalog = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             P.Root = Path.GetDirectoryName(katalog);
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
+            P.Root = Konfiguracja.RozwiazRoot(P.Root);
             obrazKonsoli = Path.Combine(katalog, "ECXP-MAILBOX.exe");
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/podwyzszone") return Podwyzszone(args[i + 1]);
             nazwaPotoku = Ramka.NazwaPotoku(P.Root);
@@ -518,6 +519,10 @@ namespace Ecxp
         {
             switch (op)
             {
+                case "stos_zamknij":
+                    TylkoOperator(s); Agenci.WstrzymajDoKonserwacji();
+                    new Thread(() => { Thread.Sleep(1200); lock (stos) P.ZBlokada(() => { Environment.Exit(0); return 0; }); }) { IsBackground = true }.Start();
+                    return P.D("zamykanie", true);
                 case "projekt_usun_bilet": TylkoOperator(s); return UsuwanieProjektu.OdbierzBilet(P.S(a,"token"));
                 // strażnik zadań w konsoli: pytanie sesji o etap zadania (odpowiedź: typ=w_trakcie z opisem etapu, nie FIN)
                 case "zapytaj_o_etap":
@@ -607,6 +612,7 @@ namespace Ecxp
                         return Siec.Przypisz(nazwa, P.S(a, "projekt"), P.S(a, "modul"), P.S(a, "sesja"), P.L(a, "role"), P.S(a, "opis"), s.Operator ? P.Wlasciciel : nazwa);
                     }
                 case "trasy": return Siec.Opis(P.S(a, "projekt"));
+                case "definiuj_role": { TylkoOperator(s); var rd = Siec.DefiniujRole(P.S(a, "nazwa"), P.S(a, "obowiazki"), P.S(a, "wynik"), P.S(a, "granice")); zmiana = 1; return rd; }
                 case "rola":
                     TylkoOperator(s);
                     return Siec.NadajRole(P.S(a, "nazwa").Trim().ToLowerInvariant(), P.S(a, "projekt"), P.S(a, "modul"), P.L(a, "role"), P.S(a, "opis"));

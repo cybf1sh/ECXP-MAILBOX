@@ -189,6 +189,15 @@ class TestNiezawodnosci {
   Check(Blad(()=>Profile.Ustaw("zly agent","x",""))!=null && Blad(()=>Profile.Ustaw("codex-ust",new string('a',41),""))!=null && Blad(()=>Profile.Ustaw("codex-ust","x",new string('b',301)))!=null && Profile.Imie("codex-ust")=="Tester sieci","bad agent name and too long texts are refused, profile stays");
   Profile.Ustaw("codex-ust","","");
   Check(Profile.Imie("codex-ust")=="" && Profile.Opis("codex-ust")=="","empty fields remove the profile");
+
+  // ---------- własna rola operatora ----------
+  var rdef=Siec.DefiniujRole("Analityk Logów","czyta logi","raport z ustaleniami","nie zmienia konfiguracji");
+  var rolaW=P.S(rdef,"rola");
+  Check(P.B(rdef,"nowa") && rolaW.Length>=2 && File.Exists(Siec.PlikRoli(rolaW)) && Siec.RoleZnane().Contains(rolaW) && Siec.RoleZnane().Take(6).SequenceEqual(Siec.RoleDomyslne) && P.Czytaj(Siec.PlikRoli(rolaW)).Contains("czyta logi"),"operator defines an own role with its card and it joins the role list");
+  Check(!P.B(Siec.DefiniujRole(rolaW,"czyta logi i alerty","",""),"nowa") && P.Czytaj(Siec.PlikRoli(rolaW)).Contains("alerty") && Siec.RoleZnane().Count(x=>x==rolaW)==1,"an existing own role can be corrected without duplicating it");
+  Check(Blad(()=>Siec.DefiniujRole("x","","",""))!=null && Blad(()=>Siec.DefiniujRole("dobra-rola",new string('a',601),"",""))!=null && !Siec.RoleZnane().Contains("dobra-rola"),"too short role name and too long description are refused");
+  var rn=Siec.NadajRole("codex-p","test","test",new List<string>{rolaW},"");
+  Check(((List<string>)rn["role"]).Contains(rolaW),"own role can be assigned to a session");
   Console.WriteLine("RESULT: "+failures+" failed");
   return failures==0?0:1;
  }

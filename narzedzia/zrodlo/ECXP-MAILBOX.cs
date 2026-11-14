@@ -2,6 +2,7 @@
 // Klient stosu ecxpd (rola operatora potwierdzana przez stos po obrazie procesu). Czyta pliki skrzynki tylko do podglądu;
 // każdą zmianę (wysłanie, potwierdzenie, archiwum, role, nowe zadanie) wysyła ramkami ECXP do stosu. Kompilacja: buduj.cmd.
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -19,13 +20,13 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.14.1.0")]
+[assembly: AssemblyFileVersion("3.15.0.0")]
 
 namespace Ecxp
 {
     partial class App : ApplicationContext
     {
-        readonly string Stan, ReadFile;
+        string Stan, ReadFile;
         readonly HashSet<string> read = new HashSet<string>();
         readonly HashSet<string> seen = new HashSet<string>();
         readonly HashSet<string> alarmyPokazane = new HashSet<string>();
@@ -175,7 +176,7 @@ namespace Ecxp
 
         public App()
         {
-            Stan = Path.Combine(P.Root, "STAN-MODULOW.md");
+            Stan = Konfiguracja.StanModulow;
             ReadFile = Path.Combine(P.Root, "narzedzia", "przeczytane-wlasciciel.txt");
             UstawieniaPlik = Path.Combine(P.Root, "narzedzia", "ustawienia-wlasciciel.txt");
             var ust = P.Czytaj(UstawieniaPlik);
@@ -493,6 +494,14 @@ namespace Ecxp
                 menu.Items.Add(Jezyk.T("📡  Śledzenie wysłanych…"), null, delegate { SledzenieWyslanych(); });
                 menu.Items.Add(Jezyk.T("🛡  Strażnik zadań…"), null, delegate { PokazZakladke(tabAg); });
                 menu.Items.Add(Jezyk.T("⬇  Pobierz dane o projektach, sesjach i agentach…"), null, delegate { PobieranieDanych(false); });
+                var zaawansowane = new ToolStripMenuItem("Zaawansowane");
+                zaawansowane.DropDownItems.Add("Lokalizacje plików i komunikacji…", null, delegate { OknoUstawien.Lokalizacje(form); RefreshView(); });
+                zaawansowane.DropDownItems.Add("Komunikacja sesji — otwórz katalog", null, delegate { Konfiguracja.PrzygotujKomunikacje(Konfiguracja.Komunikacja); Process.Start("explorer.exe", "\"" + Konfiguracja.Komunikacja + "\""); });
+                zaawansowane.DropDownItems.Add("Gdzie znajdują się pliki ECXP?…", null, delegate { OknoUstawien.Podglad(form); });
+                zaawansowane.DropDownItems.Add("Przenieś / importuj skrzynkę…", null, delegate { PrzygotujMigracje(); });
+                zaawansowane.DropDownItems.Add("Ustawienia protokołu…", null, delegate { OknoUstawien.Protokol(form); });
+                zaawansowane.DropDownItems.Add("Konfiguracja MCP — Codex / Claude…", null, delegate { OknoUstawien.Mcp(form); });
+                menu.Items.Add(zaawansowane);
                 menu.Items.Add(Jezyk.T("O programie"), null, delegate { OProgramie(); });
                 menu.Show(ustawienia, new Point(0, ustawienia.Height));
             };
@@ -1800,10 +1809,14 @@ namespace Ecxp
         void RefreshView()
         {
             var teraz = DateTime.Now;
-            string tekstStanu = Crlf(P.Czytaj(Stan)), tekstCzeka = Crlf(CzekaNaCiebie());
+            Stan = Konfiguracja.StanModulow;
+            string tekstStanu = File.Exists(Stan) ? Crlf(P.Czytaj(Stan)) : "Brak pliku stanu modułów: " + Stan + "\r\n\r\nTo miejsce na ręcznie prowadzone notatki o stanie modułów. ECXP nie tworzy ich automatycznie. Plik wybierzesz w Ustawieniach → Lokalizacje plików i komunikacji.", tekstCzeka = Crlf(CzekaNaCiebie());
             if (txtStan.Text != tekstStanu) txtStan.Text = tekstStanu;
             if (czeka.Text != tekstCzeka) czeka.Text = tekstCzeka;
-            tabStan.Text = !read.Contains(StanKey()) ? Jezyk.T("Stan modułów (zmieniony)") : Jezyk.T("Stan modułów");
+            // „(zmieniony)” tylko gdy plik stanu istnieje i zmienił się od ostatniego obejrzenia; bez pliku zakładka wyjaśnia, do czego służy
+            tabStan.Text = File.Exists(Stan) && !read.Contains(StanKey()) ? Jezyk.T("Stan modułów (zmieniony)") : Jezyk.T("Stan modułów");
+            if (!File.Exists(Stan) && txtStan.Text.Length == 0)
+                txtStan.Text = string.Format(Jezyk.T("Ta zakładka pokazuje plik {0} – ręcznie prowadzone notatki o stanie modułów.\r\n\r\nPliku nie ma, dlatego zakładka jest pusta. ECXP sam go nie tworzy ani nie uzupełnia."), Stan);
 
             // lista modułów do filtra
             var moduly = msgs.Select(m => m.Modul).Where(m => m.Length > 0).Distinct().OrderBy(m => m).ToList();
@@ -2987,7 +3000,7 @@ namespace Ecxp
         static string RejestracjaMcpOpis(string strona)
         {
             var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var oczek = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
+            var oczek = Path.Combine(Konfiguracja.Instalacja, "ecxp-mcp.exe");
             try
             {
                 string cmd = null;
@@ -3030,7 +3043,7 @@ namespace Ecxp
         // Adapter MCP tak, jak widzą go agenci: initialize, tools/list i ecxp_trasy (połączenie adaptera ze stosem). Zwraca liczbę narzędzi.
         static int TestAdapteraMcp(string projekt)
         {
-            var exe = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
+            var exe = Path.Combine(Konfiguracja.Instalacja, "ecxp-mcp.exe");
             if (!File.Exists(exe)) throw new EcxpException(Jezyk.T("brak pliku ") + exe);
             var psi = new System.Diagnostics.ProcessStartInfo(exe)
             {
@@ -3292,13 +3305,13 @@ namespace Ecxp
                     }
             }
             catch (Exception ex) { Bledy.Wyjatek(ex); }
-            var pelna = rel != null ? Path.Combine(P.Root, rel) : null;
+            var pelna = rel != null ? Konfiguracja.PlikWidoku(rel) : null;
             if (pelna != null && File.Exists(pelna))
             {
                 try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + pelna + "\""); return; }
                 catch (Exception ex) { Bledy.Wyjatek(ex); }
             }
-            var folder = Path.Combine(P.Root, Wyslana(m) ? Widok.FolderWyslane : Widok.FolderOdebrane);
+            var folder = Konfiguracja.Widok(Wyslana(m) ? Widok.FolderWyslane : Widok.FolderOdebrane);
             if (!Directory.Exists(folder))
             {
                 MessageBox.Show(form, Jezyk.T("Widok folderów jeszcze nie powstał – stos tworzy go w ciągu minuty od uruchomienia."), Jezyk.T("Pokaż w folderze"));
@@ -4657,13 +4670,24 @@ namespace Ecxp
                 var cbP = f.Combo("Projekt:", P.Projekty().Select(x => P.S(x, "nazwa")).ToList(), para != null ? P.S(para, "projekt") : (cbProjekt.SelectedIndex > 0 ? (string)cbProjekt.SelectedItem : ""));
                 var tbM = f.Tekst("Moduł:", para != null ? P.S(para, "modul") : "");
                 var rl = f.Role("Role:", new string[0]);
+                // własna rola operatora: nazwa i karta (obowiązki, wynik, granice); zapisana trafia na listę ról do ponownego użycia
+                var tbWl = f.Tekst("Własna rola (nowa):", ""); tbWl.Name = "wlasnaRola"; tbWl.MaxLength = 24;
+                var tbOb = f.Tekst("  jej obowiązki:", ""); tbOb.Name = "wlasnaRolaObowiazki";
+                var tbWy = f.Tekst("  oczekiwany wynik:", ""); tbWy.Name = "wlasnaRolaWynik";
+                var tbGr = f.Tekst("  granice (czego nie robi):", ""); tbGr.Name = "wlasnaRolaGranice";
                 var tbO = f.Tekst("Opis roli od operatora:", "");
                 f.PrzyciskOk("✉  Zapisz i wyślij karty ról");
-                f.Uwaga("Sesja dostanie kartę każdej roli jako kontekst. Nowa sesja tej samej strony w module przejmuje adres i niepotwierdzone wiadomości poprzedniej.");
+                f.Uwaga("Sesja dostanie kartę każdej roli jako kontekst. Własną rolę wpisz w polu „Własna rola” (np. analityk-logow) – zostanie zapisana z opisem i pojawi się na liście ról przy następnym użyciu. Nowa sesja tej samej strony w module przejmuje adres i niepotwierdzone wiadomości poprzedniej.");
                 if (f.ShowDialog(form) != DialogResult.OK) return;
                 try
                 {
-                    Stos("rola", P.D("nazwa", cbN.Text.Trim(), "projekt", cbP.Text, "modul", tbM.Text, "role", Formularz.Zaznaczone(rl), "opis", tbO.Text));
+                    var roleWybrane = Formularz.Zaznaczone(rl);
+                    if (tbWl.Text.Trim().Length > 0)
+                    {
+                        var rd = (Dictionary<string, object>)Stos("definiuj_role", P.D("nazwa", tbWl.Text, "obowiazki", tbOb.Text, "wynik", tbWy.Text, "granice", tbGr.Text));
+                        if (!roleWybrane.Contains(P.S(rd, "rola"))) roleWybrane.Add(P.S(rd, "rola"));
+                    }
+                    Stos("rola", P.D("nazwa", cbN.Text.Trim(), "projekt", cbP.Text, "modul", tbM.Text, "role", roleWybrane, "opis", tbO.Text));
                     Skanuj();
                     stInfo.Text = Jezyk.T("Przypisano ") + cbN.Text + Jezyk.T(" do ") + cbP.Text + "/" + tbM.Text;
                 }
@@ -4883,6 +4907,17 @@ namespace Ecxp
             RefreshView(); PokazCli();
         }
 
+        void PrzygotujMigracje()
+        {
+            if (MessageBox.Show(form, "Otworzyć kreator migracji i zamknąć konsolę oraz stos ECXP?\r\n\r\nCzaty Codex i Claude pozostaną otwarte. Jeśli trwa tura agenta w tle, operacja zostanie odrzucona. Po migracji uruchom ponownie klientów MCP.", "Migracja skrzynki", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+            try {
+                Stos("stos_zamknij", null);
+                timer.Stop(); fsw.EnableRaisingEvents = false;
+                Process.Start(new ProcessStartInfo(Application.ExecutablePath, "/migracja /root \"" + P.Root + "\"") { UseShellExecute = false });
+                if (klient != null) klient.Dispose(); tray.Visible = false; ExitThread();
+            } catch (Exception ex) { timer.Start(); fsw.EnableRaisingEvents = true; MessageBox.Show(form, ex.Message, "Migracja skrzynki"); }
+        }
+
         void PokazZakladke(TabPage t) { ShowWindow(); if (t != null) tabs.SelectedTab = t; }
 
         static ToolStripMenuItem Poz(string tekst, EventHandler klik, bool aktywna = true)
@@ -5051,6 +5086,8 @@ namespace Ecxp
             var exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             P.Root = Path.GetDirectoryName(exeDir);   // program leży w <skrzynka>\narzedzia
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "/root") P.Root = Path.GetFullPath(args[i + 1]);
+            P.Root = Konfiguracja.RozwiazRoot(P.Root);
+            if (args.Contains("/migracja")) { Application.EnableVisualStyles(); OknoUstawien.Migracja(null); return 0; }
             int usun = Array.IndexOf(args, "/usun-projekt");
             if (usun >= 0 && usun + 1 < args.Length) {
                 var token = args[usun + 1];
@@ -5758,7 +5795,7 @@ namespace Ecxp
         public static string Wykonaj(bool usun)
         {
             var log = new StringBuilder();
-            var narz = Path.Combine(P.Root, "narzedzia");
+            var narz = Konfiguracja.Instalacja;
             var mcp = Path.Combine(narz, "ecxp-mcp.exe");
             var dom = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             foreach (var d in P.Foldery) Directory.CreateDirectory(Path.Combine(P.Root, d));
@@ -5955,7 +5992,7 @@ namespace Ecxp
         public CheckedListBox Role(string e, string[] zazn)
         {
             var c = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true, Height = 116, MultiColumn = true, ColumnWidth = 160 };
-            foreach (var r in Siec.RoleDomyslne) c.Items.Add(r, zazn.Contains(r));
+            foreach (var r in Siec.RoleZnane()) c.Items.Add(r, zazn.Contains(r));
             Wiersz(e, c, false); return c;
         }
         public static List<string> Zaznaczone(CheckedListBox c) { return c.CheckedItems.Cast<object>().Select(x => x.ToString()).ToList(); }
@@ -6085,7 +6122,7 @@ namespace Ecxp
             cbModul.Items.AddRange(moduly.ToArray()); cbModul.Text = "wspolne";
             cbTyp = new ComboBox { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
             cbTyp.Items.AddRange(TypyPl); cbTyp.SelectedIndex = 0;
-            chPilne = new CheckBox { Text = "Pilne (potwierdzenie w 15 min)", AutoSize = true, Margin = new Padding(16, 6, 3, 3) };
+            chPilne = new CheckBox { Text = string.Format("Pilne (potwierdzenie w {0} min)", P.Termin("codex", true)), AutoSize = true, Margin = new Padding(16, 6, 3, 3) };
             chPotw = new CheckBox { Text = "Potwierdź odebranie", Checked = true, AutoSize = true, Margin = new Padding(16, 6, 3, 3) };
             new ToolTip().SetToolTip(chPotw, "Stos odpytuje i budzi adresata, aż odbierze wiadomość. Dostaniesz powiadomienie o dostarczeniu albo o niepowodzeniu (z opcją „Wyślij ponownie”).");
             var rodz = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };

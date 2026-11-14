@@ -30,6 +30,20 @@ class TestyRozmow {
       var lv=(ListView)Field(app,"lv"); var det=(RichTextBox)Field(app,"det");
       Action run = delegate {
         try {
+          var settingsButton=Descendants(form).OfType<Button>().Single(x=>x.Text=="Ustawienia…"); settingsButton.PerformClick(); Application.DoEvents();
+          var rootMenu=settingsButton.ContextMenuStrip;
+          var advanced=rootMenu.Items.OfType<ToolStripMenuItem>().Single(x=>x.Text=="Zaawansowane");advanced.ShowDropDown();Application.DoEvents();var menu=advanced.DropDown;
+          Check(menu.Items.Cast<ToolStripItem>().Count(x=>x.Text.Contains("Lokalizacje")||x.Text.Contains("MCP")||x.Text.Contains("protokołu")||x.Text.Contains("importuj")||x.Text.Contains("Gdzie znajdują"))==5,"settings menu exposes locations, MCP, protocol, migration and inventory");
+          using(var bitmap=new Bitmap(menu.Width,menu.Height)){menu.DrawToBitmap(bitmap,new Rectangle(0,0,bitmap.Width,bitmap.Height));bitmap.Save(Path.Combine(root,"menu-ustawienia.png"));}menu.Close();rootMenu.Close();
+          var state=(TextBox)Field(app,"txtStan");var stateFile=Konfiguracja.StanModulow;
+          File.WriteAllText(stateFile,"stan testowy");Call(app,"RefreshView");Check(state.Text=="stan testowy","module state loads existing notes");
+          File.Delete(stateFile);Call(app,"RefreshView");Check(!state.Text.Contains("stan testowy")&&state.Text.Contains("Brak pliku"),"removed module state clears stale content");
+          using(var roleTimer=new System.Windows.Forms.Timer{Interval=250}) {
+            roleTimer.Tick+=(sender,e)=>{roleTimer.Stop();var roleForm=Application.OpenForms.Cast<Form>().Last();
+              Check(new[]{"wlasnaRola","wlasnaRolaObowiazki","wlasnaRolaWynik","wlasnaRolaGranice"}.All(n=>Descendants(roleForm).OfType<TextBox>().Any(x=>x.Name==n)),"custom role fields visible in assignment dialog");
+              using(var bitmap=new Bitmap(roleForm.Width,roleForm.Height)){roleForm.DrawToBitmap(bitmap,new Rectangle(0,0,bitmap.Width,bitmap.Height));bitmap.Save(Path.Combine(root,"wlasna-rola.png"));}roleForm.Close();};
+            roleTimer.Start();Call(app,"NadajRole");
+          }
       Application.DoEvents();
       var row=lv.Items.Cast<ListViewItem>().Single(x=>((Msg)x.Tag).Uwagi==body); row.Selected=true;
       Application.DoEvents();
@@ -99,7 +113,7 @@ class TestyRozmow {
       string htmlPath=Path.Combine(root,"message.html"); Czytnik.Zapisz(htmlPath,"Tytuł",evil,false);
       Czytnik.Zapisz(htmlPath,"Nowy tytuł",evil+" KONIEC",false);
       Check(File.ReadAllText(htmlPath).Contains("KONIEC") && !Directory.GetFiles(root,".ecxp-*").Any(),"HTML export atomically replaces chosen file without temporary leftovers");
-      Czytnik.ProgramPdf=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"narzedzia","ECXP-MAILBOX.exe");
+      Czytnik.ProgramPdf=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ECXP-MAILBOX.exe");
       string pdfPath=Path.Combine(root,"message.pdf"); Czytnik.Zapisz(pdfPath,"Syntetyczny PDF",body+"\nOSTATNI ZNAK ŻÓŁĆ",true);
       Check(File.Exists(pdfPath) && new FileInfo(pdfPath).Length>1000,"multi-page PDF export creates a nonempty verified PDF");
       Console.WriteLine("PDF_PATH: "+pdfPath);

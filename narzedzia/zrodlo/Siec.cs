@@ -261,6 +261,39 @@ namespace Ecxp
             }
         }
 
+        // Role do wyboru: domyślne oraz własne role operatora (pliki kart w stan\role).
+        public static List<string> RoleZnane()
+        {
+            var wynik = RoleDomyslne.ToList();
+            try
+            {
+                var dir = Path.Combine(P.Root, "stan", "role");
+                if (Directory.Exists(dir))
+                    foreach (var f in Directory.GetFiles(dir, "*.json").Select(Path.GetFileNameWithoutExtension).OrderBy(x => x))
+                        if (!wynik.Contains(f) && P.Slug(f, 24, false) == f) wynik.Add(f);
+            }
+            catch { }
+            return wynik;
+        }
+
+        // Własna rola operatora: karta roli (obowiązki, wynik, granice) zapisywana obok domyślnych. Istniejącą kartę można poprawić.
+        public static Dictionary<string, object> DefiniujRole(string nazwa, string obowiazki, string wynik, string granice)
+        {
+            var rola = P.Slug(nazwa ?? "", 24, false);
+            if (rola.Length < 2) throw new EcxpException("Nazwa roli: co najmniej 2 znaki (litery, cyfry, myślnik), najwyżej 24.");
+            Func<string, string> cz = s => new string((s ?? "").Where(c => !char.IsControl(c) || c == '\n').ToArray()).Trim();
+            obowiazki = cz(obowiazki); wynik = cz(wynik); granice = cz(granice);
+            if (obowiazki.Length > 600 || wynik.Length > 600 || granice.Length > 600) throw new EcxpException("Opis roli: każde pole najwyżej 600 znaków.");
+            return P.ZBlokada(delegate
+            {
+                var p = PlikRoli(rola); bool nowa = !File.Exists(p);
+                Directory.CreateDirectory(Path.GetDirectoryName(p));
+                File.WriteAllText(p, P.Js().Serialize(P.D("nazwa", rola, "obowiazki", obowiazki, "wynik", wynik, "granice", granice)), new UTF8Encoding(false));
+                P.Zdarzenie("rola_zdefiniowana", P.D("kto", P.Wlasciciel, "rola", rola, "nowa", nowa));
+                return P.D("rola", rola, "nowa", nowa);
+            });
+        }
+
         // Operator nadaje role sesji w module; sesja dostaje kartę roli jako kontekst.
         public static Dictionary<string, object> NadajRole(string nazwa, string projekt, string modul, List<string> role, string opis)
         {
@@ -621,6 +654,7 @@ namespace Ecxp
             if (repozytorium)
                 sb.Append("Zadanie zmienia repozytorium: przed pierwszą zmianą " + (rolaWParze == "sam" ? "" : "uzgodnij z " + partner + " ") + "gałąź i commit bazowy (ecxp_umowa_galezi), " +
                     "po commicie ecxp_stan_galezi. Bez push i scalenia bez decyzji operatora.\n\n");
+            sb.Append("Ustalenia i historię komunikacji zapisuj w: " + Konfiguracja.Komunikacja + ". Bez sekretów i pustych kontroli okresowych.\n\n");
             sb.Append("Zadanie od operatora:\n" + zadanie);
             return sb.ToString();
         }
@@ -654,7 +688,7 @@ namespace Ecxp
             var pary = moduly.Select(x => (object)Para(x.Split('|')[0], x.Split('|')[1])).ToList();
             var trasy = t.Select(x => (object)P.D("projekt", x.Projekt, "modul", x.Modul, "strona", x.Strona, "nazwa", x.Nazwa, "sesja", x.Sesja, "role", x.Role, "opis", x.Opis,
                 "od", x.Od.ToString("yyyy-MM-dd HH:mm"))).ToList();
-            return P.D("projekt", projekt, "pary", pary, "trasy", trasy, "role_dostepne", RoleDomyslne);
+            return P.D("projekt", projekt, "pary", pary, "trasy", trasy, "role_dostepne", RoleZnane());
         }
     }
 }

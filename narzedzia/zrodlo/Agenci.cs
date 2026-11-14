@@ -326,12 +326,14 @@ namespace Ecxp
             try { var s = Cieply.SprzatajSieroty(); if (s > 0) Log("ciepli agenci: zamknięte procesy osierocone: " + s); } catch { }
             while (true)
             {
-                Thread.Sleep(500);      // szybka reakcja: zadanie trafia do agenta w ułamku sekundy
+                Thread.Sleep(500); if (Konserwacja) continue;      // szybka reakcja: zadanie trafia do agenta w ułamku sekundy
                 KrokPetli();
             }
         }
 
         // Jeden obieg pętli agentów (osobno, żeby test regresyjny mógł go wywołać bez wątku stosu).
+        public static volatile bool Konserwacja;
+        public static void WstrzymajDoKonserwacji() { lock (trwa) { if (trwa.Count > 0) throw new EcxpException("Trwa tura agenta. Poczekaj na jej zakończenie."); Konserwacja = true; } }
         public static void KrokPetli()
         {
                 try
@@ -381,7 +383,7 @@ namespace Ecxp
                         if (P.ZBlokada(() => SesjeInteraktywne().Contains(n))) { PracaPrzejeta(rec); continue; }
                         bool rozpocznij = P.ZBlokada(() => {
                             if (UsuwanieProjektu.Trwa(P.S(rec,"projekt")) || !P.B(Pliki.Czytaj(Path.Combine(Dir,n+".json")),"aktywny") || Wylaczeni.Jest(n)) return false;
-                            lock (trwa) { if (trwa.Contains(n)) return false; trwa.Add(n); } return true;
+                            lock (trwa) { if (Konserwacja || trwa.Contains(n)) return false; trwa.Add(n); } return true;
                         });
                         if (!rozpocznij) continue;
                         var kopia = rec; var kopiaPraca = praca;

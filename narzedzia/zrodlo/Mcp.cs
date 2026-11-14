@@ -14,7 +14,7 @@ using System.Text;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.7.0.0")]
 
 namespace Ecxp
 {
@@ -64,7 +64,7 @@ namespace Ecxp
                     D("ja", ja, "do", Pole("string", "para:<moduł>, codex/<moduł>, claude/<moduł>, rola:<rola>@<moduł>, wlasciciel, codex-koordynacja albo konkretna nazwa."),
                       "typ", Pole("string", "Rodzaj wiadomości.", P.Typy), "projekt", projekt, "modul", modul,
                       "temat", Pole("string", "Krótki temat, np. ELAN24."), "tresc", Pole("string", "Treść po polsku: co zrobiono, wynik, czego potrzeba."),
-                      "odpowiedz_na", Pole("string", "id wiadomości, na którą odpowiadasz."), "pilne", Pole("boolean", "Termin potwierdzenia 15 min."),
+                      "odpowiedz_na", Pole("string", "id wiadomości, na którą odpowiadasz."), "pilne", Pole("boolean", "Wiadomość pilna; termin z ustawień protokołu (domyślnie 15 min)."),
                         "krok", Pole("integer", "Tylko dla typ=postep: numer bieżącego kroku."), "z_krokow", Pole("integer", "Tylko dla typ=postep: liczba wszystkich kroków."),
                         "klucz", Pole("string", "Opcjonalny identyfikator żądania: ponowienie z tym samym kluczem nie tworzy drugiej wiadomości."),
                         "wynik", Pole("string", "Tylko dla typ=fin (wymagane): pozytywny – wykonane, wynik dobry; negatywny – wykonane, wynik zły; niewykonane – zadania nie wykonano.", P.WynikiFin),
@@ -128,7 +128,7 @@ namespace Ecxp
                     case "initialize":
                         var wersja = P.S(par, "protocolVersion");
                         wynik = D("protocolVersion", wersja.Length > 0 ? wersja : "2025-06-18", "capabilities", D("tools", D("listChanged", false)),
-                            "serverInfo", D("name", "ecxp", "title", "ECXP – Evidsec Context eXchange Protocol", "version", "1.1.0"), "instructions", Instrukcje);
+                            "serverInfo", D("name", "ecxp", "title", "ECXP – Evidsec Context eXchange Protocol", "version", "1.7.0"), "instructions", Instrukcje);
                         break;
                     case "ping": wynik = D(); break;
                     case "tools/list": wynik = D("tools", Narzedzia()); break;
@@ -203,6 +203,7 @@ namespace Ecxp
             var env = Environment.GetEnvironmentVariable("ECXP_SKRZYNKA");
             if (!string.IsNullOrEmpty(env)) P.Root = env;
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--root") P.Root = Path.GetFullPath(args[i + 1]);
+            P.Root = Konfiguracja.RozwiazRoot(P.Root);
             // hook Claude Code: ecxp-mcp.exe hook SessionStart | UserPromptSubmit | Stop (wejście JSON na stdin)
             if (args.Length >= 2 && args[0] == "hook")
                 using (var hin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false)))

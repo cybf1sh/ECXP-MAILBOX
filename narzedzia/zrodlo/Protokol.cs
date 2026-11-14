@@ -204,7 +204,7 @@ namespace Ecxp
         // Polecenia stosu (ecxpd) – wysyłane klientom w powitaniu i w „ping”, żeby konsola wiedziała, co stos potrafi.
         public static readonly string[] PoleceniaStosu = { "agenci", "archiwizuj", "decyzja", "galezie", "karta", "kontekst_pobierz", "kontekst_zapisz", "lancuch", "lancuch_wznow",
             "lancuchy", "nowe_zadanie", "nowy_pentest", "obecnosc", "obudz", "odbierz", "para_wznow", "ping", "podwyzszone_wygas", "potwierdz", "projekt_usun_bilet", "przekaz", "przypisz",
-            "profil_agenta", "przywroc", "rola", "sesja", "sprawdz_decyzje", "stan", "stan_galezi", "straz", "sygnal", "trasy", "umowa_galezi", "uruchom_agenta", "usluga", "ustaw_agenta", "uslugi", "uslugi_po_starcie",
+            "definiuj_role", "stos_zamknij", "profil_agenta", "przywroc", "rola", "sesja", "sprawdz_decyzje", "stan", "stan_galezi", "straz", "sygnal", "trasy", "umowa_galezi", "uruchom_agenta", "usluga", "ustaw_agenta", "uslugi", "uslugi_po_starcie",
             "uslugi_zakoncz", "usun", "watek", "wycofaj", "wylacz_agenta", "wyslij", "zadanie", "zapytaj_o_etap", "zarejestruj_sesje", "zatrzymaj_agenta" };
         // Pola przyjmowane przez „wyslij” (ecxp_wyslij). Nieznane pole albo zły typ = błąd od razu, zamiast cichego pominięcia.
         public static readonly string[] PolaWyslij = { "ja", "do", "typ", "projekt", "modul", "temat", "tresc", "odpowiedz_na", "pilne", "commit", "kontrole", "pliki",
@@ -321,9 +321,9 @@ namespace Ecxp
         public static int Termin(string adresat, bool pilne)
         {
             if (adresat == Wlasciciel) return 0;              // właściciela pilnuje okno, nie strażnik
-            if (pilne) return 15;
-            if (DoMnie(Koordynacja, adresat)) return 30;      // automatyzacja co 10 min
-            return 240;                                       // czaty modułów i sesje czytają między etapami
+            if (pilne) return Konfiguracja.Liczba("termin_pilny", 15, 1, 10080);
+            if (DoMnie(Koordynacja, adresat)) return Konfiguracja.Liczba("termin_koordynacja", 30, 1, 10080);      // automatyzacja co 10 min
+            return Konfiguracja.Liczba("termin_zwykly", 240, 1, 10080);                                       // czaty modułów i sesje czytają między etapami
         }
         public static string Wiek(TimeSpan t)
         {

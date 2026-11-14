@@ -481,7 +481,7 @@ namespace Ecxp
             var dir = Path.Combine(P.Root, "stan", "doreczanie");
             Directory.CreateDirectory(dir);
             var mcpCfg = Path.Combine(dir, "ecxp.mcp.json");
-            File.WriteAllText(mcpCfg, P.Js().Serialize(P.D("mcpServers", P.D("ecxp", P.D("command", Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe"), "args", new List<string> { "--root", P.Root })))), new UTF8Encoding(false));
+            File.WriteAllText(mcpCfg, P.Js().Serialize(P.D("mcpServers", P.D("ecxp", P.D("command", Path.Combine(Konfiguracja.Instalacja, "ecxp-mcp.exe"), "args", new List<string> { "--root", P.Root })))), new UTF8Encoding(false));
             // --allowedTools tylko dodaje zgody, więc narzędzia zmieniające pliki i polecenia są jawnie zabronione (deny wygrywa z allow),
             // reguły projektu i local nie są wczytywane, a tryb uprawnień jest domyślny (bez auto / acceptEdits)
             // --tools: biała lista narzędzi wbudowanych (MCP ecxp z --mcp-config zostaje); --disallowedTools jako druga warstwa

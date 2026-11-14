@@ -92,7 +92,7 @@ namespace Ecxp
 
         public static string Polecenie(string nazwa)
         {
-            var exe = Path.Combine(P.Root, "narzedzia", "ecxp-mcp.exe");
+            var exe = Path.Combine(Konfiguracja.Instalacja, "ecxp-mcp.exe");
             return "\"" + exe + "\" czekaj " + nazwa;
         }
 

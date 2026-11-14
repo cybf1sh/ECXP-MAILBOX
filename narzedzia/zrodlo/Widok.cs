@@ -86,14 +86,18 @@ namespace Ecxp
             {
                 try
                 {
-                    var rel = Path.Combine(poz.Folder, poz.Nazwa);
+                    var rel = Path.Combine(Konfiguracja.Widok(poz.Folder), poz.Nazwa);
                     var pelna = Path.Combine(P.Root, rel);
                     var skrot = P.Sha(poz.Tresc);
                     object ov; var stary = wpisy.TryGetValue(poz.Klucz, out ov) ? ov as Dictionary<string, object> : null;
                     if (stary != null && P.S(stary, "plik") == rel && P.S(stary, "skrot") == skrot && File.Exists(pelna)) { bez++; continue; }
                     Zapisz(pelna, poz.Tresc);
                     // zmieniona nazwa (np. nowy format) – stary plik widoku zostaje przeniesiony do podfolderu „poprzednie”, nie skasowany
-                    if (stary != null && P.S(stary, "plik").Length > 0 && P.S(stary, "plik") != rel) Odloz(Path.Combine(P.Root, P.S(stary, "plik")));
+                    if (stary != null && P.S(stary, "plik").Length > 0 && P.S(stary, "plik") != rel) {
+                        var poprzedni = Konfiguracja.PlikWidoku(P.S(stary, "plik"));
+                        // Zmiana katalogu/migracja zachowuje stare kopie; odkładaj tylko poprzednią nazwę w tym samym widoku.
+                        if (string.Equals(Path.GetDirectoryName(poprzedni), Path.GetDirectoryName(pelna), StringComparison.OrdinalIgnoreCase)) Odloz(poprzedni);
+                    }
                     wpisy[poz.Klucz] = P.D("plik", rel, "skrot", skrot, "ids", poz.Ids);
                     zapisane++; zmianaIdx = true;
                 }
@@ -137,7 +141,7 @@ namespace Ecxp
             // limit ścieżki Windows (260 znaków z plikiem .tmp): środek nazwy (temat, nadawca/adresat) skracany, data i identyfikator zostają
             foreach (var p in wynik)
             {
-                int max = 255 - (Path.Combine(P.Root, p.Folder).Length + 1) - 4 - 6;
+                int max = 255 - (Konfiguracja.Widok(p.Folder).Length + 1) - 4 - 6;
                 p.Nazwa = Dopasuj(p.Nazwa, max);
             }
             // nazwy unikalne w folderze (te same minuty, rodzaj i temat – rozróżnia je końcówka identyfikatora)
@@ -296,7 +300,7 @@ namespace Ecxp
         {
             try
             {
-                var p = Path.Combine(P.Root, folder, "_O TYM FOLDERZE.txt");
+                var p = Path.Combine(Konfiguracja.Widok(folder), "_O TYM FOLDERZE.txt");
                 var t = "ECXP · folder „" + folder + "”\r\n\r\n" + opis + "\r\n\r\n" +
                         "Jeden plik na wiadomość. Nazwa: data i godzina · rodzaj · temat · nadawca/adresat · końcówka identyfikatora,\r\n" +
                         "więc pliki układają się od najstarszej do najnowszej. W pliku jest treść, załączniki i aktualny stan doręczenia.\r\n\r\n" +

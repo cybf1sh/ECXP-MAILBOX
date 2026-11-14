@@ -123,6 +123,7 @@ namespace Ecxp
             var nazwa = Ramka.NazwaPotoku(P.Root);
             var k = new Klient();
             var start = DateTime.Now;
+            var limitPolaczenia = Konfiguracja.Liczba("polaczenie_sekundy", 45, 1, 300);
             bool uruchomiony = false;
             for (int proba = 1; ; proba++)
             {
@@ -135,7 +136,7 @@ namespace Ecxp
                         p.Dispose();
                         if (!uruchom) throw new EcxpException("Stos ECXP (ecxpd) nie działa.");
                         if (!uruchomiony) { UruchomStos(); uruchomiony = true; }
-                        if ((DateTime.Now - start).TotalSeconds > 45) throw new EcxpException("Nie udało się połączyć ze stosem ECXP (ecxpd) w 45 s (pierwszy start po aktualizacji może opóźnić skaner antywirusowy).");
+                        if ((DateTime.Now - start).TotalSeconds > limitPolaczenia) throw new EcxpException("Nie udało się połączyć ze stosem ECXP (ecxpd) w ustawionym czasie (pierwszy start po aktualizacji może opóźnić skaner antywirusowy).");
                     }
                 }
                 // Uzgodnienie ponawiane jak SYN w TCP: połączenie zerwane w trakcie (np. tuż po starcie stosu) – nowa próba.
@@ -144,7 +145,7 @@ namespace Ecxp
                 catch (IOException)
                 {
                     try { k.pipe.Dispose(); } catch { }
-                    if (proba >= 6 || (DateTime.Now - start).TotalSeconds > 45) throw new EcxpException("Stos ECXP zrywa uzgodnienie połączenia (" + proba + " prób).");
+                    if (proba >= 6 || (DateTime.Now - start).TotalSeconds > limitPolaczenia) throw new EcxpException("Stos ECXP zrywa uzgodnienie połączenia (" + proba + " prób).");
                     Thread.Sleep(150 * proba);
                 }
             }
