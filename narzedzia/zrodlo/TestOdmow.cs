@@ -25,7 +25,7 @@ class TestOdmow {
   P.ZBlokada(()=>{Agenci.ZakonczOdmowe(rec,msg,null);return 0;});
   var after=Obieg.Znajdz(id);var ae=(Dictionary<string,object>)after["agenci"];
   var own=(Dictionary<string,object>)ae["codex-r1"];var other=(Dictionary<string,object>)ae["claude-r1"];
-  Check(P.S(own,"stan")=="fin"&&P.S(own,"fin").StartsWith("NEGATYWNY"),"automatyczny negatywny FIN");
+  Check(P.S(own,"stan")=="fin"&&P.S(own,"fin").StartsWith("NIEWYKONANE"),"odmowa kończy się FIN niewykonane, nie negatywnym wynikiem pracy");
   Check(P.S(other,"rola")=="sam"&&P.S(other,"stan")!="fin","bez przekazania partnerowi także poza pentestem");
   var saved=Pliki.Czytaj(Path.Combine(P.Root,"stan","agenci","codex-r1.json"));
   Check(Agenci.OdmowionoPracy(saved,id),"odmowa zapisana przed FIN i przetrwa restart");

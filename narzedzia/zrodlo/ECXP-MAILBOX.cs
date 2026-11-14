@@ -20,7 +20,7 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("ECXP-MAILBOX")]
 [assembly: AssemblyCompany("Evidsec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.6.0")]
+[assembly: AssemblyFileVersion("3.15.7.0")]
 
 namespace Ecxp
 {
@@ -5110,7 +5110,7 @@ namespace Ecxp
                 var raport = Instalator.Wykonaj(args[0] == "/odinstaluj");
                 try { File.WriteAllText(Path.Combine(P.Root, "stan", "instalacja.txt"), raport, new UTF8Encoding(false)); } catch { }
                 if (!args.Contains("/cicho")) MessageBox.Show(raport, Jezyk.T("Instalacja ECXP"));
-                return 0;
+                return Instalator.SukcesRejestracji ? 0 : 2;
             }
             if (args.Length >= 4 && args[0] == "/test-para")
             {
@@ -5758,7 +5758,7 @@ namespace Ecxp
 
     static class Instalator
     {
-        static string Uruchom(string plik, string args)
+        internal static string Uruchom(string plik, string args, bool ignorujKod = false, int limitMs = 30000)
         {
             var psi = plik.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                 ? new System.Diagnostics.ProcessStartInfo(plik, args)
@@ -5766,9 +5766,18 @@ namespace Ecxp
             psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
             using (var pr = System.Diagnostics.Process.Start(psi))
             {
-                var o = pr.StandardOutput.ReadToEnd() + pr.StandardError.ReadToEnd();
-                pr.WaitForExit(120000);
-                return o.Trim();
+                var stdout = pr.StandardOutput.ReadToEndAsync(); var stderr = pr.StandardError.ReadToEndAsync();
+                if (!pr.WaitForExit(limitMs))
+                {
+                    try { using (var kill = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + pr.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true })) kill.WaitForExit(5000); } catch { }
+                    try { if (!pr.HasExited) pr.Kill(); } catch { }
+                    throw new TimeoutException("Przekroczono czas rejestracji CLI (" + limitMs + " ms).");
+                }
+                if (!System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { stdout, stderr }, 5000))
+                    throw new TimeoutException("CLI nie zamknęło strumieni wyniku.");
+                var o = (stdout.Result + stderr.Result).Trim();
+                if (!ignorujKod && pr.ExitCode != 0) throw new IOException("CLI zakończyło się kodem " + pr.ExitCode + ": " + o);
+                return o;
             }
         }
 
@@ -5797,15 +5806,35 @@ namespace Ecxp
         internal static bool ZapiszHookiClaude(string sp, string mcp, bool usun)
         {
                 Dictionary<string, object> st = new Dictionary<string, object>();
-                if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(P.Czytaj(sp)) ?? new Dictionary<string, object>();
+                var oryginal = File.Exists(sp) ? File.ReadAllText(sp, Encoding.UTF8) : "";
+                if (File.Exists(sp)) st = P.Js().Deserialize<Dictionary<string, object>>(oryginal);
+                if (st == null) throw new IOException("settings.json musi zawierać obiekt JSON.");
                 var poprzednio = P.Js().Serialize(st);
                 var hooks = Pliki.Slownik(st, "hooks");
                 foreach (var zd in new[] { "SessionStart", "UserPromptSubmit", "Stop" })
                 {
                     var lista = hooks.ContainsKey(zd) && hooks[zd] is System.Collections.IEnumerable
                         ? ((System.Collections.IEnumerable)hooks[zd]).Cast<object>().ToList() : new List<object>();
-                    lista = lista.Where(x => { var s = P.Js().Serialize(x); return !s.Contains("hook-claude.ps1") && !s.Contains("ecxp-mcp.exe\\\" hook"); }).ToList();
-                    if (!usun) lista.Add(P.D("hooks", new List<object> { P.D("type", "command", "command", "\"" + mcp + "\" hook " + zd, "timeout", 15) }));
+                    var zachowane = new List<object>();
+                    foreach (var grupa in lista)
+                    {
+                        var obiekt = grupa as Dictionary<string, object>;
+                        if (obiekt == null || !obiekt.ContainsKey("hooks")) { zachowane.Add(grupa); continue; }
+                        var wpisy = obiekt["hooks"] as System.Collections.IEnumerable;
+                        if (wpisy == null) { zachowane.Add(grupa); continue; }
+                        var inne = wpisy.Cast<object>().Where(x => {
+                            var h = x as Dictionary<string, object>; if (h == null) return true;
+                            var cmd = P.S(h, "command");
+                            return !(cmd.IndexOf("hook-claude.ps1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                Regex.IsMatch(cmd, @"ecxp-mcp\.exe""?\s+hook\s+(SessionStart|UserPromptSubmit|Stop|Observe)\b", RegexOptions.IgnoreCase));
+                        }).ToList();
+                        if (inne.Count > 0) { obiekt["hooks"] = inne; zachowane.Add(obiekt); }
+                    }
+                    lista = zachowane;
+                    if (!usun) lista.Add(P.D("hooks", new List<object> {
+                        P.D("type", "command", "command", "\"" + mcp + "\" hook " + zd, "timeout", 15),
+                        P.D("type", "command", "command", "\"" + mcp + "\" hook Observe", "timeout", 90000, "asyncRewake", true)
+                    }));
                     if (lista.Count > 0) hooks[zd] = lista; else hooks.Remove(zd);
                 }
                 if (hooks.Count == 0) st.Remove("hooks");
@@ -5813,12 +5842,14 @@ namespace Ecxp
                 if (poprzednio == aktualnie) return false;
                 Directory.CreateDirectory(Path.GetDirectoryName(sp));
                 Kopia(sp);
-                File.WriteAllText(sp, Ladnie(aktualnie), new UTF8Encoding(false));
+                Konfiguracja.Zapisz(sp, Ladnie(aktualnie), oryginal);
                 return true;
         }
 
+        internal static bool SukcesRejestracji;
         public static string Wykonaj(bool usun)
         {
+            SukcesRejestracji = true;
             var log = new StringBuilder();
             var narz = Konfiguracja.Instalacja;
             var mcp = Path.Combine(narz, "ecxp-mcp.exe");
@@ -5830,11 +5861,13 @@ namespace Ecxp
             // 1. Claude Code: serwer MCP ecxp (zakres użytkownika)
             var claude = Agenci.Program("claude");
             if (claude.Length == 0) log.AppendLine(Jezyk.T("• Claude Code CLI: brak na tym stanowisku – pomijam rejestrację w Claude."));
-            else
+            else try
             {
-                Uruchom(claude, "mcp remove ecxp --scope user");
+                Uruchom(claude, "mcp remove ecxp --scope user", true);
                 log.AppendLine(usun ? Jezyk.T("• Claude: usunięto serwer MCP ecxp.") : "• Claude: " + Uruchom(claude, "mcp add --scope user ecxp -- \"" + mcp + "\"").Split('\n')[0]);
             }
+
+            catch (Exception ex) { SukcesRejestracji = false; log.AppendLine("• Claude MCP: " + ex.Message); }
 
             // 2. Claude Code: hooki ECXP (ecxp-mcp.exe hook …, bez PowerShella): start sesji – przypomnienie, wpis operatora –
             //    lustro 1:1 i przypomnienie, koniec tury – tokeny i kontrola nieodebranych wiadomości. Stary hook-claude.ps1 zastąpiony.
@@ -5845,14 +5878,16 @@ namespace Ecxp
                 if (!zmieniono) log.AppendLine("• Claude: hooki ECXP już zgodne — zapis settings.json nie jest potrzebny.");
                 log.AppendLine(usun ? Jezyk.T("• Claude: usunięto hooki ECXP.") : Jezyk.T("• Claude: hooki ECXP (SessionStart, UserPromptSubmit, Stop) w ") + sp + ".");
             }
-            catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
+            catch (Exception ex) { SukcesRejestracji = false; Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Claude: NIE zmieniono ") + sp + " (" + ex.Message + ")."); }
 
             // 3. Codex: serwer MCP ecxp w config.toml
             var cp = Path.Combine(dom, ".codex", "config.toml");
             if (!File.Exists(cp)) log.AppendLine(Jezyk.T("• Codex: brak ") + cp + Jezyk.T(" – pomijam (zainstaluj aplikację Codex i uruchom instalację ponownie)."));
             else
             {
-                var linie = File.ReadAllLines(cp).ToList();
+                var oryginalCodex = File.ReadAllText(cp, Encoding.UTF8);
+                var linie = new List<string>();
+                using (var r = new StringReader(oryginalCodex)) { string l; while ((l = r.ReadLine()) != null) linie.Add(l); }
                 var wynik = new List<string>(); bool pomin = false;
                 foreach (var l in linie)
                 {
@@ -5862,8 +5897,11 @@ namespace Ecxp
                 }
                 while (wynik.Count > 0 && wynik[wynik.Count - 1].Trim().Length == 0) wynik.RemoveAt(wynik.Count - 1);
                 if (!usun) { wynik.Add(""); wynik.Add("[mcp_servers.ecxp]"); wynik.Add("command = '" + mcp + "'"); wynik.Add("args = []"); wynik.Add("startup_timeout_sec = 60"); }
-                Kopia(cp);
-                File.WriteAllLines(cp, wynik, new UTF8Encoding(false));
+                if (!linie.SequenceEqual(wynik))
+                {
+                    Kopia(cp);
+                    Konfiguracja.Zapisz(cp, string.Join(Environment.NewLine, wynik) + Environment.NewLine, oryginalCodex);
+                }
                 log.AppendLine(usun ? Jezyk.T("• Codex: usunięto [mcp_servers.ecxp].") : Jezyk.T("• Codex: [mcp_servers.ecxp] w ") + cp + Jezyk.T(" – uruchom ponownie aplikację Codex."));
             }
 
@@ -5881,10 +5919,10 @@ namespace Ecxp
                         s.GetType().InvokeMember(kv[0], System.Reflection.BindingFlags.SetProperty, null, s, new object[] { kv[1] });
                     s.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, s, null);
                 }
-                catch (Exception ex) { Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Skrót ") + lnk + ": " + ex.Message); }
+                catch (Exception ex) { SukcesRejestracji = false; Bledy.Wyjatek(ex); log.AppendLine(Jezyk.T("• Skrót ") + lnk + ": " + ex.Message); }
             }
             log.AppendLine(Jezyk.T(usun ? "• Usunięto skróty." : "• Skróty: pulpit i autostart."));
-            log.AppendLine(Jezyk.T("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak."));
+            log.AppendLine(SukcesRejestracji ? Jezyk.T("Gotowe. Kopie zmienionych plików konfiguracji: *.przed-ecxp.bak.") : "Rejestracja niepełna — popraw błędy wymienione powyżej i ponów rejestrację.");
             return log.ToString();
         }
     }

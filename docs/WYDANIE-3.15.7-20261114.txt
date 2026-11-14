@@ -1,0 +1,42 @@
+ECXP-MAILBOX 3.15.7 — automatyczny odbiór Claude i naprawa rejestracji
+
+ZMIANY
+SessionStart, UserPromptSubmit i Stop uruchamiają dodatkowy hook Observe
+z asyncRewake=true. Nowa wiadomość budzi bezczynną sesję bez wpisu operatora.
+Po zakończeniu tury obserwacja wraca automatycznie. Jedna blokada na adres
+zapobiega duplikatom; odebranie części kolejki nie generuje nowego alarmu.
+Hook nie odbiera za agenta i nie zapisuje ACK — robi to sesja przez MCP.
+Wyłączenie agenta kończy obserwację; po 24 godzinach następuje odnowienie.
+
+Rejestracja zachowuje obce hooki nawet we wspólnej grupie z ECXP.
+Poprawna konfiguracja nie jest ponownie zapisywana. JSON null i nieprawidłowy
+JSON są odrzucane. Zapis konfiguracji jest atomowy, z kopią i kontrolą konfliktu.
+CLI rejestracji odczytuje stdout i stderr równolegle, ma ograniczony czas
+wykonania i sprawdza kod wyjścia. Błąd rejestracji daje niezerowy kod klienta
+oraz błąd instalatora, zamiast fałszywego komunikatu pełnego powodzenia.
+
+WERYFIKACJA
+17 zestawów regresyjnych: 547 PASS. W tym 110 testów okien, 28 testów hooków
+oraz 36 Obserwatorium. Raport HTML: 39 PASS, edytor grafów: 9 PASS.
+Selftest końcowo zainstalowanego klienta: wszystkie PASS.
+Instalator końcowy: kod 0, settings.json bez zmian; cztery zainstalowane EXE
+mają identyczne SHA-256 jak przygotowany pakiet.
+Testy transportu/okien i złączy Windows wymagają dostępu poza sandboxem.
+Zaktualizowano stare testy do pola wyniku niewykonane, argumentu katalogów
+agentów i obudowy instrukcji końcowej w pytaniach; atrapy czytają UTF-8.
+
+TEST NA ŻYWO
+Claude został przypisany do bieżącej sesji projektu ecxp-mailbox.
+Dwa kolejne testy ECXP-AUTO-TEST-3157-A i B wznowiły bezczynną sesję bez wpisu
+w oknie Claude. Sesja odebrała wiadomości i odesłała poprawne tokeny z powiązaniem
+odpowiedz_na. Status obu wiadomości: potwierdzona (przyjeta); dziennik spójny.
+Trzeci test C po końcowej reinstalacji również został odebrany automatycznie
+i otrzymał poprawny token OBSERVE-3157-C-FINAL. Blokada obserwatora nadal aktywna.
+
+WARUNKI
+Wymagana działająca sesja Claude Code z obsługą asyncRewake i wczytanymi hookami.
+Hook nie uruchamia zamkniętej aplikacji Claude. Zmiana konfiguracji aktywnej
+sesji może wymagać jej wznowienia. Uprawnienia plików i zgody Windows pozostają
+bez zmian. Na tym stanowisku pierwszy zmieniony zapis settings.json wymagał
+oddzielnego zatwierdzonego wywołania; końcowa reinstalacja nie wymagała zapisu.
+Dokumentacja mechanizmu: https://code.claude.com/docs/en/hooks#limitations

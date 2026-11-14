@@ -25,7 +25,7 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("ECXP")]
 [assembly: AssemblyCopyright("EvidSec")]
 [assembly: AssemblyVersion("3.7.0.0")]
-[assembly: AssemblyFileVersion("3.15.6.0")]
+[assembly: AssemblyFileVersion("3.15.7.0")]
 
 namespace EcxpSetup
 {
@@ -112,7 +112,7 @@ namespace EcxpSetup
 
     static class Instalacja
     {
-        public const string Wersja = "3.15.6";
+        public const string Wersja = "3.15.7";
         const string KluczApl = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ECXP";
         static readonly string[] Programy = { "ecxpd.exe", "ECXP-MAILBOX.exe", "ecxp-mcp.exe", "ECXP-MAILBOX.ico", "hook-claude.ps1" };
         static readonly string[] Logo = { "ecxp-logo-light.png", "ecxp-logo-dark.png" };
@@ -218,6 +218,7 @@ namespace EcxpSetup
             var narz = Path.Combine(katalog, "narzedzia");
             var konsola = Path.Combine(narz, "ECXP-MAILBOX.exe");
             var raport = "";
+            string bladRejestracji = null;
 
             krok(L.S("k_zatrzymaj"), "…"); Zatrzymaj(katalog); krok(L.S("k_zatrzymaj"), L.S("ok"));
 
@@ -246,7 +247,8 @@ namespace EcxpSetup
                 krok(L.S("k_rej"), "…");
                 var kod = Uruchom(konsola, "/instaluj /cicho /jezyk " + L.Kod, 180000);
                 try { raport = File.ReadAllText(Path.Combine(katalog, "stan", "instalacja.txt"), Encoding.UTF8); } catch { }
-                krok(L.S("k_rej"), kod == "0" ? L.S("ok") : kod);
+                if (kod != "0") bladRejestracji = L.S("k_rej") + ": " + kod + "\r\n" + raport;
+                krok(L.S("k_rej"), kod == "0" ? L.S("ok") : L.S("blad_n") + " (" + kod + ")");
             }
             else krok(L.S("k_rej"), L.S("pominieto"));
 
@@ -281,6 +283,7 @@ namespace EcxpSetup
             if (PoInstalacji)
                 try { Directory.CreateDirectory(Path.Combine(katalog, "stan")); File.WriteAllText(Path.Combine(katalog, "stan", "po-instalacji.txt"), "pokaz " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"), new UTF8Encoding(false)); } catch { }
             if (uruchom) { krok(L.S("k_start"), "…"); Process.Start(new ProcessStartInfo(konsola) { UseShellExecute = true, WorkingDirectory = narz, Arguments = PoInstalacji ? "/po-instalacji" : "" }); krok(L.S("k_start"), L.S("ok")); }
+            if (bladRejestracji != null) throw new IOException(bladRejestracji);
             return raport;
         }
 

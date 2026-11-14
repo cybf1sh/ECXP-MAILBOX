@@ -45,7 +45,7 @@ class TestNapiszOdpowiedz {
    Siec.NoweZadanie("test-formularzy","rozmowa","test","syntetyczny",roles,roles,"ECXP",null,false,null,null,Siec.Ikony[1],false,false);
    foreach(var side in new[]{"codex","claude"})Agenci.Uruchom(side+"-rozmowa","test-formularzy","rozmowa",P.Root,"fixture","edycja",roles,"test",12,"");
    using(var server=new Server()){
-    server.Ready.WaitOne();Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);app=new App();
+    if(!server.Ready.WaitOne(5000))throw new Exception("Server startup timed out",server.Error);Console.WriteLine("TRACE server ready");Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);app=new App();Console.WriteLine("TRACE app ready");
     ((System.Windows.Forms.Timer)typeof(App).GetField("timer",Flags).GetValue(app)).Stop();form=(Form)typeof(App).GetField("form",Flags).GetValue(app);form.Text="TEST formularzy wiadomości";
     Compose(app,null,"NAPISZ-MARKER");
     var sent=P.Wszystkie(false).Where(m=>m.Od==P.Wlasciciel&&m.Uwagi=="NAPISZ-MARKER").ToList();Check(sent.Count==2,"Napisz: obie strony pary dostały wiadomość");

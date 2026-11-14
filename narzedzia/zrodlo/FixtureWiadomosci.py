@@ -1,5 +1,7 @@
 import sys, json, uuid
 
+sys.stdin.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding='utf-8')
 kind = sys.argv[1]
 
 
@@ -10,7 +12,7 @@ def send(value):
 def answer(text):
     with open(sys.argv[2], 'a', encoding='utf-8') as log:
         log.write(json.dumps({'provider': kind, 'text': text}) + '\n')
-    return 'ODEBRANO: ' + text
+    return 'ODEBRANO: ' + text.split('\n\n', 1)[0]
 
 
 for line in sys.stdin:

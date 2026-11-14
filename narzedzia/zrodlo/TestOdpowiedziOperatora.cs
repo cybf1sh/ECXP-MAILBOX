@@ -18,11 +18,13 @@ class TestOdpowiedziOperatora {
   var mock=Path.Combine(P.Root,"mock");Directory.CreateDirectory(mock);
   var calls=Path.Combine(P.Root,"calls.jsonl");var fixture=Path.Combine(mock,"provider.py");
   File.WriteAllText(fixture,@"import sys,json,uuid
+sys.stdin.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding='utf-8')
 kind=sys.argv[1]
 def send(v):print(json.dumps(v),flush=True)
 def answer(text):
  with open(sys.argv[2],'a',encoding='utf-8') as f:f.write(json.dumps({'provider':kind,'text':text})+'\n')
- return 'ODEBRANO: '+text
+ return 'ODEBRANO: '+text.split('\n\n',1)[0]
 for line in sys.stdin:
  try:r=json.loads(line)
  except ValueError:continue
