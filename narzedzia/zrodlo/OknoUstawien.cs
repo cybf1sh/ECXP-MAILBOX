@@ -9,6 +9,96 @@ using System.Collections.Generic;
 namespace Ecxp {
 partial class App
 {
+    void PokazAnalizeAgenta(Form wlasciciel, string projekt, string agent)
+    {
+        var rekord = Agenci.Lista().FirstOrDefault(a => P.S(a, "projekt") == projekt && P.S(a, "nazwa") == agent);
+        var tury = P.Lista(rekord, "uruchomienia");
+        var wiadomosci = P.Wszystkie(true).Where(m => m.Blad == null && m.Projekt == projekt &&
+            (m.Do == agent || m.Od == agent)).OrderByDescending(m => m.Czas).ToList();
+        string spojnosc;
+        var stany = P.Stany(out spojnosc);
+        var odpowiedzi = wiadomosci.Where(m => m.Od == agent && m.Typ == "fin").ToLookup(m => m.OdpNa);
+        var odpowiedziLogiczne = wiadomosci.Where(m => m.Od == agent && m.Typ == "fin" && m.OdpNaLogiczne.Length > 0)
+            .ToLookup(m => m.OdpNaLogiczne);
+        var proby = tury.Where(t => P.S(t, "praca").Length > 0).ToLookup(t => P.S(t, "praca"));
+        using (var okno = new Form { Text = "Analiza pracy — " + agent + " · " + projekt,
+            Width = 1120, Height = 720, StartPosition = FormStartPosition.CenterParent, Font = fontN })
+        {
+            var zakladki = new TabControl { Dock = DockStyle.Fill };
+            var pelna = Btn("Analiza wiadomości, decyzji, metod i alternatyw…");
+            pelna.Dock = DockStyle.Top;
+            pelna.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekt, agent); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
+            var przebieg = new TabPage("Graf zadań");
+            var graf = new TreeView { Dock = DockStyle.Fill, HideSelection = false };
+            var opis = new Label { Dock = DockStyle.Top, Height = 48, Padding = new Padding(8),
+                Text = "Graf pokazuje zarejestrowane zdarzenia. Brak wpisu oznacza brak dowodu. Model sieci neuronowej wymaga osobnego podglądu danych modelu." };
+            przebieg.Controls.Add(graf);
+            przebieg.Controls.Add(opis);
+            var os = new TabPage("Wiadomości i kontekst");
+            var lista = new ListView { View = View.Details, Dock = DockStyle.Fill, FullRowSelect = true };
+            lista.Columns.Add("Czas", 135);
+            lista.Columns.Add("Kierunek", 105);
+            lista.Columns.Add("Typ", 90);
+            lista.Columns.Add("Temat", 320);
+            lista.Columns.Add("Elementy kontekstu", 145);
+            lista.Columns.Add("Wątek / odpowiedź na", 270);
+            foreach (var m in wiadomosci)
+            {
+                var wiersz = new ListViewItem(m.Czas.ToString("dd.MM.yyyy HH:mm")) { Tag = m };
+                wiersz.SubItems.Add(m.Od == agent ? "Wysłana" : "Odebrana do agenta");
+                wiersz.SubItems.Add(m.Typ);
+                wiersz.SubItems.Add(P.TytulWiadomosci(m));
+                wiersz.SubItems.Add(m.Czesci.Count.ToString());
+                wiersz.SubItems.Add(m.OdpNa.Length > 0 ? m.OdpNa : m.WatekPole);
+                lista.Items.Add(wiersz);
+            }
+            var szczegoly = new TextBox { Dock = DockStyle.Bottom, Height = 155, Multiline = true,
+                ReadOnly = true, ScrollBars = ScrollBars.Vertical };
+            lista.SelectedIndexChanged += delegate
+            {
+                if (lista.SelectedItems.Count == 0) { szczegoly.Clear(); return; }
+                var m = (Msg)lista.SelectedItems[0].Tag;
+                var rodzaje = m.Czesci.GroupBy(c => P.S(c, "rodzaj")).Select(g => g.Key + " × " + g.Count());
+                Stan stan;
+                stany.TryGetValue(m.Id, out stan);
+                szczegoly.Text = "Identyfikator: " + m.Id + Environment.NewLine + "Nadawca: " + m.Od + " → " + m.Do + Environment.NewLine
+                    + "Doręczenie: " + (stan == null ? "brak wpisu" : P.Opis(stan, DateTime.Now)) + Environment.NewLine
+                    + "Kontekst: " + (m.Czesci.Count == 0 ? "bez części" : string.Join(", ", rodzaje)) + Environment.NewLine
+                    + "Zadeklarowane kontrole: " + m.Kontrole.Count + " · pliki: " + m.Pliki.Count + " · wynik: " + (m.Wynik.Length == 0 ? "—" : m.Wynik);
+            };
+            os.Controls.Add(lista);
+            os.Controls.Add(szczegoly);
+            foreach (var m in wiadomosci.Where(m => m.Do == agent && m.Typ == "zadanie"))
+            {
+                Stan stan;
+                stany.TryGetValue(m.Id, out stan);
+                var powiazane = proby[m.Id].ToList();
+                var wynik = odpowiedzi[m.Id].Concat(m.Logiczne.Length == 0 ? Enumerable.Empty<Msg>() : odpowiedziLogiczne[m.Logiczne])
+                    .OrderByDescending(x => x.Czas).FirstOrDefault();
+                var zadanie = graf.Nodes.Add(m.Czas.ToString("dd.MM.yyyy HH:mm") + "  " + P.TytulWiadomosci(m));
+                var odbior = zadanie.Nodes.Add("Zarejestrowano odbiór? " + (stan != null && stan.Dostarczona.HasValue ? "Tak" : "Nie w dzienniku"));
+                var tura = odbior.Nodes.Add("Powiązano turę CLI z zadaniem? " + (powiazane.Count > 0 ? "Tak · " + powiazane.Count : "Nie w historii CLI"));
+                foreach (var proba in powiazane)
+                    tura.Nodes.Add(P.S(proba, "czas") + " · kod " + P.S(proba, "kod") + " · " + P.S(proba, "sekund") + " s · " + P.S(proba, "przyczyna"));
+                var fin = zadanie.Nodes.Add("Zapisano FIN? " + (wynik == null ? "Nie w skrzynce" : "Tak · " + wynik.Wynik));
+                if (wynik != null) fin.Nodes.Add("Źródło: " + wynik.Id + " · zadeklarowane kontrole: " + wynik.Kontrole.Count);
+            }
+            if (graf.Nodes.Count == 0) graf.Nodes.Add("Brak zarejestrowanych zadań adresowanych do tego agenta.");
+            else graf.Nodes[0].ExpandAll();
+            var historia = new TabPage("Historia tur CLI");
+            var tekst = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
+                Text = string.Join(Environment.NewLine, tury.AsEnumerable().Reverse().Select(t => P.S(t, "czas") + " · kod "
+                    + P.S(t, "kod") + " · " + P.S(t, "sekund") + " s · " + P.S(t, "przyczyna") + " · zadanie " + P.S(t, "praca"))) };
+            if (tekst.Text.Length == 0) tekst.Text = "Brak zapisanych tur CLI.";
+            historia.Controls.Add(tekst);
+            zakladki.TabPages.AddRange(new[] { przebieg, os, historia });
+            okno.Controls.Add(zakladki);
+            okno.Controls.Add(pelna);
+            Motyw.Zastosuj(okno);
+            okno.ShowDialog(wlasciciel);
+        }
+    }
+
     void PokazObserwatorium()
     {
         using (var okno = new Form { Text = "Obserwatorium agentów", Width = 1120, Height = 700,
@@ -22,10 +112,19 @@ partial class App
             var pasek = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8) };
             var odswiez = Btn("Odśwież");
             var eksport = Btn("Zapisz raport HTML…");
+            var analizuj = Btn("Analizuj agenta…");
+            var analizaProjektu = Btn("Wiadomości, decyzje i metody…");
+            analizaProjektu.Click += delegate { try { AnalizaObserwatorium.Pokaz(okno, P.Wszystkie(true), projekty.SelectedIndex <= 0 ? null : Convert.ToString(projekty.SelectedItem), null); } catch(Exception ex) { MessageBox.Show(okno, ex.Message, okno.Text); } };
+            analizuj.Click += delegate
+            {
+                if (tabela.CurrentRow == null) return;
+                PokazAnalizeAgenta(okno, Convert.ToString(tabela.CurrentRow.Cells[0].Value),
+                    Convert.ToString(tabela.CurrentRow.Cells[1].Value));
+            };
             var opis = new Label { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(8),
                 Text = "Wyniki FIN i tury CLI są liczone osobno. Sesje i role pochodzą z tras ECXP. Raport zawiera metadane i liczniki." };
             pasek.Controls.Add(new Label { Text = "Projekt", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
-            pasek.Controls.AddRange(new Control[] { projekty, odswiez, eksport });
+            pasek.Controls.AddRange(new Control[] { projekty, odswiez, analizuj, analizaProjektu, eksport });
             okno.Controls.AddRange(new Control[] { tabela, wykres, pasek, opis });
             var naglowki = new[] { "Projekt", "Agent", "Sesje ECXP", "Role", "Stan", "Ostatnia aktywność", "FIN pozytywne", "FIN negatywne", "FIN niewykonane", "Tury OK", "Tury z błędem" };
             foreach (var naglowek in naglowki) tabela.Columns.Add(naglowek, naglowek);
@@ -99,19 +198,7 @@ partial class App
                 var w = tabela.Rows[e.RowIndex];
                 var projekt = Convert.ToString(w.Cells[0].Value);
                 var agent = Convert.ToString(w.Cells[1].Value);
-                var rekord = Agenci.Lista().FirstOrDefault(a => P.S(a, "projekt") == projekt && P.S(a, "nazwa") == agent);
-                var proby = P.Lista(rekord, "uruchomienia").Reverse<Dictionary<string, object>>().Take(50)
-                    .Select(u => P.S(u, "czas") + "   kod " + P.S(u, "kod") + "   "
-                        + (P.S(u, "kod") == "0" ? "OK" : "błąd") + "   " + P.S(u, "przyczyna"));
-                using (var historia = new Form { Text = "Historia tur — " + agent, Width = 680, Height = 465, StartPosition = FormStartPosition.CenterParent })
-                {
-                    var log = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
-                        Text = string.Join(Environment.NewLine, proby) };
-                    if (log.Text.Length == 0) log.Text = "Brak zapisanych prób CLI dla tego agenta.";
-                    historia.Controls.Add(log);
-                    Motyw.Zastosuj(historia);
-                    historia.ShowDialog(okno);
-                }
+                PokazAnalizeAgenta(okno, projekt, agent);
             };
             eksport.Click += delegate
             {
